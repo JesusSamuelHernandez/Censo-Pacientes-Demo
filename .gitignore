@@ -5,4 +5,7 @@ __pycache__/
 venv/
 *.egg-info/
 .claude/
-contexto/
+contexto
+
+create_admin.py
+generador.py
