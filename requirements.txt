@@ -1,0 +1,22 @@
+# ── Web Framework ─────────────────────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.32.1        # Servidor ASGI con recarga automática (--reload)
+
+# ── Base de Datos ──────────────────────────────────────────────────────────────
+sqlalchemy==2.0.36               # ORM — versión que soporta Mapped/mapped_column
+psycopg2-binary==2.9.10          # Driver PostgreSQL para Python
+
+# ── Validación de datos ────────────────────────────────────────────────────────
+pydantic==2.10.3                 # Motor de validación (v2)
+pydantic[email]==2.10.3          # Habilita EmailStr (depende de email-validator)
+email-validator==2.2.0           # Requerido por EmailStr
+
+# ── Autenticación JWT ──────────────────────────────────────────────────────────
+python-jose[cryptography]==3.3.0 # Generación y verificación de tokens JWT
+passlib[bcrypt]==1.7.4           # Hasheo de contraseñas con bcrypt
+
+# ── Formularios (OAuth2PasswordRequestForm) ────────────────────────────────────
+python-multipart==0.0.20         # Requerido por FastAPI para parsear form-data
+
+# ── Variables de entorno ───────────────────────────────────────────────────────
+python-dotenv==1.0.1             # Carga .env en desarrollo local
