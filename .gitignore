@@ -1,11 +1,18 @@
+# Contexto y herramientas de IA
+contexto/
+.context/
+.claude/
+
+# Scripts de inicialización
+create_admin.py
+
+# Entorno y variables
+.venv/
 .env
 __pycache__/
 *.pyc
-.venv/
-venv/
-*.egg-info/
-.claude/
-contexto
 
-create_admin.py
 generador.py
+
+
+docs\arquitectura_backend.md
