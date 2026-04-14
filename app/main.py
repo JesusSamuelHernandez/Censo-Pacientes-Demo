@@ -1,25 +1,30 @@
 """
-main.py — Punto de entrada de la API. Define todos los endpoints del Blueprint.
+main.py — Punto de entrada de la API. Define todos los endpoints del Blueprint v5.
 
 Módulos cubiertos:
-    5.1  /auth/login                      → Autenticación JWT
-    5.2  /pacientes                       → Gestión clínica de pacientes
-    5.3  /suministros                     → Censo de asignación de tratamiento
-    5.4  /reportes/resumen-detallado      → Datos crudos para Excel/PDF
-         /reportes/estatal                → Agregados por unidad (Admin Estatal)
-    5.5  /catalogos/medicamentos          → Catálogo CNIS (Solo Super Admin)
-         /catalogos/unidades              → Unidades médicas (Solo Super Admin)
-         /usuarios                        → Cuentas de plataforma (Solo Super Admin)
+    /auth/login                      → Autenticación JWT
+    /pacientes                       → Gestión clínica de pacientes
+    /medicos                         → Gestión de personal médico
+    /recetas                         → Censo de prescripción de medicamentos
+    /reportes/resumen-detallado      → Datos crudos para Excel/PDF
+    /reportes/estatal                → Agregados por unidad (Admin Estatal)
+    /catalogos/medicamentos          → Catálogo CNIS (Solo Super Admin)
+    /catalogos/unidades              → Unidades médicas (Solo Super Admin)
+    /usuarios                        → Cuentas de plataforma (Solo Super Admin)
 
 Soft Delete:
-    DELETE /pacientes/{curp}              → es_activo = False  (nunca borra físico)
-    DELETE /suministros/{id}              → es_activo = False  (nunca borra físico)
+    DELETE /pacientes/{curp}         → es_activo = False
+    DELETE /recetas/{id_receta}      → es_activo = False
 
-RBAC (Blueprint sección 4):
-    apply_rbac_filter() se llama en cada query de datos para garantizar que:
-        RESPONSABLE_UNIDAD → solo ve su unidad  (clues_unidad_asignada)
-        ADMIN_ESTATAL      → solo ve su estado  (id_entidad)
+RBAC (Blueprint §4):
+    apply_rbac_filter() se llama en cada query para garantizar:
+        RESPONSABLE_UNIDAD → solo ve su unidad
+        ADMIN_ESTATAL      → solo ve su estado
         SUPER_ADMIN        → sin restricciones
+
+Adherencia:
+    Calculada en endpoint desde la receta activa más reciente del paciente:
+    (date.today() - receta.fecha_inicio_tratamiento).days
 """
 from datetime import date, datetime, timezone
 
@@ -39,9 +44,12 @@ from app.auth import (
     require_super_admin,
 )
 from app.database import engine, get_db
-from app.models import Base, CatMedicamento, Paciente, Suministro, UnidadMedica, Usuario
+from app.models import Base, CatMedicamento, Medico, Paciente, Receta, UnidadMedica, Usuario
 from app.schemas import (
     LoginRequest,
+    MedicoCreate,
+    MedicoResponse,
+    MedicoUpdate,
     MedicamentoCreate,
     MedicamentoResponse,
     MedicamentoUpdate,
@@ -49,10 +57,10 @@ from app.schemas import (
     PacienteListResponse,
     PacienteResponse,
     PacienteUpdate,
-    SuministroCreate,
-    SuministroListResponse,
-    SuministroResponse,
-    SuministroUpdate,
+    RecetaCreate,
+    RecetaListResponse,
+    RecetaResponse,
+    RecetaUpdate,
     TokenResponse,
     UnidadMedicaCreate,
     UnidadMedicaResponse,
@@ -65,41 +73,33 @@ from app.schemas import (
 # ---------------------------------------------------------------------------
 # Inicialización
 # ---------------------------------------------------------------------------
-Base.metadata.create_all(bind=engine)  # Crea tablas si no existen (desarrollo).
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="API — Medicamentos de Alto Costo",
     description=(
-        "Backend para el censo de pacientes y asignación de medicamentos de alto "
+        "Backend para el censo de pacientes y prescripción de medicamentos de alto "
         "costo. Implementa RBAC con tres niveles: SUPER_ADMIN, ADMIN_ESTATAL y "
         "RESPONSABLE_UNIDAD."
     ),
-    version="1.0.0",
+    version="2.0.0",
 )
 
 
 # ===========================================================================
-# 5.1  AUTENTICACIÓN
+# AUTENTICACIÓN
 # ===========================================================================
 
 @app.post(
     "/auth/login",
     response_model=TokenResponse,
-    tags=["5.1 Autenticación"],
+    tags=["Autenticación"],
     summary="Inicio de sesión — devuelve JWT + rol del usuario.",
 )
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    """
-    Recibe credenciales (email + password), valida contra la BD y entrega:
-      - access_token : JWT firmado con claims RBAC.
-      - token_type   : "bearer"
-      - rol_nombre   : rol del usuario autenticado.
-      - id_usuario   : PK del usuario.
-    """
-    # OAuth2PasswordRequestForm envía el email en el campo 'username'.
     usuario = autenticar_usuario(
         email=form_data.username,
         password=form_data.password,
@@ -114,28 +114,22 @@ def login(
 
 
 # ===========================================================================
-# 5.2  PACIENTES
+# PACIENTES
 # ===========================================================================
 
 @app.get(
     "/pacientes",
     response_model=PacienteListResponse,
-    tags=["5.2 Pacientes"],
+    tags=["Pacientes"],
     summary="Lista de pacientes filtrada automáticamente por rol.",
 )
 def listar_pacientes(
-    solo_activos: bool = Query(True, description="False para incluir pacientes dados de baja."),
+    solo_activos: bool = Query(True),
     pagina: int = Query(1, ge=1),
     por_pagina: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    """
-    RBAC automático (Blueprint §4):
-      - RESPONSABLE_UNIDAD → WHERE clues_unidad_adscripcion = su CLUES.
-      - ADMIN_ESTATAL      → JOIN unidades_medicas WHERE id_entidad = su entidad.
-      - SUPER_ADMIN        → Sin filtro geográfico.
-    """
     filtro = apply_rbac_filter(current_user)
     query = db.query(Paciente)
 
@@ -143,9 +137,7 @@ def listar_pacientes(
         query = query.filter(Paciente.es_activo == True)
 
     if filtro.filtrar_por_clues:
-        query = query.filter(
-            Paciente.clues_unidad_adscripcion == filtro.valor_clues
-        )
+        query = query.filter(Paciente.clues_unidad_adscripcion == filtro.valor_clues)
     elif filtro.filtrar_por_entidad:
         query = query.join(UnidadMedica).filter(
             UnidadMedica.id_entidad == filtro.valor_entidad
@@ -157,14 +149,11 @@ def listar_pacientes(
     resultados = []
     for p in pacientes:
         datos = PacienteResponse.model_validate(p)
-        datos.dias_adherencia = p.dias_adherencia
+        datos.dias_adherencia = _calcular_adherencia(p.curp_paciente, db)
         resultados.append(datos)
 
     return PacienteListResponse(
-        total=total,
-        pagina=pagina,
-        por_pagina=por_pagina,
-        resultados=resultados,
+        total=total, pagina=pagina, por_pagina=por_pagina, resultados=resultados
     )
 
 
@@ -172,7 +161,7 @@ def listar_pacientes(
     "/pacientes",
     response_model=PacienteResponse,
     status_code=status.HTTP_201_CREATED,
-    tags=["5.2 Pacientes"],
+    tags=["Pacientes"],
     summary="Registro de un nuevo paciente.",
 )
 def crear_paciente(
@@ -180,11 +169,6 @@ def crear_paciente(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    """
-    Solo RESPONSABLE_UNIDAD puede crear pacientes, y únicamente en su propia unidad.
-    SUPER_ADMIN puede crear en cualquier unidad.
-    """
-    # Validación RBAC: el RESPONSABLE_UNIDAD solo puede registrar en su unidad.
     if current_user.es_responsable_unidad:
         if payload.clues_unidad_adscripcion != current_user.clues_unidad_asignada:
             raise HTTPException(
@@ -198,57 +182,52 @@ def crear_paciente(
             detail=f"Ya existe un paciente con CURP '{payload.curp_paciente}'.",
         )
 
-    nuevo_paciente = Paciente(
+    nuevo = Paciente(
         curp_paciente=payload.curp_paciente,
         nombre_completo=payload.nombre_completo,
         diagnostico_actual=payload.diagnostico_actual,
-        fecha_inicio_tratamiento=payload.fecha_inicio_tratamiento,
         clues_unidad_adscripcion=payload.clues_unidad_adscripcion,
         es_activo=True,
         id_usuario_registro=current_user.id_usuario,
     )
-    db.add(nuevo_paciente)
+    db.add(nuevo)
     db.commit()
-    db.refresh(nuevo_paciente)
+    db.refresh(nuevo)
 
-    respuesta = PacienteResponse.model_validate(nuevo_paciente)
-    respuesta.dias_adherencia = nuevo_paciente.dias_adherencia
+    respuesta = PacienteResponse.model_validate(nuevo)
+    respuesta.dias_adherencia = _calcular_adherencia(nuevo.curp_paciente, db)
     return respuesta
 
 
 @app.get(
     "/pacientes/{curp_paciente}",
     response_model=PacienteResponse,
-    tags=["5.2 Pacientes"],
-    summary="Detalle completo de un paciente y su historial de suministros.",
+    tags=["Pacientes"],
+    summary="Detalle completo de un paciente.",
 )
 def obtener_paciente(
     curp_paciente: str,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    paciente = (
-        db.query(Paciente)
-        .options(joinedload(Paciente.suministros).joinedload(Suministro.medicamento))
-        .filter(Paciente.curp_paciente == curp_paciente.upper())
-        .first()
-    )
+    paciente = db.query(Paciente).filter(
+        Paciente.curp_paciente == curp_paciente.upper()
+    ).first()
     if not paciente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
 
-    # Verificar que el usuario tiene acceso a este paciente.
     _verificar_acceso_paciente(paciente, current_user, db)
 
     respuesta = PacienteResponse.model_validate(paciente)
-    respuesta.dias_adherencia = paciente.dias_adherencia
+    respuesta.dias_adherencia = _calcular_adherencia(paciente.curp_paciente, db)
     return respuesta
 
 
 @app.patch(
     "/pacientes/{curp_paciente}",
     response_model=PacienteResponse,
-    tags=["5.2 Pacientes"],
-    summary="Actualización parcial de datos del paciente (diagnóstico, nombre, etc.).",
+    tags=["Pacientes"],
+    summary="Actualización parcial de datos del paciente.",
 )
 def actualizar_paciente(
     curp_paciente: str,
@@ -264,35 +243,29 @@ def actualizar_paciente(
 
     _verificar_acceso_paciente(paciente, current_user, db)
 
-    datos_actualizar = payload.model_dump(exclude_none=True)
-    for campo, valor in datos_actualizar.items():
+    for campo, valor in payload.model_dump(exclude_none=True).items():
         setattr(paciente, campo, valor)
 
-    # Auditoría: actualiza quién hizo el último cambio.
     paciente.id_usuario_registro = current_user.id_usuario
     db.commit()
     db.refresh(paciente)
 
     respuesta = PacienteResponse.model_validate(paciente)
-    respuesta.dias_adherencia = paciente.dias_adherencia
+    respuesta.dias_adherencia = _calcular_adherencia(paciente.curp_paciente, db)
     return respuesta
 
 
 @app.delete(
     "/pacientes/{curp_paciente}",
     response_model=PacienteResponse,
-    tags=["5.2 Pacientes"],
-    summary="Soft Delete: da de baja al paciente (es_activo = False). No elimina el registro.",
+    tags=["Pacientes"],
+    summary="Soft Delete: da de baja al paciente.",
 )
 def dar_baja_paciente(
     curp_paciente: str,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    """
-    Blueprint §3 — Soft Delete:
-    Ningún DELETE físico. Solo cambia es_activo = False y registra quién lo hizo.
-    """
     paciente = db.query(Paciente).filter(
         Paciente.curp_paciente == curp_paciente.upper()
     ).first()
@@ -307,87 +280,217 @@ def dar_baja_paciente(
             detail="El paciente ya se encuentra dado de baja.",
         )
 
-    # ── SOFT DELETE ──────────────────────────────────────────────────────────
     paciente.es_activo = False
-    paciente.id_usuario_registro = current_user.id_usuario  # Trazabilidad.
-    # ─────────────────────────────────────────────────────────────────────────
-
+    paciente.id_usuario_registro = current_user.id_usuario
     db.commit()
     db.refresh(paciente)
 
     respuesta = PacienteResponse.model_validate(paciente)
-    respuesta.dias_adherencia = paciente.dias_adherencia
+    respuesta.dias_adherencia = None
     return respuesta
 
 
 # ===========================================================================
-# 5.3  SUMINISTROS
+# MÉDICOS
 # ===========================================================================
 
 @app.get(
-    "/suministros",
-    response_model=SuministroListResponse,
-    tags=["5.3 Suministros"],
-    summary="Historial de asignaciones de medicamentos filtrado por rol.",
+    "/medicos",
+    response_model=list[MedicoResponse],
+    tags=["Médicos"],
+    summary="Catálogo de médicos. Lectura para todos los roles.",
 )
-def listar_suministros(
-    solo_activos: bool = Query(True, description="False para incluir registros anulados."),
+def listar_medicos(
+    clues_adscripcion: str | None = Query(None, description="Filtrar por unidad médica."),
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+):
+    query = db.query(Medico)
+    if clues_adscripcion:
+        query = query.filter(Medico.clues_adscripcion == clues_adscripcion.upper())
+    return query.order_by(Medico.nombre_medico).all()
+
+
+@app.post(
+    "/medicos",
+    response_model=MedicoResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Médicos"],
+    summary="Registrar un médico. RESPONSABLE_UNIDAD (su unidad) o SUPER_ADMIN.",
+)
+def crear_medico(
+    payload: MedicoCreate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+):
+    # ADMIN_ESTATAL no puede crear médicos.
+    if current_user.es_admin_estatal:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Administrador Estatal no puede registrar médicos.",
+        )
+
+    # RESPONSABLE_UNIDAD solo puede registrar médicos de su propia unidad.
+    if current_user.es_responsable_unidad:
+        if payload.clues_adscripcion != current_user.clues_unidad_asignada:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puede registrar médicos de su propia unidad médica.",
+            )
+
+    if db.query(Medico).filter(Medico.cedula == payload.cedula).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Ya existe un médico con cédula '{payload.cedula}'.",
+        )
+
+    nuevo = Medico(**payload.model_dump())
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+    return nuevo
+
+
+@app.get(
+    "/medicos/{id_medico}",
+    response_model=MedicoResponse,
+    tags=["Médicos"],
+    summary="Perfil del médico.",
+)
+def obtener_medico(
+    id_medico: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+):
+    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
+    if not medico:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
+    return medico
+
+
+@app.patch(
+    "/medicos/{id_medico}",
+    response_model=MedicoResponse,
+    tags=["Médicos"],
+    summary="Actualizar datos de un médico. Solo SUPER_ADMIN.",
+)
+def actualizar_medico(
+    id_medico: int,
+    payload: MedicoUpdate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_super_admin),
+):
+    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
+    if not medico:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
+
+    for campo, valor in payload.model_dump(exclude_none=True).items():
+        setattr(medico, campo, valor)
+    db.commit()
+    db.refresh(medico)
+    return medico
+
+
+@app.delete(
+    "/medicos/{id_medico}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Médicos"],
+    summary="Eliminar un médico. Solo SUPER_ADMIN.",
+)
+def eliminar_medico(
+    id_medico: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_super_admin),
+):
+    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
+    if not medico:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
+    db.delete(medico)
+    db.commit()
+
+
+# ===========================================================================
+# RECETAS
+# ===========================================================================
+
+@app.get(
+    "/recetas",
+    response_model=RecetaListResponse,
+    tags=["Recetas"],
+    summary="Historial de recetas filtrado por rol.",
+)
+def listar_recetas(
+    solo_activos: bool = Query(True),
     pagina: int = Query(1, ge=1),
     por_pagina: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    """
-    RBAC automático (Blueprint §4):
-      - RESPONSABLE_UNIDAD → suministros de pacientes de su unidad.
-      - ADMIN_ESTATAL      → suministros de pacientes de su estado.
-      - SUPER_ADMIN        → todos los suministros del país.
-    """
     filtro = apply_rbac_filter(current_user)
 
     query = (
-        db.query(Suministro)
-        .join(Paciente, Suministro.curp_paciente == Paciente.curp_paciente)
-        .options(joinedload(Suministro.medicamento))
+        db.query(Receta)
+        .options(
+            joinedload(Receta.medicamento),
+            joinedload(Receta.medico),
+        )
     )
 
     if solo_activos:
-        query = query.filter(Suministro.es_activo == True)
+        query = query.filter(Receta.es_activo == True)
 
     if filtro.filtrar_por_clues:
-        query = query.filter(
-            Paciente.clues_unidad_adscripcion == filtro.valor_clues
-        )
+        query = query.filter(Receta.clues == filtro.valor_clues)
     elif filtro.filtrar_por_entidad:
         query = query.join(
-            UnidadMedica,
-            Paciente.clues_unidad_adscripcion == UnidadMedica.clues,
+            UnidadMedica, Receta.clues == UnidadMedica.clues
         ).filter(UnidadMedica.id_entidad == filtro.valor_entidad)
 
     total = query.count()
-    suministros = query.offset((pagina - 1) * por_pagina).limit(por_pagina).all()
+    recetas = query.offset((pagina - 1) * por_pagina).limit(por_pagina).all()
 
-    return SuministroListResponse(
+    return RecetaListResponse(
         total=total,
         pagina=pagina,
         por_pagina=por_pagina,
-        resultados=[SuministroResponse.model_validate(s) for s in suministros],
+        resultados=[RecetaResponse.model_validate(r) for r in recetas],
     )
 
 
 @app.post(
-    "/suministros",
-    response_model=SuministroResponse,
+    "/recetas",
+    response_model=RecetaResponse,
     status_code=status.HTTP_201_CREATED,
-    tags=["5.3 Suministros"],
-    summary="Registrar la asignación de un medicamento a un paciente.",
+    tags=["Recetas"],
+    summary="Registrar una nueva receta.",
 )
-def crear_suministro(
-    payload: SuministroCreate,
+def crear_receta(
+    payload: RecetaCreate,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    # Verificar que el paciente existe y el usuario tiene acceso a él.
+    # ADMIN_ESTATAL no puede crear recetas.
+    if current_user.es_admin_estatal:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Administrador Estatal no puede registrar recetas.",
+        )
+
+    # RESPONSABLE_UNIDAD solo puede crear recetas en su unidad.
+    if current_user.es_responsable_unidad:
+        if payload.clues != current_user.clues_unidad_asignada:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puede registrar recetas en su propia unidad médica.",
+            )
+
+    if db.query(Receta).filter(Receta.id_receta == payload.id_receta).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Ya existe una receta con folio '{payload.id_receta}'.",
+        )
+
+    # Verificar que el paciente existe y está activo.
     paciente = db.query(Paciente).filter(
         Paciente.curp_paciente == payload.curp_paciente,
         Paciente.es_activo == True,
@@ -399,137 +502,200 @@ def crear_suministro(
         )
     _verificar_acceso_paciente(paciente, current_user, db)
 
-    # Verificar que el medicamento existe y está activo en el catálogo.
+    # Verificar que el médico existe.
+    if not db.query(Medico).filter(Medico.id_medico == payload.id_medico).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Médico con id '{payload.id_medico}' no encontrado.",
+        )
+
+    # Verificar que el medicamento existe y está activo.
     if not db.query(CatMedicamento).filter(
-        CatMedicamento.clave_cnis == payload.clave_cnis_med,
+        CatMedicamento.clave_cnis == payload.clave_cnis,
         CatMedicamento.es_activo == True,
     ).first():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Medicamento con clave CNIS '{payload.clave_cnis_med}' no encontrado en el catálogo activo.",
+            detail=f"Medicamento '{payload.clave_cnis}' no encontrado en catálogo activo.",
         )
 
-    nuevo_suministro = Suministro(
+    nueva = Receta(
+        id_receta=payload.id_receta,
+        id_medico=payload.id_medico,
         curp_paciente=payload.curp_paciente,
-        clave_cnis_med=payload.clave_cnis_med,
+        clave_cnis=payload.clave_cnis,
+        clues=payload.clues,
+        fecha_inicio_tratamiento=payload.fecha_inicio_tratamiento,
+        fecha_primera_admin=payload.fecha_primera_admin,
         dosis_administrada=payload.dosis_administrada,
-        fecha_primera_administracion=payload.fecha_primera_administracion,
         id_usuario_registro=current_user.id_usuario,
         es_activo=True,
     )
-    db.add(nuevo_suministro)
+    db.add(nueva)
     db.commit()
-    db.refresh(nuevo_suministro)
+    db.refresh(nueva)
 
-    # Recargar con relación al medicamento para poblar el campo embebido.
-    db.refresh(nuevo_suministro)
-    return SuministroResponse.model_validate(nuevo_suministro)
+    # Recargar con relaciones embebidas.
+    receta = (
+        db.query(Receta)
+        .options(joinedload(Receta.medicamento), joinedload(Receta.medico))
+        .filter(Receta.id_receta == nueva.id_receta)
+        .first()
+    )
+    return RecetaResponse.model_validate(receta)
 
 
-@app.delete(
-    "/suministros/{id_suministro}",
-    response_model=SuministroResponse,
-    tags=["5.3 Suministros"],
-    summary="Soft Delete: anula un suministro por error de captura (es_activo = False).",
+@app.get(
+    "/recetas/{id_receta}",
+    response_model=RecetaResponse,
+    tags=["Recetas"],
+    summary="Detalle completo de una receta.",
 )
-def anular_suministro(
-    id_suministro: int,
+def obtener_receta(
+    id_receta: str,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    """
-    Blueprint §3 — Soft Delete:
-    Anula el registro de suministro por error de captura.
-    No elimina el dato; cambia es_activo = False para mantener la trazabilidad.
-    """
-    suministro = (
-        db.query(Suministro)
-        .options(joinedload(Suministro.medicamento))
-        .filter(Suministro.id_suministro == id_suministro)
+    receta = (
+        db.query(Receta)
+        .options(joinedload(Receta.medicamento), joinedload(Receta.medico))
+        .filter(Receta.id_receta == id_receta)
         .first()
     )
-    if not suministro:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Suministro no encontrado.")
+    if not receta:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada.")
 
-    # Verificar acceso al paciente al que pertenece el suministro.
-    paciente = db.query(Paciente).filter(
-        Paciente.curp_paciente == suministro.curp_paciente
-    ).first()
-    _verificar_acceso_paciente(paciente, current_user, db)
+    _verificar_acceso_receta(receta, current_user, db)
+    return RecetaResponse.model_validate(receta)
 
-    if not suministro.es_activo:
+
+@app.patch(
+    "/recetas/{id_receta}",
+    response_model=RecetaResponse,
+    tags=["Recetas"],
+    summary="Actualización parcial de una receta.",
+)
+def actualizar_receta(
+    id_receta: str,
+    payload: RecetaUpdate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+):
+    if current_user.es_admin_estatal:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="El suministro ya se encuentra anulado.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Administrador Estatal no puede modificar recetas.",
         )
 
-    # ── SOFT DELETE ──────────────────────────────────────────────────────────
-    suministro.es_activo = False
-    suministro.id_usuario_registro = current_user.id_usuario  # Trazabilidad.
-    # ─────────────────────────────────────────────────────────────────────────
+    receta = (
+        db.query(Receta)
+        .options(joinedload(Receta.medicamento), joinedload(Receta.medico))
+        .filter(Receta.id_receta == id_receta)
+        .first()
+    )
+    if not receta:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada.")
 
+    _verificar_acceso_receta(receta, current_user, db)
+
+    for campo, valor in payload.model_dump(exclude_none=True).items():
+        setattr(receta, campo, valor)
+    receta.id_usuario_registro = current_user.id_usuario
     db.commit()
-    db.refresh(suministro)
-    return SuministroResponse.model_validate(suministro)
+    db.refresh(receta)
+    return RecetaResponse.model_validate(receta)
+
+
+@app.delete(
+    "/recetas/{id_receta}",
+    response_model=RecetaResponse,
+    tags=["Recetas"],
+    summary="Soft Delete: anula una receta por error de captura.",
+)
+def anular_receta(
+    id_receta: str,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+):
+    if current_user.es_admin_estatal:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Administrador Estatal no puede anular recetas.",
+        )
+
+    receta = (
+        db.query(Receta)
+        .options(joinedload(Receta.medicamento), joinedload(Receta.medico))
+        .filter(Receta.id_receta == id_receta)
+        .first()
+    )
+    if not receta:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada.")
+
+    _verificar_acceso_receta(receta, current_user, db)
+
+    if not receta.es_activo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La receta ya se encuentra anulada.",
+        )
+
+    receta.es_activo = False
+    receta.id_usuario_registro = current_user.id_usuario
+    db.commit()
+    db.refresh(receta)
+    return RecetaResponse.model_validate(receta)
 
 
 # ===========================================================================
-# 5.4  REPORTES
+# REPORTES
 # ===========================================================================
 
 @app.get(
     "/reportes/resumen-detallado",
-    tags=["5.4 Reportes"],
-    summary="Datos crudos con filtros de fecha. Para generación de Excel/PDF en el frontend.",
+    tags=["Reportes"],
+    summary="Datos crudos con filtros de fecha. Para generación de Excel/PDF.",
 )
 def reporte_resumen_detallado(
-    fecha_inicio: date | None = Query(None, description="Filtrar suministros desde esta fecha."),
-    fecha_fin: date | None = Query(None, description="Filtrar suministros hasta esta fecha."),
+    fecha_inicio: date | None = Query(None),
+    fecha_fin: date | None = Query(None),
     solo_activos: bool = Query(True),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    """
-    Entrega un JSON con el detalle de suministros, paciente y medicamento
-    para que el frontend genere reportes Excel/PDF.
-
-    Aplica RBAC automático + filtros opcionales de fecha.
-    """
     filtro = apply_rbac_filter(current_user)
 
     query = (
-        db.query(Suministro)
-        .join(Paciente, Suministro.curp_paciente == Paciente.curp_paciente)
-        .join(CatMedicamento, Suministro.clave_cnis_med == CatMedicamento.clave_cnis)
+        db.query(Receta)
+        .join(Paciente, Receta.curp_paciente == Paciente.curp_paciente)
+        .join(CatMedicamento, Receta.clave_cnis == CatMedicamento.clave_cnis)
         .options(
-            joinedload(Suministro.paciente),
-            joinedload(Suministro.medicamento),
+            joinedload(Receta.paciente),
+            joinedload(Receta.medicamento),
+            joinedload(Receta.medico),
         )
     )
 
     if solo_activos:
-        query = query.filter(Suministro.es_activo == True, Paciente.es_activo == True)
+        query = query.filter(Receta.es_activo == True, Paciente.es_activo == True)
 
     if filtro.filtrar_por_clues:
-        query = query.filter(
-            Paciente.clues_unidad_adscripcion == filtro.valor_clues
-        )
+        query = query.filter(Receta.clues == filtro.valor_clues)
     elif filtro.filtrar_por_entidad:
         query = query.join(
-            UnidadMedica,
-            Paciente.clues_unidad_adscripcion == UnidadMedica.clues,
+            UnidadMedica, Receta.clues == UnidadMedica.clues
         ).filter(UnidadMedica.id_entidad == filtro.valor_entidad)
 
     if fecha_inicio:
-        query = query.filter(Suministro.fecha_primera_administracion >= fecha_inicio)
+        query = query.filter(Receta.fecha_primera_admin >= fecha_inicio)
     if fecha_fin:
-        query = query.filter(Suministro.fecha_primera_administracion <= fecha_fin)
+        query = query.filter(Receta.fecha_primera_admin <= fecha_fin)
 
-    suministros = query.all()
+    recetas = query.all()
 
     return {
         "generado_en": datetime.now(timezone.utc).isoformat(),
-        "total_registros": len(suministros),
+        "total_registros": len(recetas),
         "filtros_aplicados": {
             "fecha_inicio": str(fecha_inicio) if fecha_inicio else None,
             "fecha_fin": str(fecha_fin) if fecha_fin else None,
@@ -539,41 +705,45 @@ def reporte_resumen_detallado(
         },
         "datos": [
             {
-                "id_suministro": s.id_suministro,
-                "curp_paciente": s.curp_paciente,
-                "nombre_paciente": s.paciente.nombre_completo,
-                "diagnostico": s.paciente.diagnostico_actual,
-                "clues_unidad": s.paciente.clues_unidad_adscripcion,
-                "dias_adherencia": s.paciente.dias_adherencia,
-                "clave_cnis": s.clave_cnis_med,
-                "descripcion_medicamento": s.medicamento.descripcion if s.medicamento else None,
-                "dosis_administrada": s.dosis_administrada,
-                "fecha_primera_administracion": (
-                    s.fecha_primera_administracion.isoformat()
-                    if s.fecha_primera_administracion else None
+                "id_receta": r.id_receta,
+                "curp_paciente": r.curp_paciente,
+                "nombre_paciente": r.paciente.nombre_completo,
+                "diagnostico": r.paciente.diagnostico_actual,
+                "clues_unidad": r.clues,
+                "medico": r.medico.nombre_medico if r.medico else None,
+                "cedula_medico": r.medico.cedula if r.medico else None,
+                "dias_adherencia": (
+                    (date.today() - r.fecha_inicio_tratamiento).days
+                    if r.fecha_inicio_tratamiento else None
                 ),
-                "fecha_registro_sistema": s.fecha_registro_sistema.isoformat(),
-                "es_activo": s.es_activo,
+                "clave_cnis": r.clave_cnis,
+                "descripcion_medicamento": r.medicamento.descripcion if r.medicamento else None,
+                "dosis_administrada": r.dosis_administrada,
+                "fecha_inicio_tratamiento": (
+                    r.fecha_inicio_tratamiento.isoformat()
+                    if r.fecha_inicio_tratamiento else None
+                ),
+                "fecha_primera_admin": (
+                    r.fecha_primera_admin.isoformat()
+                    if r.fecha_primera_admin else None
+                ),
+                "fecha_registro_sistema": r.fecha_registro_sistema.isoformat(),
+                "es_activo": r.es_activo,
             }
-            for s in suministros
+            for r in recetas
         ],
     }
 
 
 @app.get(
     "/reportes/estatal",
-    tags=["5.4 Reportes"],
+    tags=["Reportes"],
     summary="Datos agregados por unidad médica. Exclusivo para Admin Estatal y Superior.",
 )
 def reporte_estatal(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_admin_estatal_o_superior),
 ):
-    """
-    Entrega sumatorias por unidad médica dentro del ámbito del usuario:
-      - ADMIN_ESTATAL → solo unidades de su estado.
-      - SUPER_ADMIN   → todas las unidades del país.
-    """
     filtro = apply_rbac_filter(current_user)
 
     query = (
@@ -582,10 +752,10 @@ def reporte_estatal(
             UnidadMedica.nombre_de_la_unidad,
             UnidadMedica.id_entidad,
             func.count(Paciente.curp_paciente.distinct()).label("total_pacientes"),
-            func.count(Suministro.id_suministro.distinct()).label("total_suministros"),
+            func.count(Receta.id_receta.distinct()).label("total_recetas"),
         )
         .outerjoin(Paciente, Paciente.clues_unidad_adscripcion == UnidadMedica.clues)
-        .outerjoin(Suministro, Suministro.curp_paciente == Paciente.curp_paciente)
+        .outerjoin(Receta, Receta.clues == UnidadMedica.clues)
         .filter(Paciente.es_activo == True)
     )
 
@@ -608,7 +778,7 @@ def reporte_estatal(
                 "nombre_de_la_unidad": r.nombre_de_la_unidad,
                 "id_entidad": r.id_entidad,
                 "total_pacientes_activos": r.total_pacientes,
-                "total_suministros_activos": r.total_suministros,
+                "total_recetas_activas": r.total_recetas,
             }
             for r in resultados
         ],
@@ -616,21 +786,20 @@ def reporte_estatal(
 
 
 # ===========================================================================
-# 5.5  CATÁLOGOS — Solo SUPER_ADMIN
+# CATÁLOGOS — Medicamentos
 # ===========================================================================
 
 @app.get(
     "/catalogos/medicamentos",
     response_model=list[MedicamentoResponse],
-    tags=["5.5 Catálogos"],
-    summary="Lista del catálogo oficial de medicamentos (Clave CNIS).",
+    tags=["Catálogos"],
+    summary="Lista del catálogo oficial de medicamentos.",
 )
 def listar_medicamentos(
     solo_activos: bool = Query(True),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
-    """Lectura permitida a los 3 roles. Gestión solo para SUPER_ADMIN."""
     query = db.query(CatMedicamento)
     if solo_activos:
         query = query.filter(CatMedicamento.es_activo == True)
@@ -641,8 +810,8 @@ def listar_medicamentos(
     "/catalogos/medicamentos",
     response_model=MedicamentoResponse,
     status_code=status.HTTP_201_CREATED,
-    tags=["5.5 Catálogos"],
-    summary="Agregar una nueva clave CNIS al catálogo oficial. Solo SUPER_ADMIN.",
+    tags=["Catálogos"],
+    summary="Agregar una nueva clave CNIS. Solo SUPER_ADMIN.",
 )
 def crear_medicamento(
     payload: MedicamentoCreate,
@@ -666,8 +835,8 @@ def crear_medicamento(
 @app.patch(
     "/catalogos/medicamentos/{clave_cnis}",
     response_model=MedicamentoResponse,
-    tags=["5.5 Catálogos"],
-    summary="Actualizar o desactivar un medicamento del catálogo. Solo SUPER_ADMIN.",
+    tags=["Catálogos"],
+    summary="Actualizar o desactivar un medicamento. Solo SUPER_ADMIN.",
 )
 def actualizar_medicamento(
     clave_cnis: str,
@@ -689,17 +858,17 @@ def actualizar_medicamento(
 
 
 # ===========================================================================
-# CATÁLOGOS — Unidades Médicas (Solo SUPER_ADMIN)
+# CATÁLOGOS — Unidades Médicas
 # ===========================================================================
 
 @app.get(
     "/catalogos/unidades",
     response_model=list[UnidadMedicaResponse],
-    tags=["5.5 Catálogos"],
-    summary="Lista de unidades médicas registradas.",
+    tags=["Catálogos"],
+    summary="Lista de unidades médicas.",
 )
 def listar_unidades(
-    id_entidad: str | None = Query(None, description="Filtrar por estado."),
+    id_entidad: str | None = Query(None),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
@@ -713,7 +882,7 @@ def listar_unidades(
     "/catalogos/unidades",
     response_model=UnidadMedicaResponse,
     status_code=status.HTTP_201_CREATED,
-    tags=["5.5 Catálogos"],
+    tags=["Catálogos"],
     summary="Registrar una nueva unidad médica. Solo SUPER_ADMIN.",
 )
 def crear_unidad(
@@ -736,7 +905,7 @@ def crear_unidad(
 @app.patch(
     "/catalogos/unidades/{clues}",
     response_model=UnidadMedicaResponse,
-    tags=["5.5 Catálogos"],
+    tags=["Catálogos"],
     summary="Actualizar datos de una unidad médica. Solo SUPER_ADMIN.",
 )
 def actualizar_unidad(
@@ -757,14 +926,14 @@ def actualizar_unidad(
 
 
 # ===========================================================================
-# USUARIOS — Solo SUPER_ADMIN
+# USUARIOS
 # ===========================================================================
 
 @app.get(
     "/usuarios",
     response_model=list[UsuarioResponse],
-    tags=["5.5 Catálogos"],
-    summary="Lista de usuarios de la plataforma. Solo SUPER_ADMIN.",
+    tags=["Usuarios"],
+    summary="Lista de usuarios. Solo SUPER_ADMIN.",
 )
 def listar_usuarios(
     db: Session = Depends(get_db),
@@ -777,7 +946,7 @@ def listar_usuarios(
     "/usuarios",
     response_model=UsuarioResponse,
     status_code=status.HTTP_201_CREATED,
-    tags=["5.5 Catálogos"],
+    tags=["Usuarios"],
     summary="Crear una cuenta de usuario. Solo SUPER_ADMIN.",
 )
 def crear_usuario(
@@ -807,7 +976,7 @@ def crear_usuario(
 @app.patch(
     "/usuarios/{id_usuario}",
     response_model=UsuarioResponse,
-    tags=["5.5 Catálogos"],
+    tags=["Usuarios"],
     summary="Actualizar datos de un usuario. Solo SUPER_ADMIN.",
 )
 def actualizar_usuario(
@@ -834,7 +1003,7 @@ def actualizar_usuario(
 @app.delete(
     "/usuarios/{id_usuario}",
     status_code=status.HTTP_204_NO_CONTENT,
-    tags=["5.5 Catálogos"],
+    tags=["Usuarios"],
     summary="Eliminar una cuenta de usuario. Solo SUPER_ADMIN.",
 )
 def eliminar_usuario(
@@ -842,10 +1011,6 @@ def eliminar_usuario(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_super_admin),
 ):
-    """
-    Usuarios no tienen Soft Delete en el Blueprint; se eliminan físicamente.
-    No se permite que el SUPER_ADMIN se elimine a sí mismo.
-    """
     if id_usuario == current_user.id_usuario:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -863,18 +1028,33 @@ def eliminar_usuario(
 # Helpers internos
 # ===========================================================================
 
+def _calcular_adherencia(curp: str, db: Session) -> int | None:
+    """
+    Retorna los días transcurridos desde fecha_inicio_tratamiento de la receta
+    activa más reciente del paciente. Retorna None si no hay receta activa con fecha.
+    """
+    receta = (
+        db.query(Receta)
+        .filter(
+            Receta.curp_paciente == curp,
+            Receta.es_activo == True,
+            Receta.fecha_inicio_tratamiento.isnot(None),
+        )
+        .order_by(Receta.fecha_registro_sistema.desc())
+        .first()
+    )
+    if receta and receta.fecha_inicio_tratamiento:
+        return (date.today() - receta.fecha_inicio_tratamiento).days
+    return None
+
+
 def _verificar_acceso_paciente(
     paciente: Paciente,
     usuario: UsuarioActivo,
     db: Session,
 ) -> None:
-    """
-    Aplica el filtro de pertenencia del Blueprint (§4) a nivel de registro individual.
-    Lanza 403 si el usuario no tiene acceso al paciente solicitado.
-    """
     if usuario.es_super_admin:
         return
-
     if usuario.es_responsable_unidad:
         if paciente.clues_unidad_adscripcion != usuario.clues_unidad_asignada:
             raise HTTPException(
@@ -882,7 +1062,6 @@ def _verificar_acceso_paciente(
                 detail="No tiene acceso a pacientes de otra unidad médica.",
             )
         return
-
     if usuario.es_admin_estatal:
         unidad = db.query(UnidadMedica).filter(
             UnidadMedica.clues == paciente.clues_unidad_adscripcion
@@ -891,4 +1070,29 @@ def _verificar_acceso_paciente(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tiene acceso a pacientes de otro estado.",
+            )
+
+
+def _verificar_acceso_receta(
+    receta: Receta,
+    usuario: UsuarioActivo,
+    db: Session,
+) -> None:
+    if usuario.es_super_admin:
+        return
+    if usuario.es_responsable_unidad:
+        if receta.clues != usuario.clues_unidad_asignada:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tiene acceso a recetas de otra unidad médica.",
+            )
+        return
+    if usuario.es_admin_estatal:
+        unidad = db.query(UnidadMedica).filter(
+            UnidadMedica.clues == receta.clues
+        ).first()
+        if not unidad or unidad.id_entidad != usuario.id_entidad:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tiene acceso a recetas de otro estado.",
             )

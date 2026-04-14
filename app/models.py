@@ -6,13 +6,15 @@ Tablas:
     - UnidadMedica      : Establecimientos de salud (CLUES como PK).
     - Usuario           : Cuentas de la plataforma con roles RBAC.
     - Paciente          : Padrón de pacientes en tratamiento.
-    - Suministro        : Censo de asignación de medicamentos (no es bitácora diaria).
+    - Medico            : Profesionales médicos adscritos a unidades.
+    - Receta            : Censo de prescripción de medicamentos por paciente.
 
 Convenciones:
-    - Soft Delete        : columna es_activo (Boolean) en Paciente y Suministro.
-    - Auditoría          : id_usuario_registro (FK → usuarios) en Paciente y Suministro.
-    - Adherencia         : calculada en capa de servicio como (fecha_actual - fecha_inicio_tratamiento).days.
-    - Timestamps auto    : fecha_registro (Paciente) y fecha_registro_sistema (Suministro) usan
+    - Soft Delete        : columna es_activo (Boolean) en Paciente y Receta.
+    - Auditoría          : id_usuario_registro (FK → usuarios) en Paciente y Receta.
+    - Adherencia         : calculada en capa de endpoint desde la receta activa más reciente
+                           como (fecha_actual - receta.fecha_inicio_tratamiento).days.
+    - Timestamps auto    : fecha_registro (Paciente) y fecha_registro_sistema (Receta) usan
                            server_default=func.now() para que sea la BD quien estampe la hora.
 """
 from datetime import date, datetime
@@ -58,8 +60,8 @@ class CatMedicamento(Base):
     tipo_clave: Mapped[str | None] = mapped_column(String(100))
     es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    # Relación inversa: todos los suministros que usan este medicamento.
-    suministros: Mapped[list["Suministro"]] = relationship(back_populates="medicamento")
+    # Relación inversa
+    recetas: Mapped[list["Receta"]] = relationship(back_populates="medicamento")
 
     def __repr__(self) -> str:
         return f"<CatMedicamento clave_cnis={self.clave_cnis!r}>"
@@ -73,7 +75,7 @@ class UnidadMedica(Base):
     Establecimientos de salud. La CLUES (Clave Única de Establecimientos de Salud)
     es la llave primaria y punto de anclaje para los filtros RBAC de unidad.
     """
-    __tablename__ = "unidades_medicas"
+    __tablename__ = "cat_unidades"
 
     clues: Mapped[str] = mapped_column(String(20), primary_key=True)
     nombre_de_la_unidad: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -83,6 +85,8 @@ class UnidadMedica(Base):
     # Relaciones inversas
     usuarios: Mapped[list["Usuario"]] = relationship(back_populates="unidad_asignada")
     pacientes: Mapped[list["Paciente"]] = relationship(back_populates="unidad_adscripcion")
+    medicos: Mapped[list["Medico"]] = relationship(back_populates="unidad_adscripcion")
+    recetas: Mapped[list["Receta"]] = relationship(back_populates="unidad")
 
     def __repr__(self) -> str:
         return f"<UnidadMedica clues={self.clues!r} nombre={self.nombre_de_la_unidad!r}>"
@@ -111,9 +115,9 @@ class Usuario(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     rol_nombre: Mapped[str] = mapped_column(String(30), nullable=False)
 
-    # FK opcional → unidades_medicas (solo para RESPONSABLE_UNIDAD)
+    # FK opcional → cat_unidades (solo para RESPONSABLE_UNIDAD)
     clues_unidad_asignada: Mapped[str | None] = mapped_column(
-        String(20), ForeignKey("unidades_medicas.clues", ondelete="RESTRICT"), nullable=True
+        String(20), ForeignKey("cat_unidades.clues", ondelete="RESTRICT"), nullable=True
     )
     # Contexto geográfico para ADMIN_ESTATAL
     id_entidad: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -121,14 +125,14 @@ class Usuario(Base):
     # Relaciones ORM
     unidad_asignada: Mapped["UnidadMedica | None"] = relationship(back_populates="usuarios")
 
-    # Auditoría: registros capturados por este usuario
+    # Auditoría
     pacientes_registrados: Mapped[list["Paciente"]] = relationship(
         back_populates="usuario_registro",
         foreign_keys="Paciente.id_usuario_registro",
     )
-    suministros_registrados: Mapped[list["Suministro"]] = relationship(
+    recetas_registradas: Mapped[list["Receta"]] = relationship(
         back_populates="usuario_registro",
-        foreign_keys="Suministro.id_usuario_registro",
+        foreign_keys="Receta.id_usuario_registro",
     )
 
     def __repr__(self) -> str:
@@ -144,21 +148,19 @@ class Paciente(Base):
 
     - Soft Delete : es_activo = False (nunca se elimina físicamente).
     - Auditoría   : id_usuario_registro guarda quién capturó o modificó el registro.
-    - Adherencia  : calculada en la capa de servicio como
-                    (date.today() - fecha_inicio_tratamiento).days
-                    No se persiste en BD para mantener el valor siempre actualizado.
+    - Adherencia  : calculada en la capa de endpoint desde la receta activa más reciente
+                    como (date.today() - receta.fecha_inicio_tratamiento).days.
     """
     __tablename__ = "pacientes"
 
     curp_paciente: Mapped[str] = mapped_column(String(18), primary_key=True)
     nombre_completo: Mapped[str] = mapped_column(String(255), nullable=False)
     diagnostico_actual: Mapped[str | None] = mapped_column(Text)
-    fecha_inicio_tratamiento: Mapped[date | None] = mapped_column(Date)
 
-    # FK → unidades_medicas
+    # FK → cat_unidades
     clues_unidad_adscripcion: Mapped[str] = mapped_column(
         String(20),
-        ForeignKey("unidades_medicas.clues", ondelete="RESTRICT"),
+        ForeignKey("cat_unidades.clues", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -173,7 +175,7 @@ class Paciente(Base):
         nullable=True,
     )
 
-    # Timestamp automático de creación (lo estampa el motor de BD)
+    # Timestamp automático de creación
     fecha_registro: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -186,46 +188,72 @@ class Paciente(Base):
         back_populates="pacientes_registrados",
         foreign_keys=[id_usuario_registro],
     )
-    suministros: Mapped[list["Suministro"]] = relationship(
+    recetas: Mapped[list["Receta"]] = relationship(
         back_populates="paciente",
         cascade="all, delete-orphan",
     )
-
-    # ------------------------------------------------------------------
-    # Propiedad calculada: Adherencia (días en tratamiento activo)
-    # ------------------------------------------------------------------
-    @property
-    def dias_adherencia(self) -> int | None:
-        """
-        Días transcurridos desde el inicio del tratamiento hasta hoy.
-        Retorna None si fecha_inicio_tratamiento no está registrada.
-        """
-        if self.fecha_inicio_tratamiento is None:
-            return None
-        return (date.today() - self.fecha_inicio_tratamiento).days
 
     def __repr__(self) -> str:
         return f"<Paciente curp={self.curp_paciente!r} nombre={self.nombre_completo!r}>"
 
 
 # ---------------------------------------------------------------------------
-# 5. Suministros (Censo de Asignación de Tratamiento)
+# 5. Médicos
 # ---------------------------------------------------------------------------
-class Suministro(Base):
+class Medico(Base):
     """
-    Registro de asignación de medicamento a un paciente.
-
-    IMPORTANTE — No es una bitácora diaria de dosis:
-        Representa el INICIO de un tratamiento con un medicamento específico.
-        fecha_primera_administracion : fecha real en que el paciente recibió la primera dosis.
-        fecha_registro_sistema       : timestamp automático de creación/modificación del registro.
-
-    - Soft Delete : es_activo = False cuando se anula por error de captura.
-    - Auditoría   : id_usuario_registro identifica quién capturó el dato.
+    Profesionales médicos adscritos a unidades médicas.
+    Pueden ser registrados por RESPONSABLE_UNIDAD (su unidad) o SUPER_ADMIN.
+    Solo SUPER_ADMIN puede editar o eliminar.
     """
-    __tablename__ = "suministros"
+    __tablename__ = "medicos"
 
-    id_suministro: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_medico: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    nombre_medico: Mapped[str] = mapped_column(String(255), nullable=False)
+    cedula: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # FK → cat_unidades
+    clues_adscripcion: Mapped[str] = mapped_column(
+        String(20),
+        ForeignKey("cat_unidades.clues", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    # Relaciones ORM
+    unidad_adscripcion: Mapped["UnidadMedica"] = relationship(back_populates="medicos")
+    recetas: Mapped[list["Receta"]] = relationship(back_populates="medico")
+
+    def __repr__(self) -> str:
+        return f"<Medico id={self.id_medico} cedula={self.cedula!r} nombre={self.nombre_medico!r}>"
+
+
+# ---------------------------------------------------------------------------
+# 6. Recetas (Sustituye a Suministros)
+# ---------------------------------------------------------------------------
+class Receta(Base):
+    """
+    Registro de prescripción de medicamento a un paciente por un médico.
+
+    - id_receta             : folio de la receta, provisto por el usuario (texto libre).
+    - Soft Delete           : es_activo = False cuando se anula por error de captura.
+    - Auditoría             : id_usuario_registro identifica quién capturó el dato.
+    - Adherencia            : calculada en endpoint como
+                              (date.today() - fecha_inicio_tratamiento).days
+                              usando la receta activa más reciente del paciente.
+    """
+    __tablename__ = "recetas"
+
+    id_receta: Mapped[str] = mapped_column(String(50), primary_key=True)
+
+    # FK → medicos
+    id_medico: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("medicos.id_medico", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
 
     # FK → pacientes
     curp_paciente: Mapped[str] = mapped_column(
@@ -236,23 +264,29 @@ class Suministro(Base):
     )
 
     # FK → cat_medicamentos
-    clave_cnis_med: Mapped[str] = mapped_column(
+    clave_cnis: Mapped[str] = mapped_column(
         String(50),
         ForeignKey("cat_medicamentos.clave_cnis", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
 
+    # FK → cat_unidades (unidad donde se genera la receta)
+    clues: Mapped[str] = mapped_column(
+        String(20),
+        ForeignKey("cat_unidades.clues", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    fecha_inicio_tratamiento: Mapped[date | None] = mapped_column(Date)
+    fecha_primera_admin: Mapped[date | None] = mapped_column(Date)
     dosis_administrada: Mapped[str | None] = mapped_column(String(100))
 
-    # Fecha real de primera administración (capturada manualmente)
-    fecha_primera_administracion: Mapped[date | None] = mapped_column(Date)
-
-    # Timestamp automático — lo actualiza la BD en cada INSERT/UPDATE
+    # Timestamp automático
     fecha_registro_sistema: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        onupdate=func.now(),
         nullable=False,
     )
 
@@ -267,16 +301,18 @@ class Suministro(Base):
     es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relaciones ORM
-    paciente: Mapped["Paciente"] = relationship(back_populates="suministros")
-    medicamento: Mapped["CatMedicamento"] = relationship(back_populates="suministros")
+    medico: Mapped["Medico"] = relationship(back_populates="recetas")
+    paciente: Mapped["Paciente"] = relationship(back_populates="recetas")
+    medicamento: Mapped["CatMedicamento"] = relationship(back_populates="recetas")
+    unidad: Mapped["UnidadMedica"] = relationship(back_populates="recetas")
     usuario_registro: Mapped["Usuario | None"] = relationship(
-        back_populates="suministros_registrados",
+        back_populates="recetas_registradas",
         foreign_keys=[id_usuario_registro],
     )
 
     def __repr__(self) -> str:
         return (
-            f"<Suministro id={self.id_suministro} "
+            f"<Receta id={self.id_receta!r} "
             f"curp={self.curp_paciente!r} "
-            f"med={self.clave_cnis_med!r}>"
+            f"med={self.clave_cnis!r}>"
         )

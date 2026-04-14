@@ -13,7 +13,7 @@ Validaciones destacadas:
     - rol_nombre  : debe ser uno de los 3 roles definidos en el Blueprint.
     - email       : formato estándar vía EmailStr de Pydantic.
     - password    : mínimo 8 caracteres (solo en Create, nunca en Response).
-    - es_activo   : presente en Paciente y Suministro (Soft Delete).
+    - es_activo   : presente en Paciente y Receta (Soft Delete).
 """
 import re
 from datetime import date, datetime
@@ -35,8 +35,6 @@ from app.models import Rol
 # Tipos anotados reutilizables
 # ---------------------------------------------------------------------------
 
-# CURP oficial: 4 letras + 6 dígitos (AAMMDD) + H/M + 2 letras estado +
-#               3 letras consonantes internas + 2 alfanuméricos homoclave.
 _CURP_REGEX = re.compile(
     r"^[A-Z]{4}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d$"
 )
@@ -96,7 +94,6 @@ class MedicamentoCreate(MedicamentoBase):
 
 
 class MedicamentoUpdate(BaseModel):
-    """Todos los campos son opcionales para soportar PATCH parcial."""
     descripcion: str | None = Field(None, min_length=1, max_length=2000)
     grupo: str | None = Field(None, max_length=150)
     tipo_clave: str | None = Field(None, max_length=100)
@@ -166,12 +163,6 @@ class UsuarioBase(BaseModel):
 
     @model_validator(mode="after")
     def validar_contexto_por_rol(self) -> "UsuarioBase":
-        """
-        Reglas de coherencia entre rol y campos geográficos:
-          - RESPONSABLE_UNIDAD requiere clues_unidad_asignada.
-          - ADMIN_ESTATAL requiere id_entidad.
-          - SUPER_ADMIN no requiere ninguno de los dos.
-        """
         rol = self.rol_nombre
         if rol == Rol.RESPONSABLE_UNIDAD and not self.clues_unidad_asignada:
             raise ValueError(
@@ -185,10 +176,6 @@ class UsuarioBase(BaseModel):
 
 
 class UsuarioCreate(UsuarioBase):
-    """
-    Payload de creación. Acepta contraseña en texto plano;
-    el endpoint la hashea antes de persistir.
-    """
     password: str = Field(
         ...,
         min_length=8,
@@ -197,7 +184,6 @@ class UsuarioCreate(UsuarioBase):
 
 
 class UsuarioUpdate(BaseModel):
-    """Campos editables por el SUPER_ADMIN."""
     nombre_usuario: str | None = Field(None, min_length=2, max_length=150)
     rol_nombre: str | None = None
     clues_unidad_asignada: str | None = Field(None, max_length=20)
@@ -215,7 +201,6 @@ class UsuarioUpdate(BaseModel):
 
 
 class UsuarioResponse(BaseModel):
-    """Respuesta pública: NUNCA incluye hashed_password ni la contraseña original."""
     id_usuario: int
     nombre_usuario: str
     email: str
@@ -233,7 +218,6 @@ class UsuarioResponse(BaseModel):
 class PacienteBase(BaseModel):
     nombre_completo: str = Field(..., min_length=2, max_length=255)
     diagnostico_actual: str | None = Field(None, max_length=5000)
-    fecha_inicio_tratamiento: date | None = None
     clues_unidad_adscripcion: CluesStr
 
     @field_validator("clues_unidad_adscripcion", mode="before")
@@ -258,10 +242,8 @@ class PacienteCreate(PacienteBase):
 
 
 class PacienteUpdate(BaseModel):
-    """PATCH parcial — solo se actualizan los campos enviados."""
     nombre_completo: str | None = Field(None, min_length=2, max_length=255)
     diagnostico_actual: str | None = Field(None, max_length=5000)
-    fecha_inicio_tratamiento: date | None = None
     clues_unidad_adscripcion: str | None = Field(None, max_length=20)
     es_activo: bool | None = Field(
         None,
@@ -275,18 +257,16 @@ class PacienteResponse(PacienteBase):
     fecha_registro: datetime
     id_usuario_registro: int | None
 
-    # Campo calculado: días desde el inicio del tratamiento hasta hoy.
-    # Se puebla en el endpoint a partir de Paciente.dias_adherencia.
+    # Adherencia calculada desde la receta activa más reciente.
     dias_adherencia: int | None = Field(
         None,
-        description="Días transcurridos desde fecha_inicio_tratamiento hasta hoy.",
+        description="Días desde fecha_inicio_tratamiento de la receta activa más reciente.",
     )
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class PacienteListResponse(BaseModel):
-    """Respuesta paginada para GET /pacientes."""
     total: int
     pagina: int
     por_pagina: int
@@ -294,21 +274,63 @@ class PacienteListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# ── 5. Suministro ───────────────────────────────────────────────────────────
+# ── 5. Medico ───────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
-class SuministroBase(BaseModel):
+class MedicoBase(BaseModel):
+    nombre_medico: str = Field(..., min_length=2, max_length=255)
+    cedula: str = Field(..., min_length=1, max_length=30, description="Cédula profesional única.")
+    email: str | None = Field(None, max_length=255)
+    clues_adscripcion: CluesStr
+
+    @field_validator("clues_adscripcion", mode="before")
+    @classmethod
+    def normalizar_clues(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class MedicoCreate(MedicoBase):
+    pass
+
+
+class MedicoUpdate(BaseModel):
+    nombre_medico: str | None = Field(None, min_length=2, max_length=255)
+    cedula: str | None = Field(None, min_length=1, max_length=30)
+    email: str | None = Field(None, max_length=255)
+    clues_adscripcion: str | None = Field(None, max_length=20)
+
+
+class MedicoResponse(MedicoBase):
+    id_medico: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
+# ── 6. Receta ───────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class RecetaBase(BaseModel):
+    id_receta: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Folio de la receta (provisto por el usuario).",
+    )
+    id_medico: int = Field(..., description="ID del médico que prescribe.")
     curp_paciente: CurpStr
-    clave_cnis_med: ClaveCnisStr
+    clave_cnis: ClaveCnisStr
+    clues: CluesStr
+    fecha_inicio_tratamiento: date | None = Field(
+        None, description="Inicio del esquema específico de esta receta."
+    )
+    fecha_primera_admin: date | None = Field(
+        None, description="Fecha real de la primera dosis."
+    )
     dosis_administrada: str | None = Field(
         None,
         max_length=100,
         description="Ej. '200 mg', '1 ampolleta'.",
-        examples=["200 mg"],
-    )
-    fecha_primera_administracion: date | None = Field(
-        None,
-        description="Fecha real en que el paciente recibió la primera dosis.",
     )
 
     @field_validator("curp_paciente", mode="before")
@@ -316,50 +338,47 @@ class SuministroBase(BaseModel):
     def normalizar_curp(cls, v: str) -> str:
         return v.strip().upper()
 
+    @field_validator("clues", mode="before")
+    @classmethod
+    def normalizar_clues(cls, v: str) -> str:
+        return v.strip().upper()
 
-class SuministroCreate(SuministroBase):
-    """
-    Payload para registrar una nueva asignación de tratamiento.
-    id_usuario_registro se inyecta automáticamente desde el token JWT en el endpoint.
-    """
+
+class RecetaCreate(RecetaBase):
     pass
 
 
-class SuministroUpdate(BaseModel):
-    """
-    PATCH parcial. Incluye es_activo para el Soft Delete por error de captura.
-    No se permite cambiar curp_paciente ni clave_cnis_med una vez creado el registro.
-    """
+class RecetaUpdate(BaseModel):
+    fecha_inicio_tratamiento: date | None = None
+    fecha_primera_admin: date | None = None
     dosis_administrada: str | None = Field(None, max_length=100)
-    fecha_primera_administracion: date | None = None
     es_activo: bool | None = Field(
         None,
-        description="False = anular registro por error de captura (Soft Delete).",
+        description="False = anular receta por error de captura (Soft Delete).",
     )
 
 
-class SuministroResponse(SuministroBase):
-    id_suministro: int
+class RecetaResponse(RecetaBase):
     es_activo: bool
     fecha_registro_sistema: datetime
     id_usuario_registro: int | None
 
-    # Datos embebidos del medicamento (evita N+1 requests en el cliente).
+    # Datos embebidos
     medicamento: MedicamentoResponse | None = None
+    medico: MedicoResponse | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class SuministroListResponse(BaseModel):
-    """Respuesta paginada para GET /suministros."""
+class RecetaListResponse(BaseModel):
     total: int
     pagina: int
     por_pagina: int
-    resultados: list[SuministroResponse]
+    resultados: list[RecetaResponse]
 
 
 # ---------------------------------------------------------------------------
-# ── 6. Auth ─────────────────────────────────────────────────────────────────
+# ── 7. Auth ─────────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
@@ -368,7 +387,6 @@ class LoginRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Respuesta del endpoint POST /auth/login."""
     access_token: str
     token_type: str = "bearer"
     rol_nombre: str
