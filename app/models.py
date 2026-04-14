@@ -146,6 +146,7 @@ class Paciente(Base):
     """
     Padrón de pacientes en tratamiento con medicamentos de alto costo.
 
+    - PK interna  : id_paciente (int autoincremental) — permite cifrar curp_paciente en el futuro.
     - Soft Delete : es_activo = False (nunca se elimina físicamente).
     - Auditoría   : id_usuario_registro guarda quién capturó o modificó el registro.
     - Adherencia  : calculada en la capa de endpoint desde la receta activa más reciente
@@ -153,7 +154,8 @@ class Paciente(Base):
     """
     __tablename__ = "pacientes"
 
-    curp_paciente: Mapped[str] = mapped_column(String(18), primary_key=True)
+    id_paciente: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    curp_paciente: Mapped[str] = mapped_column(String(18), unique=True, nullable=False, index=True)
     nombre_completo: Mapped[str] = mapped_column(String(255), nullable=False)
     diagnostico_actual: Mapped[str | None] = mapped_column(Text)
 
@@ -256,9 +258,9 @@ class Receta(Base):
     )
 
     # FK → pacientes
-    curp_paciente: Mapped[str] = mapped_column(
-        String(18),
-        ForeignKey("pacientes.curp_paciente", ondelete="CASCADE"),
+    id_paciente: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("pacientes.id_paciente", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -313,6 +315,6 @@ class Receta(Base):
     def __repr__(self) -> str:
         return (
             f"<Receta id={self.id_receta!r} "
-            f"curp={self.curp_paciente!r} "
+            f"id_paciente={self.id_paciente!r} "
             f"med={self.clave_cnis!r}>"
         )

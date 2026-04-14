@@ -252,6 +252,7 @@ class PacienteUpdate(BaseModel):
 
 
 class PacienteResponse(PacienteBase):
+    id_paciente: int
     curp_paciente: str
     es_activo: bool
     fecha_registro: datetime
@@ -318,7 +319,7 @@ class RecetaBase(BaseModel):
         description="Folio de la receta (provisto por el usuario).",
     )
     id_medico: int = Field(..., description="ID del médico que prescribe.")
-    curp_paciente: CurpStr
+    id_paciente: int = Field(..., description="ID interno del paciente (PK de la tabla pacientes).")
     clave_cnis: ClaveCnisStr
     clues: CluesStr
     fecha_inicio_tratamiento: date | None = Field(
@@ -332,11 +333,6 @@ class RecetaBase(BaseModel):
         max_length=100,
         description="Ej. '200 mg', '1 ampolleta'.",
     )
-
-    @field_validator("curp_paciente", mode="before")
-    @classmethod
-    def normalizar_curp(cls, v: str) -> str:
-        return v.strip().upper()
 
     @field_validator("clues", mode="before")
     @classmethod

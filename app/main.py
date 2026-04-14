@@ -149,7 +149,7 @@ def listar_pacientes(
     resultados = []
     for p in pacientes:
         datos = PacienteResponse.model_validate(p)
-        datos.dias_adherencia = _calcular_adherencia(p.curp_paciente, db)
+        datos.dias_adherencia = _calcular_adherencia(p.id_paciente, db)
         resultados.append(datos)
 
     return PacienteListResponse(
@@ -195,7 +195,7 @@ def crear_paciente(
     db.refresh(nuevo)
 
     respuesta = PacienteResponse.model_validate(nuevo)
-    respuesta.dias_adherencia = _calcular_adherencia(nuevo.curp_paciente, db)
+    respuesta.dias_adherencia = _calcular_adherencia(nuevo.id_paciente, db)
     return respuesta
 
 
@@ -219,7 +219,7 @@ def obtener_paciente(
     _verificar_acceso_paciente(paciente, current_user, db)
 
     respuesta = PacienteResponse.model_validate(paciente)
-    respuesta.dias_adherencia = _calcular_adherencia(paciente.curp_paciente, db)
+    respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
 
@@ -251,7 +251,7 @@ def actualizar_paciente(
     db.refresh(paciente)
 
     respuesta = PacienteResponse.model_validate(paciente)
-    respuesta.dias_adherencia = _calcular_adherencia(paciente.curp_paciente, db)
+    respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
 
@@ -492,7 +492,7 @@ def crear_receta(
 
     # Verificar que el paciente existe y está activo.
     paciente = db.query(Paciente).filter(
-        Paciente.curp_paciente == payload.curp_paciente,
+        Paciente.id_paciente == payload.id_paciente,
         Paciente.es_activo == True,
     ).first()
     if not paciente:
@@ -522,7 +522,7 @@ def crear_receta(
     nueva = Receta(
         id_receta=payload.id_receta,
         id_medico=payload.id_medico,
-        curp_paciente=payload.curp_paciente,
+        id_paciente=payload.id_paciente,
         clave_cnis=payload.clave_cnis,
         clues=payload.clues,
         fecha_inicio_tratamiento=payload.fecha_inicio_tratamiento,
@@ -667,7 +667,7 @@ def reporte_resumen_detallado(
 
     query = (
         db.query(Receta)
-        .join(Paciente, Receta.curp_paciente == Paciente.curp_paciente)
+        .join(Paciente, Receta.id_paciente == Paciente.id_paciente)
         .join(CatMedicamento, Receta.clave_cnis == CatMedicamento.clave_cnis)
         .options(
             joinedload(Receta.paciente),
@@ -706,7 +706,8 @@ def reporte_resumen_detallado(
         "datos": [
             {
                 "id_receta": r.id_receta,
-                "curp_paciente": r.curp_paciente,
+                "id_paciente": r.id_paciente,
+                "curp_paciente": r.paciente.curp_paciente if r.paciente else None,
                 "nombre_paciente": r.paciente.nombre_completo,
                 "diagnostico": r.paciente.diagnostico_actual,
                 "clues_unidad": r.clues,
@@ -1028,7 +1029,7 @@ def eliminar_usuario(
 # Helpers internos
 # ===========================================================================
 
-def _calcular_adherencia(curp: str, db: Session) -> int | None:
+def _calcular_adherencia(id_paciente: int, db: Session) -> int | None:
     """
     Retorna los días transcurridos desde fecha_inicio_tratamiento de la receta
     activa más reciente del paciente. Retorna None si no hay receta activa con fecha.
@@ -1036,7 +1037,7 @@ def _calcular_adherencia(curp: str, db: Session) -> int | None:
     receta = (
         db.query(Receta)
         .filter(
-            Receta.curp_paciente == curp,
+            Receta.id_paciente == id_paciente,
             Receta.es_activo == True,
             Receta.fecha_inicio_tratamiento.isnot(None),
         )
