@@ -24,6 +24,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -122,6 +123,12 @@ class Usuario(Base):
     # Contexto geográfico para ADMIN_ESTATAL
     id_entidad: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # Flujo de contraseña temporal: True obliga al usuario a cambiar su contraseña
+    # antes de poder usar cualquier otro endpoint.
+    debe_cambiar_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
+
     # Relaciones ORM
     unidad_asignada: Mapped["UnidadMedica | None"] = relationship(back_populates="usuarios")
 
@@ -155,9 +162,12 @@ class Paciente(Base):
     __tablename__ = "pacientes"
 
     id_paciente: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    curp_paciente: Mapped[str] = mapped_column(String(18), unique=True, nullable=False, index=True)
-    nombre_completo: Mapped[str] = mapped_column(String(255), nullable=False)
-    diagnostico_actual: Mapped[str | None] = mapped_column(Text)
+    # curp_hash: SHA-256 de la CURP en texto plano. Permite búsquedas y unicidad sin descifrar.
+    curp_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    # Columnas cifradas con Fernet (LargeBinary almacena los bytes del token cifrado)
+    curp_paciente: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    nombre_completo: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    diagnostico_actual: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
     # FK → cat_unidades
     clues_unidad_adscripcion: Mapped[str] = mapped_column(
@@ -211,8 +221,11 @@ class Medico(Base):
     __tablename__ = "medicos"
 
     id_medico: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    nombre_medico: Mapped[str] = mapped_column(String(255), nullable=False)
-    cedula: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    # cedula_hash: SHA-256 de la cédula. Permite validar duplicados sin descifrar.
+    cedula_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    # Columnas cifradas con Fernet
+    nombre_medico: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    cedula: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # FK → cat_unidades

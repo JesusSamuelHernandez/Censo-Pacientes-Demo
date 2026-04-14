@@ -207,8 +207,15 @@ class UsuarioResponse(BaseModel):
     rol_nombre: str
     clues_unidad_asignada: str | None
     id_entidad: str | None
+    debe_cambiar_password: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UsuarioCreateResponse(UsuarioResponse):
+    """Respuesta exclusiva de POST /usuarios. Incluye la contraseña temporal en texto plano.
+    Solo el SUPER_ADMIN que crea la cuenta puede verla — no se almacena en BD."""
+    password_temporal: str
 
 
 # ---------------------------------------------------------------------------
@@ -251,14 +258,20 @@ class PacienteUpdate(BaseModel):
     )
 
 
-class PacienteResponse(PacienteBase):
+class PacienteResponse(BaseModel):
+    """
+    Los campos cifrados (curp_paciente, nombre_completo, diagnostico_actual)
+    se populan manualmente en el endpoint después de descifrar — no vienen
+    directamente del ORM, por eso este schema no hereda de PacienteBase.
+    """
     id_paciente: int
     curp_paciente: str
+    nombre_completo: str
+    diagnostico_actual: str | None
+    clues_unidad_adscripcion: str
     es_activo: bool
     fecha_registro: datetime
     id_usuario_registro: int | None
-
-    # Adherencia calculada desde la receta activa más reciente.
     dias_adherencia: int | None = Field(
         None,
         description="Días desde fecha_inicio_tratamiento de la receta activa más reciente.",
@@ -301,8 +314,16 @@ class MedicoUpdate(BaseModel):
     clues_adscripcion: str | None = Field(None, max_length=20)
 
 
-class MedicoResponse(MedicoBase):
+class MedicoResponse(BaseModel):
+    """
+    Los campos cifrados (nombre_medico, cedula) se populan manualmente
+    en el endpoint después de descifrar.
+    """
     id_medico: int
+    nombre_medico: str
+    cedula: str
+    email: str | None
+    clues_adscripcion: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -387,3 +408,17 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     rol_nombre: str
     id_usuario: int
+    debe_cambiar_password: bool
+
+
+# ---------------------------------------------------------------------------
+# ── 9. Cambio de contraseña ─────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class CambiarPasswordRequest(BaseModel):
+    password_actual: str = Field(..., min_length=1, description="Contraseña actual.")
+    password_nueva: str = Field(
+        ...,
+        min_length=8,
+        description="Nueva contraseña (mínimo 8 caracteres).",
+    )

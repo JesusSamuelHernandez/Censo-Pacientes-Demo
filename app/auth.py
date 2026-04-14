@@ -58,12 +58,14 @@ class UsuarioActivo:
     Campos clave para RBAC (Blueprint sección 4):
         clues_unidad_asignada : filtra datos si rol == RESPONSABLE_UNIDAD.
         id_entidad            : filtra datos si rol == ADMIN_ESTATAL.
+        debe_cambiar_password : si True, solo puede acceder al endpoint de cambio de contraseña.
     """
     id_usuario: int
     email: str
     rol_nombre: str
     clues_unidad_asignada: str | None   # Solo RESPONSABLE_UNIDAD
     id_entidad: str | None              # Solo ADMIN_ESTATAL
+    debe_cambiar_password: bool = False
 
     # ------------------------------------------------------------------
     # Helpers de rol — evitan comparar strings sueltos en los endpoints.
@@ -119,6 +121,7 @@ def create_access_token(usuario: Usuario) -> str:
         "rol_nombre": usuario.rol_nombre,
         "clues_unidad_asignada": usuario.clues_unidad_asignada,
         "id_entidad": usuario.id_entidad,
+        "debe_cambiar_password": usuario.debe_cambiar_password,
         "exp": expira_en,
     }
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
@@ -181,6 +184,7 @@ def get_current_user(
         rol_nombre=usuario_db.rol_nombre,
         clues_unidad_asignada=usuario_db.clues_unidad_asignada,
         id_entidad=usuario_db.id_entidad,
+        debe_cambiar_password=usuario_db.debe_cambiar_password,
     )
 
 
@@ -226,6 +230,23 @@ def require_cualquier_rol(
     Permite el acceso a cualquier usuario autenticado (los 3 roles).
     El filtro geográfico se aplica dentro del endpoint con apply_rbac_filter().
     """
+    return current_user
+
+
+def require_password_cambiado(
+    current_user: UsuarioActivo = Depends(get_current_user),
+) -> UsuarioActivo:
+    """
+    Igual que require_cualquier_rol pero bloquea si el usuario aún no ha
+    cambiado su contraseña temporal. Solo permite acceso al endpoint
+    POST /usuarios/me/cambiar-password hasta que lo haga.
+    """
+    if current_user.debe_cambiar_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Debe cambiar su contraseña temporal antes de continuar. "
+                   "Use POST /usuarios/me/cambiar-password.",
+        )
     return current_user
 
 

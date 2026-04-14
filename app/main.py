@@ -41,11 +41,15 @@ from app.auth import (
     hash_password,
     require_admin_estatal_o_superior,
     require_cualquier_rol,
+    require_password_cambiado,
     require_super_admin,
+    verify_password,
 )
+from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
 from app.models import Base, CatMedicamento, Medico, Paciente, Receta, UnidadMedica, Usuario
 from app.schemas import (
+    CambiarPasswordRequest,
     LoginRequest,
     MedicoCreate,
     MedicoResponse,
@@ -66,6 +70,7 @@ from app.schemas import (
     UnidadMedicaResponse,
     UnidadMedicaUpdate,
     UsuarioCreate,
+    UsuarioCreateResponse,
     UsuarioResponse,
     UsuarioUpdate,
 )
@@ -110,6 +115,7 @@ def login(
         access_token=token,
         rol_nombre=usuario.rol_nombre,
         id_usuario=usuario.id_usuario,
+        debe_cambiar_password=usuario.debe_cambiar_password,
     )
 
 
@@ -128,7 +134,7 @@ def listar_pacientes(
     pagina: int = Query(1, ge=1),
     por_pagina: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     filtro = apply_rbac_filter(current_user)
     query = db.query(Paciente)
@@ -148,7 +154,7 @@ def listar_pacientes(
 
     resultados = []
     for p in pacientes:
-        datos = PacienteResponse.model_validate(p)
+        datos = _paciente_to_response(p)
         datos.dias_adherencia = _calcular_adherencia(p.id_paciente, db)
         resultados.append(datos)
 
@@ -167,7 +173,7 @@ def listar_pacientes(
 def crear_paciente(
     payload: PacienteCreate,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     if current_user.es_responsable_unidad:
         if payload.clues_unidad_adscripcion != current_user.clues_unidad_asignada:
@@ -176,16 +182,18 @@ def crear_paciente(
                 detail="Solo puede registrar pacientes en su propia unidad médica.",
             )
 
-    if db.query(Paciente).filter(Paciente.curp_paciente == payload.curp_paciente).first():
+    curp_hash = hash_sha256(payload.curp_paciente)
+    if db.query(Paciente).filter(Paciente.curp_hash == curp_hash).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ya existe un paciente con CURP '{payload.curp_paciente}'.",
         )
 
     nuevo = Paciente(
-        curp_paciente=payload.curp_paciente,
-        nombre_completo=payload.nombre_completo,
-        diagnostico_actual=payload.diagnostico_actual,
+        curp_hash=curp_hash,
+        curp_paciente=cifrar(payload.curp_paciente),
+        nombre_completo=cifrar(payload.nombre_completo),
+        diagnostico_actual=cifrar(payload.diagnostico_actual) if payload.diagnostico_actual else None,
         clues_unidad_adscripcion=payload.clues_unidad_adscripcion,
         es_activo=True,
         id_usuario_registro=current_user.id_usuario,
@@ -194,7 +202,7 @@ def crear_paciente(
     db.commit()
     db.refresh(nuevo)
 
-    respuesta = PacienteResponse.model_validate(nuevo)
+    respuesta = _paciente_to_response(nuevo)
     respuesta.dias_adherencia = _calcular_adherencia(nuevo.id_paciente, db)
     return respuesta
 
@@ -208,17 +216,17 @@ def crear_paciente(
 def obtener_paciente(
     curp_paciente: str,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     paciente = db.query(Paciente).filter(
-        Paciente.curp_paciente == curp_paciente.upper()
+        Paciente.curp_hash == hash_sha256(curp_paciente)
     ).first()
     if not paciente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
 
     _verificar_acceso_paciente(paciente, current_user, db)
 
-    respuesta = PacienteResponse.model_validate(paciente)
+    respuesta = _paciente_to_response(paciente)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -233,24 +241,30 @@ def actualizar_paciente(
     curp_paciente: str,
     payload: PacienteUpdate,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     paciente = db.query(Paciente).filter(
-        Paciente.curp_paciente == curp_paciente.upper()
+        Paciente.curp_hash == hash_sha256(curp_paciente)
     ).first()
     if not paciente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
 
     _verificar_acceso_paciente(paciente, current_user, db)
 
-    for campo, valor in payload.model_dump(exclude_none=True).items():
+    datos = payload.model_dump(exclude_none=True)
+    if "nombre_completo" in datos:
+        paciente.nombre_completo = cifrar(datos.pop("nombre_completo"))
+    if "diagnostico_actual" in datos:
+        val = datos.pop("diagnostico_actual")
+        paciente.diagnostico_actual = cifrar(val) if val else None
+    for campo, valor in datos.items():
         setattr(paciente, campo, valor)
 
     paciente.id_usuario_registro = current_user.id_usuario
     db.commit()
     db.refresh(paciente)
 
-    respuesta = PacienteResponse.model_validate(paciente)
+    respuesta = _paciente_to_response(paciente)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -264,10 +278,10 @@ def actualizar_paciente(
 def dar_baja_paciente(
     curp_paciente: str,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     paciente = db.query(Paciente).filter(
-        Paciente.curp_paciente == curp_paciente.upper()
+        Paciente.curp_hash == hash_sha256(curp_paciente)
     ).first()
     if not paciente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
@@ -285,7 +299,7 @@ def dar_baja_paciente(
     db.commit()
     db.refresh(paciente)
 
-    respuesta = PacienteResponse.model_validate(paciente)
+    respuesta = _paciente_to_response(paciente)
     respuesta.dias_adherencia = None
     return respuesta
 
@@ -303,12 +317,12 @@ def dar_baja_paciente(
 def listar_medicos(
     clues_adscripcion: str | None = Query(None, description="Filtrar por unidad médica."),
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     query = db.query(Medico)
     if clues_adscripcion:
         query = query.filter(Medico.clues_adscripcion == clues_adscripcion.upper())
-    return query.order_by(Medico.nombre_medico).all()
+    return [_medico_to_response(m) for m in query.all()]
 
 
 @app.post(
@@ -321,7 +335,7 @@ def listar_medicos(
 def crear_medico(
     payload: MedicoCreate,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     # ADMIN_ESTATAL no puede crear médicos.
     if current_user.es_admin_estatal:
@@ -338,17 +352,24 @@ def crear_medico(
                 detail="Solo puede registrar médicos de su propia unidad médica.",
             )
 
-    if db.query(Medico).filter(Medico.cedula == payload.cedula).first():
+    cedula_hash = hash_sha256(payload.cedula)
+    if db.query(Medico).filter(Medico.cedula_hash == cedula_hash).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ya existe un médico con cédula '{payload.cedula}'.",
         )
 
-    nuevo = Medico(**payload.model_dump())
+    nuevo = Medico(
+        cedula_hash=cedula_hash,
+        nombre_medico=cifrar(payload.nombre_medico),
+        cedula=cifrar(payload.cedula),
+        email=payload.email,
+        clues_adscripcion=payload.clues_adscripcion,
+    )
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
-    return nuevo
+    return _medico_to_response(nuevo)
 
 
 @app.get(
@@ -360,12 +381,12 @@ def crear_medico(
 def obtener_medico(
     id_medico: int,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
     if not medico:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
-    return medico
+    return _medico_to_response(medico)
 
 
 @app.patch(
@@ -384,11 +405,18 @@ def actualizar_medico(
     if not medico:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
 
-    for campo, valor in payload.model_dump(exclude_none=True).items():
+    datos = payload.model_dump(exclude_none=True)
+    if "nombre_medico" in datos:
+        medico.nombre_medico = cifrar(datos.pop("nombre_medico"))
+    if "cedula" in datos:
+        nueva_cedula = datos.pop("cedula")
+        medico.cedula = cifrar(nueva_cedula)
+        medico.cedula_hash = hash_sha256(nueva_cedula)
+    for campo, valor in datos.items():
         setattr(medico, campo, valor)
     db.commit()
     db.refresh(medico)
-    return medico
+    return _medico_to_response(medico)
 
 
 @app.delete(
@@ -424,7 +452,7 @@ def listar_recetas(
     pagina: int = Query(1, ge=1),
     por_pagina: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     filtro = apply_rbac_filter(current_user)
 
@@ -467,7 +495,7 @@ def listar_recetas(
 def crear_receta(
     payload: RecetaCreate,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     # ADMIN_ESTATAL no puede crear recetas.
     if current_user.es_admin_estatal:
@@ -554,7 +582,7 @@ def crear_receta(
 def obtener_receta(
     id_receta: str,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     receta = (
         db.query(Receta)
@@ -579,7 +607,7 @@ def actualizar_receta(
     id_receta: str,
     payload: RecetaUpdate,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     if current_user.es_admin_estatal:
         raise HTTPException(
@@ -615,7 +643,7 @@ def actualizar_receta(
 def anular_receta(
     id_receta: str,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     if current_user.es_admin_estatal:
         raise HTTPException(
@@ -661,7 +689,7 @@ def reporte_resumen_detallado(
     fecha_fin: date | None = Query(None),
     solo_activos: bool = Query(True),
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     filtro = apply_rbac_filter(current_user)
 
@@ -707,9 +735,9 @@ def reporte_resumen_detallado(
             {
                 "id_receta": r.id_receta,
                 "id_paciente": r.id_paciente,
-                "curp_paciente": r.paciente.curp_paciente if r.paciente else None,
-                "nombre_paciente": r.paciente.nombre_completo,
-                "diagnostico": r.paciente.diagnostico_actual,
+                "curp_paciente": descifrar(r.paciente.curp_paciente) if r.paciente else None,
+                "nombre_paciente": descifrar(r.paciente.nombre_completo) if r.paciente else None,
+                "diagnostico": descifrar_o_none(r.paciente.diagnostico_actual) if r.paciente else None,
                 "clues_unidad": r.clues,
                 "medico": r.medico.nombre_medico if r.medico else None,
                 "cedula_medico": r.medico.cedula if r.medico else None,
@@ -799,7 +827,7 @@ def reporte_estatal(
 def listar_medicamentos(
     solo_activos: bool = Query(True),
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     query = db.query(CatMedicamento)
     if solo_activos:
@@ -871,7 +899,7 @@ def actualizar_medicamento(
 def listar_unidades(
     id_entidad: str | None = Query(None),
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     query = db.query(UnidadMedica)
     if id_entidad:
@@ -945,10 +973,10 @@ def listar_usuarios(
 
 @app.post(
     "/usuarios",
-    response_model=UsuarioResponse,
+    response_model=UsuarioCreateResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Usuarios"],
-    summary="Crear una cuenta de usuario. Solo SUPER_ADMIN.",
+    summary="Crear una cuenta de usuario. Solo SUPER_ADMIN. Devuelve contraseña temporal.",
 )
 def crear_usuario(
     payload: UsuarioCreate,
@@ -960,18 +988,53 @@ def crear_usuario(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ya existe un usuario con email '{payload.email}'.",
         )
+    password_temporal = _generar_password_temporal()
     nuevo = Usuario(
         nombre_usuario=payload.nombre_usuario,
         email=str(payload.email),
-        hashed_password=hash_password(payload.password),
+        hashed_password=hash_password(password_temporal),
         rol_nombre=payload.rol_nombre,
         clues_unidad_asignada=payload.clues_unidad_asignada,
         id_entidad=payload.id_entidad,
+        debe_cambiar_password=True,
     )
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
-    return nuevo
+    return UsuarioCreateResponse(
+        id_usuario=nuevo.id_usuario,
+        nombre_usuario=nuevo.nombre_usuario,
+        email=nuevo.email,
+        rol_nombre=nuevo.rol_nombre,
+        clues_unidad_asignada=nuevo.clues_unidad_asignada,
+        id_entidad=nuevo.id_entidad,
+        debe_cambiar_password=nuevo.debe_cambiar_password,
+        password_temporal=password_temporal,
+    )
+
+
+@app.post(
+    "/usuarios/me/cambiar-password",
+    response_model=UsuarioResponse,
+    tags=["Usuarios"],
+    summary="Cambiar contraseña propia. Obligatorio tras el primer login.",
+)
+def cambiar_password(
+    payload: CambiarPasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+):
+    usuario = db.query(Usuario).filter(Usuario.id_usuario == current_user.id_usuario).first()
+    if not verify_password(payload.password_actual, usuario.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña actual es incorrecta.",
+        )
+    usuario.hashed_password = hash_password(payload.password_nueva)
+    usuario.debe_cambiar_password = False
+    db.commit()
+    db.refresh(usuario)
+    return usuario
 
 
 @app.patch(
@@ -1028,6 +1091,41 @@ def eliminar_usuario(
 # ===========================================================================
 # Helpers internos
 # ===========================================================================
+
+import secrets
+import string
+
+def _generar_password_temporal(longitud: int = 12) -> str:
+    """Genera una contraseña aleatoria alfanumérica para el primer acceso."""
+    alfabeto = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alfabeto) for _ in range(longitud))
+
+
+def _paciente_to_response(p: Paciente) -> PacienteResponse:
+    """Descifra los campos LargeBinary y construye el schema de respuesta."""
+    return PacienteResponse(
+        id_paciente=p.id_paciente,
+        curp_paciente=descifrar(p.curp_paciente),
+        nombre_completo=descifrar(p.nombre_completo),
+        diagnostico_actual=descifrar_o_none(p.diagnostico_actual),
+        clues_unidad_adscripcion=p.clues_unidad_adscripcion,
+        es_activo=p.es_activo,
+        fecha_registro=p.fecha_registro,
+        id_usuario_registro=p.id_usuario_registro,
+        dias_adherencia=None,
+    )
+
+
+def _medico_to_response(m: Medico) -> MedicoResponse:
+    """Descifra los campos LargeBinary y construye el schema de respuesta."""
+    return MedicoResponse(
+        id_medico=m.id_medico,
+        nombre_medico=descifrar(m.nombre_medico),
+        cedula=descifrar(m.cedula),
+        email=m.email,
+        clues_adscripcion=m.clues_adscripcion,
+    )
+
 
 def _calcular_adherencia(id_paciente: int, db: Session) -> int | None:
     """
