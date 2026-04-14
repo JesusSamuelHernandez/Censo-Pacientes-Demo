@@ -13,7 +13,7 @@ email-validator==2.2.0           # Requerido por EmailStr
 
 # ── Autenticación JWT ──────────────────────────────────────────────────────────
 python-jose[cryptography]==3.3.0 # Generación y verificación de tokens JWT
-passlib[bcrypt]==1.7.4           # Hasheo de contraseñas con bcrypt
+bcrypt==5.0.0                    # Hasheo de contraseñas (usado directamente, sin passlib)
 
 # ── Formularios (OAuth2PasswordRequestForm) ────────────────────────────────────
 python-multipart==0.0.20         # Requerido por FastAPI para parsear form-data
