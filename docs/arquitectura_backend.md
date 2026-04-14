@@ -34,7 +34,7 @@ El sistema es una **API REST** que centraliza el censo de pacientes que reciben 
 
 ### PostgreSQL 15
 **¿Por qué PostgreSQL y no MySQL o SQLite?**
-- **Integridad referencial robusta** — Las llaves foráneas (FK) entre tablas (paciente → unidad, suministro → paciente) son críticas en un sistema de salud. PostgreSQL las aplica de forma estricta.
+- **Integridad referencial robusta** — Las llaves foráneas (FK) entre tablas (paciente → unidad, receta → paciente → médico) son críticas en un sistema de salud. PostgreSQL las aplica de forma estricta.
 - **Soporte de tipos avanzados** — Timestamps con zona horaria (`TIMESTAMPTZ`), esencial para registros de auditoría confiables.
 - **Escalabilidad** — Preparado para crecer de cientos a millones de registros sin cambiar de motor.
 - **Estándar institucional** — PostgreSQL es el motor de base de datos más adoptado en sistemas gubernamentales y de salud en México.
@@ -80,7 +80,7 @@ El sistema es una **API REST** que centraliza el censo de pacientes que reciben 
 
 ### Soft Delete (es_activo)
 **¿Por qué no DELETE físico?**
-Los datos de pacientes y suministros son registros médicos. En el sector salud, **ningún dato se elimina** — se da de baja lógicamente (`es_activo = False`). Esto garantiza:
+Los datos de pacientes y recetas son registros médicos. En el sector salud, **ningún dato se elimina** — se da de baja lógicamente (`es_activo = False`). Esto garantiza:
 - Trazabilidad histórica completa.
 - Auditoría ante cualquier revisión legal o administrativa.
 - Posibilidad de recuperar registros dados de baja por error.
@@ -93,7 +93,15 @@ La regla del Blueprint es clara: *"Toda consulta de datos debe pasar por un filt
 
 ### Adherencia calculada en runtime
 **¿Por qué no guardar `dias_adherencia` en la BD?**
-La adherencia es `(fecha_actual - fecha_inicio_tratamiento).days`. Si se guardara en la BD, habría que actualizarla diariamente para todos los pacientes. Al calcularla en el momento de la consulta, el dato siempre es exacto sin ningún proceso de actualización.
+La adherencia es `(fecha_actual - receta.fecha_inicio_tratamiento).days`, usando la receta activa más reciente del paciente. Si se guardara en la BD, habría que actualizarla diariamente para todos los pacientes. Al calcularla en el momento de la consulta, el dato siempre es exacto sin ningún proceso de actualización.
+
+### Recetas vs. Suministros (Blueprint v5)
+**¿Por qué reemplazar `suministros` con `medicos` + `recetas`?**
+La tabla `suministros` original era un registro simple de dosis sin contexto clínico. En v5 se separó en dos entidades:
+- **`medicos`** — Catálogo de profesionales médicos adscritos a unidades. Permite trazabilidad de quién prescribe.
+- **`recetas`** — Registro de prescripción que vincula médico + paciente + medicamento + unidad + fechas de tratamiento. Esto refleja el flujo real del sector salud (una receta genera la dispensación) y permite calcular la adherencia por esquema de tratamiento específico, no por el historial global del paciente.
+
+Adicionalmente, `fecha_inicio_tratamiento` se movió de `pacientes` a `recetas` porque un paciente puede tener múltiples esquemas de tratamiento a lo largo del tiempo, cada uno con su propia fecha de inicio.
 
 ---
 
@@ -102,10 +110,11 @@ La adherencia es `(fecha_actual - fecha_inicio_tratamiento).days`. Si se guardar
 ```
 app/
 ├── database.py   → Conexión a PostgreSQL, pool de conexiones, sesión por request.
-├── models.py     → Las 5 tablas ORM: CatMedicamento, UnidadMedica, Usuario, Paciente, Suministro.
+├── models.py     → Las 6 tablas ORM: CatMedicamento, UnidadMedica (cat_unidades),
+│                   Usuario, Paciente, Medico, Receta.
 ├── schemas.py    → Validación de entrada/salida con Pydantic (CURP, CLUES, roles).
 ├── auth.py       → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
-└── main.py       → Todos los endpoints de la API (5 módulos del Blueprint).
+└── main.py       → Todos los endpoints de la API (7 módulos del Blueprint).
 ```
 
 **Flujo de una petición:**
