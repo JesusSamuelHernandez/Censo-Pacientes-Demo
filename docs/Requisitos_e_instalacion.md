@@ -24,7 +24,17 @@ pip install -r requirements.txt
 # Copiar la plantilla
 copy .env.example .env   # Windows
 cp .env.example .env     # Mac/Linux
-El .env.example ya tiene los valores correctos para desarrollo local — no necesita cambiar nada salvo el JWT_SECRET_KEY si lo desea.
+El .env.example ya tiene los valores correctos para desarrollo local. Para generar claves seguras usa estos comandos:
+
+JWT_SECRET_KEY (mínimo 32 caracteres):
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+FERNET_KEY:
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
 
 4. Levantar la base de datos con Docker
 

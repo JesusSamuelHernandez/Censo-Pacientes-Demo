@@ -57,10 +57,16 @@ Edita `.env` con los datos de tu entorno:
 
 ```env
 DATABASE_URL=postgresql://usuario:password@localhost:5432/censo_pacientes
-JWT_SECRET_KEY=clave_secreta_de_al_menos_32_caracteres
+JWT_SECRET_KEY=<clave generada con el comando de abajo>
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_HOURS=8
 FERNET_KEY=<clave generada con el comando de abajo>
+```
+
+Para generar `JWT_SECRET_KEY`:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 Para generar `FERNET_KEY`:
