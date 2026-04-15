@@ -86,20 +86,17 @@ export default function Sidebar() {
   const itemsVisibles = navItems.filter((item) => item.roles.includes(rolNombre));
 
   return (
-    <aside className="w-64 min-h-screen bg-sidebar flex flex-col">
+    <aside className="w-52 min-h-screen bg-secondary-dark flex flex-col">
       {/* Logo */}
-      <div className="px-6 py-6 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
-            <span className="text-white font-bold text-sm">MB</span>
-          </div>
-          <div>
-            <p className="text-white font-semibold text-sm leading-tight">
-              Medicamentos
-            </p>
-            <p className="text-white/50 text-xs">Alto Costo</p>
-          </div>
-        </div>
+      <div className="px-5 py-5 border-b border-white/10">
+        <img
+          src="/shared/logos/logohorizontal2.png"
+          alt="IMSS Bienestar"
+          className="w-full object-contain max-h-12"
+        />
+        <p className="text-white/70 text-xs mt-2 text-center tracking-wide">
+          Medicamentos Huérfanos
+        </p>
       </div>
 
       {/* Rol del usuario */}
