@@ -176,11 +176,7 @@ class UsuarioBase(BaseModel):
 
 
 class UsuarioCreate(UsuarioBase):
-    password: str = Field(
-        ...,
-        min_length=8,
-        description="Contraseña en texto plano. Se almacenará hasheada.",
-    )
+    pass  # La contraseña la genera el backend automáticamente.
 
 
 class UsuarioUpdate(BaseModel):

@@ -29,6 +29,7 @@ Adherencia:
 from datetime import date, datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -90,6 +91,21 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# ---------------------------------------------------------------------------
+# CORS — Permite peticiones desde el frontend React (localhost:5173 en dev).
+# En producción reemplaza las URLs de allow_origins con el dominio real.
+# ---------------------------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",   # Vite dev server
+        "http://127.0.0.1:5173",  # Alternativa local
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ===========================================================================
 # AUTENTICACIÓN
@@ -132,7 +148,7 @@ def login(
 def listar_pacientes(
     solo_activos: bool = Query(True),
     pagina: int = Query(1, ge=1),
-    por_pagina: int = Query(20, ge=1, le=100),
+    por_pagina: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
@@ -450,7 +466,7 @@ def eliminar_medico(
 def listar_recetas(
     solo_activos: bool = Query(True),
     pagina: int = Query(1, ge=1),
-    por_pagina: int = Query(20, ge=1, le=100),
+    por_pagina: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
@@ -739,8 +755,8 @@ def reporte_resumen_detallado(
                 "nombre_paciente": descifrar(r.paciente.nombre_completo) if r.paciente else None,
                 "diagnostico": descifrar_o_none(r.paciente.diagnostico_actual) if r.paciente else None,
                 "clues_unidad": r.clues,
-                "medico": r.medico.nombre_medico if r.medico else None,
-                "cedula_medico": r.medico.cedula if r.medico else None,
+                "medico": descifrar(r.medico.nombre_medico) if r.medico else None,
+                "cedula_medico": descifrar(r.medico.cedula) if r.medico else None,
                 "dias_adherencia": (
                     (date.today() - r.fecha_inicio_tratamiento).days
                     if r.fecha_inicio_tratamiento else None
@@ -784,7 +800,7 @@ def reporte_estatal(
             func.count(Receta.id_receta.distinct()).label("total_recetas"),
         )
         .outerjoin(Paciente, Paciente.clues_unidad_adscripcion == UnidadMedica.clues)
-        .outerjoin(Receta, Receta.clues == UnidadMedica.clues)
+        .outerjoin(Receta, (Receta.clues == UnidadMedica.clues) & (Receta.es_activo == True))
         .filter(Paciente.es_activo == True)
     )
 
