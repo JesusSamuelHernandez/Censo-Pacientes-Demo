@@ -481,7 +481,7 @@ def listar_recetas(
         total=total,
         pagina=pagina,
         por_pagina=por_pagina,
-        resultados=[RecetaResponse.model_validate(r) for r in recetas],
+        resultados=[_receta_to_response(r) for r in recetas],
     )
 
 
@@ -594,7 +594,7 @@ def obtener_receta(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada.")
 
     _verificar_acceso_receta(receta, current_user, db)
-    return RecetaResponse.model_validate(receta)
+    return _receta_to_response(receta)
 
 
 @app.patch(
@@ -631,7 +631,7 @@ def actualizar_receta(
     receta.id_usuario_registro = current_user.id_usuario
     db.commit()
     db.refresh(receta)
-    return RecetaResponse.model_validate(receta)
+    return _receta_to_response(receta)
 
 
 @app.delete(
@@ -672,7 +672,7 @@ def anular_receta(
     receta.id_usuario_registro = current_user.id_usuario
     db.commit()
     db.refresh(receta)
-    return RecetaResponse.model_validate(receta)
+    return _receta_to_response(receta)
 
 
 # ===========================================================================
@@ -1124,6 +1124,25 @@ def _medico_to_response(m: Medico) -> MedicoResponse:
         cedula=descifrar(m.cedula),
         email=m.email,
         clues_adscripcion=m.clues_adscripcion,
+    )
+
+
+def _receta_to_response(r: Receta) -> RecetaResponse:
+    """Construye RecetaResponse descifrando los campos del médico embebido."""
+    return RecetaResponse(
+        id_receta=r.id_receta,
+        id_medico=r.id_medico,
+        id_paciente=r.id_paciente,
+        clave_cnis=r.clave_cnis,
+        clues=r.clues,
+        fecha_inicio_tratamiento=r.fecha_inicio_tratamiento,
+        fecha_primera_admin=r.fecha_primera_admin,
+        dosis_administrada=r.dosis_administrada,
+        es_activo=r.es_activo,
+        fecha_registro_sistema=r.fecha_registro_sistema,
+        id_usuario_registro=r.id_usuario_registro,
+        medicamento=MedicamentoResponse.model_validate(r.medicamento) if r.medicamento else None,
+        medico=_medico_to_response(r.medico) if r.medico else None,
     )
 
 
