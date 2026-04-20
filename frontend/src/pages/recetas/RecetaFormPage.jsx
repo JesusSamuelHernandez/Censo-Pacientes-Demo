@@ -154,11 +154,11 @@ export default function RecetaFormPage() {
           dosis_administrada: values.dosis_administrada || undefined,
         };
         await crearReceta(payload);
-        toast.success("Suministro registrado correctamente.");
+        toast.success("Prescripción registrada correctamente.");
       }
       navigate("/recetas");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Error al guardar el suministro.");
+      toast.error(err.response?.data?.detail || "Error al guardar el prescripción.");
     } finally {
       setLoading(false);
     }
@@ -174,10 +174,10 @@ export default function RecetaFormPage() {
         </button>
         <div>
           <h2 className="text-xl font-semibold text-neutral-black">
-            {esEdicion ? `Editar receta: ${id}` : "Registrar Suministro"}
+            {esEdicion ? `Editar receta: ${id}` : "Registrar Prescripción"}
           </h2>
           <p className="text-sm text-neutral-gray">
-            {esEdicion ? "Solo puedes modificar fechas y dosis." : "Completa los datos del nuevo suministro."}
+            {esEdicion ? "Solo puedes modificar fechas y dosis." : "Completa los datos de la nueva prescripción."}
           </p>
         </div>
       </div>
@@ -190,7 +190,7 @@ export default function RecetaFormPage() {
               {/* Folio */}
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
-                  Folio del suministro <span className="text-primary">*</span>
+                  Folio de la prescripción <span className="text-primary">*</span>
                 </label>
                 <input type="text" placeholder="ej. RX-ZS-2026-0020"
                   className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
@@ -256,7 +256,7 @@ export default function RecetaFormPage() {
               {/* Unidad */}
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
-                  Unidad donde se genera el suministro <span className="text-primary">*</span>
+                  Unidad donde se genera la prescripción <span className="text-primary">*</span>
                 </label>
                 <UnidadCombobox
                   value={cluesSeleccionada}
@@ -318,7 +318,7 @@ export default function RecetaFormPage() {
               {loading
                 ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 : <Save size={15} />}
-              {loading ? "Guardando..." : esEdicion ? "Guardar cambios" : "Registrar suministro"}
+              {loading ? "Guardando..." : esEdicion ? "Guardar cambios" : "Registrar prescripción"}
             </button>
           </div>
         </form>

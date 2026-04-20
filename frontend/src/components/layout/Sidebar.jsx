@@ -36,7 +36,7 @@ const navItems = [
     roles: [ROLES.SUPER_ADMIN, ROLES.ADMIN_ESTATAL, ROLES.RESPONSABLE_UNIDAD],
   },
   {
-    label: "Suministros",
+    label: "Prescripciones",
     to: "/recetas",
     icon: ClipboardList,
     roles: [ROLES.SUPER_ADMIN, ROLES.ADMIN_ESTATAL, ROLES.RESPONSABLE_UNIDAD],

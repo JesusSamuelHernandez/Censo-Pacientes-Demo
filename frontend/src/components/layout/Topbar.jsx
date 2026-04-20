@@ -8,7 +8,7 @@ import useAuthStore from "../../store/authStore";
 const titulos = {
   "/pacientes": "Pacientes",
   "/medicos": "Médicos",
-  "/recetas": "Suministros",
+  "/recetas": "Prescripciones",
   "/reportes": "Reportes",
   "/catalogos/medicamentos": "Catálogo de Medicamentos",
   "/catalogos/unidades": "Unidades Médicas",
