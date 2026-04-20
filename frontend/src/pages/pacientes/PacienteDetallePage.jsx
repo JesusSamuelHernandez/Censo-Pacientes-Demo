@@ -106,14 +106,14 @@ export default function PacienteDetallePage() {
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-gray/10">
           <div className="flex items-center gap-2">
             <ClipboardList size={18} className="text-primary" />
-            <h3 className="font-semibold text-neutral-black">Historial de Recetas</h3>
+            <h3 className="font-semibold text-neutral-black">Historial de Suministros</h3>
           </div>
-          <span className="text-xs text-neutral-gray">{recetas.length} receta(s)</span>
+          <span className="text-xs text-neutral-gray">{recetas.length} suministro(s)</span>
         </div>
 
         {recetas.length === 0 ? (
           <p className="text-center text-neutral-gray py-10 text-sm">
-            Este paciente no tiene recetas registradas.
+            Este paciente no tiene suministros registrados.
           </p>
         ) : (
           <div className="overflow-x-auto">

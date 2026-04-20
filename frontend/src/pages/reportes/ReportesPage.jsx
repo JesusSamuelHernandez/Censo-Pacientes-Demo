@@ -219,7 +219,7 @@ function ReporteEstatal() {
       "Nombre Unidad": u.nombre_de_la_unidad,
       "Entidad": u.id_entidad,
       "Total Pacientes Activos": u.total_pacientes_activos,
-      "Total Recetas Activas": u.total_recetas_activas,
+      "Total Suministros Activos": u.total_recetas_activas,
     }));
 
     const ws = XLSX.utils.json_to_sheet(filas);
@@ -255,7 +255,7 @@ function ReporteEstatal() {
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Unidad Médica</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Entidad</th>
                 <th className="text-center px-4 py-3 font-semibold text-neutral-black">Pacientes Activos</th>
-                <th className="text-center px-4 py-3 font-semibold text-neutral-black">Recetas Activas</th>
+                <th className="text-center px-4 py-3 font-semibold text-neutral-black">Suministros Activos</th>
               </tr>
             </thead>
             <tbody>

@@ -69,8 +69,8 @@ export default function RecetasPage() {
       {/* Encabezado */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-neutral-black">Recetas</h2>
-          <p className="text-sm text-neutral-gray mt-0.5">{total} recetas registradas</p>
+          <h2 className="text-xl font-semibold text-neutral-black">Suministros</h2>  {/*Aqui cambiamos la etiqueta de recetas a suministros*/}
+          <p className="text-sm text-neutral-gray mt-0.5">{total} suministros registrados</p>
         </div>
         {ROLES_PUEDEN_CREAR.includes(rolNombre) && (
           <button
@@ -79,7 +79,7 @@ export default function RecetasPage() {
               text-sm font-medium px-4 py-2 rounded-lg transition"
           >
             <FilePlus size={16} />
-            Registrar receta
+            Registrar Suministro 
           </button>
         )}
       </div>
