@@ -11,6 +11,9 @@ create_admin.py
 .env
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
 
 generador.py
 
@@ -19,3 +22,9 @@ generador.py
 
 scripts/**
 scripts/cargar_medicamentos.py
+
+node_modules/
+dist/
+build/
+.vscode/
+.DS_Store

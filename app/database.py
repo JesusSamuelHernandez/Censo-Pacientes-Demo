@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 # La URL de conexión se lee desde una variable de entorno para no exponer credenciales.
 # Formato: postgresql://usuario:contraseña@host:puerto/nombre_db
-load_dotenv()  # Carga las variables de entorno del archivo .env
+load_dotenv(encoding='utf-8')  # Carga las variables de entorno del archivo .env
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
