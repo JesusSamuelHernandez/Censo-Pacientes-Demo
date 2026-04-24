@@ -98,13 +98,25 @@ app = FastAPI(
 # CORS — Configuración dinámica según entorno
 import os
 
-# Obtener URLs permitidas desde variable de entorno (separadas por comas)
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-allowed_origins = FRONTEND_URL.split(",")
+# URLs permitidas (desarrollo y producción)
+FRONTEND_URL = os.getenv(
+    "FRONTEND_URL",
+    "http://localhost:5173,https://censo-frontend-production-dab7.up.railway.app"
+)
 
+allowed_origins = [url.strip() for url in FRONTEND_URL.split(",") if url.strip()]
+
+# Agregar localhost para desarrollo local si no está
+if "http://localhost:5173" not in allowed_origins:
+    allowed_origins.append("http://localhost:5173")
+
+# DEBUG: Mostrar en logs qué orígenes están permitidos
+print(f"✓ CORS allowed origins: {allowed_origins}")
+
+# Permitir todos los orígenes temporalmente para diagnóstico
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],  # TEMPORAL: permitir todos para debugging
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
