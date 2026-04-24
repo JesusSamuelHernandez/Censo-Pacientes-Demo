@@ -1,0 +1,42 @@
+databases:
+  - name: censo-db
+    databaseName: censo_px
+    user: censo_user
+    plan: free
+
+services:
+  # Backend FastAPI
+  - type: web
+    name: censo-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: censo-db
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: FERNET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRE_HOURS
+        value: 8
+      - key: PYTHON_VERSION
+        value: 3.11
+
+  # Frontend React
+  - type: web
+    name: censo-frontend
+    env: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: censo-backend
+          envVarKey: RENDER_EXTERNAL_URL

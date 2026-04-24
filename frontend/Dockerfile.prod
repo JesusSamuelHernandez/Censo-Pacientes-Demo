@@ -1,0 +1,16 @@
+# Usamos Node para construir y servir la app
+FROM node:22-alpine
+
+WORKDIR /app
+
+# Copiamos los archivos y dependencias
+COPY package.json package-lock.json* ./
+RUN npm install
+
+# Copiamos el resto del código y construimos la app (carpeta dist)
+COPY . .
+RUN npm run build
+
+# Vite preview levanta un servidor super rápido para servir la carpeta dist en producción
+# Le pasamos el puerto dinámico de Railway directamente
+CMD npm run preview -- --host 0.0.0.0 --port ${PORT:-5173}

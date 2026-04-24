@@ -3,19 +3,25 @@ contexto/
 .context/
 .claude/
 
-# Scripts de inicialización
-create_admin.py
-
 # Entorno y variables
 .venv/
 .env
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
 
 generador.py
 
 *.xlsx
-*.py
 
 scripts/**
 scripts/cargar_medicamentos.py
+
+node_modules/
+dist/
+build/
+.vscode/
+.DS_Store
+*.log

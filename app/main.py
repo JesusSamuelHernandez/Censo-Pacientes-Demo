@@ -95,17 +95,32 @@ app = FastAPI(
 # CORS — Permite peticiones desde el frontend React (localhost:5173 en dev).
 # En producción reemplaza las URLs de allow_origins con el dominio real.
 # ---------------------------------------------------------------------------
+# CORS — Configuración dinámica según entorno
+import os
+
+# URLs permitidas (desarrollo y producción)
+FRONTEND_URL = os.getenv(
+    "FRONTEND_URL",
+    "http://localhost:5173,https://censo-frontend-production-dab7.up.railway.app"
+)
+
+allowed_origins = [url.strip() for url in FRONTEND_URL.split(",") if url.strip()]
+
+# Agregar localhost para desarrollo local si no está
+if "http://localhost:5173" not in allowed_origins:
+    allowed_origins.append("http://localhost:5173")
+
+# DEBUG: Mostrar en logs qué orígenes están permitidos
+print(f"✓ CORS allowed origins: {allowed_origins}")
+
+# Permitir todos los orígenes temporalmente para diagnóstico
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",   # Vite dev server
-        "http://127.0.0.1:5173",  # Alternativa local
-    ],
+    allow_origins=["*"],  # TEMPORAL: permitir todos para debugging
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # ===========================================================================
 # AUTENTICACIÓN
