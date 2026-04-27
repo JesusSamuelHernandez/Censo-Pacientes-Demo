@@ -405,7 +405,20 @@ class RegistroListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# ── 7. Auth ─────────────────────────────────────────────────────────────────
+# ── 7. Búsqueda nacional de paciente por CURP ───────────────────────────────
+# ---------------------------------------------------------------------------
+
+class BusquedaCurpResponse(BaseModel):
+    existe: bool
+    id_paciente: int | None = None
+    nombre_completo: str | None = None
+    clues_unidad_adscripcion: str | None = None
+    nombre_unidad: str | None = None
+    total_registros: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# ── 8. Auth ─────────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 class LoginRequest(BaseModel):

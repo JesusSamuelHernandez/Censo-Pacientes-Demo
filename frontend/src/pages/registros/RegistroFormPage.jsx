@@ -7,11 +7,11 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Save, Search, X } from "lucide-react";
+import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 import { crearRegistro, actualizarRegistro, obtenerRegistro } from "../../api/registros";
-import { listarPacientes } from "../../api/pacientes";
+import { listarPacientes, buscarPacientePorCurp } from "../../api/pacientes";
 import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
@@ -109,6 +109,8 @@ function BuscadorItem({ placeholder, items, displayFn, itemKey, onSelect, error 
   );
 }
 
+const CURP_REGEX = /^[A-Z]{4}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d$/;
+
 export default function RegistroFormPage() {
   const { id } = useParams();
   const esEdicion = Boolean(id);
@@ -119,6 +121,11 @@ export default function RegistroFormPage() {
   const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Estado del widget de búsqueda por CURP
+  const [curpBusqueda, setCurpBusqueda] = useState("");
+  const [busquedaEstado, setBusquedaEstado] = useState(null); // null | "buscando" | "encontrado" | "no_encontrado" | "error"
+  const [resultadoBusqueda, setResultadoBusqueda] = useState(null);
+
   const {
     register,
     handleSubmit,
@@ -127,6 +134,27 @@ export default function RegistroFormPage() {
     watch,
     formState: { errors },
   } = useForm({ resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear) });
+
+  // Dispara la búsqueda nacional cuando el CURP alcanza 18 caracteres válidos
+  useEffect(() => {
+    const curp = curpBusqueda.trim().toUpperCase();
+    if (!CURP_REGEX.test(curp)) {
+      setBusquedaEstado(null);
+      setResultadoBusqueda(null);
+      return;
+    }
+    setBusquedaEstado("buscando");
+    buscarPacientePorCurp(curp)
+      .then((res) => {
+        setResultadoBusqueda(res);
+        setBusquedaEstado(res.existe ? "encontrado" : "no_encontrado");
+        // Si el paciente existe, auto-seleccionarlo en el selector de paciente
+        if (res.existe) {
+          setValue("id_paciente", res.id_paciente, { shouldValidate: true });
+        }
+      })
+      .catch(() => setBusquedaEstado("error"));
+  }, [curpBusqueda]);
 
   const cluesSeleccionada = watch("clues");
 
@@ -209,6 +237,87 @@ export default function RegistroFormPage() {
 
           {!esEdicion && (
             <>
+              {/* ── Verificación nacional por CURP ── */}
+              <div className="rounded-xl border border-neutral-gray/20 bg-neutral-light/50 p-4 space-y-3">
+                <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide">
+                  Verificar paciente por CURP
+                </p>
+                <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-white text-sm">
+                  <Search size={14} className="text-neutral-gray flex-shrink-0" />
+                  <input
+                    type="text"
+                    placeholder="Escribe la CURP completa (18 caracteres)..."
+                    value={curpBusqueda}
+                    onChange={(e) => setCurpBusqueda(e.target.value.toUpperCase())}
+                    maxLength={18}
+                    className="flex-1 bg-transparent outline-none text-neutral-black placeholder:text-neutral-gray font-mono"
+                  />
+                  {curpBusqueda && (
+                    <button
+                      type="button"
+                      onClick={() => { setCurpBusqueda(""); setBusquedaEstado(null); setResultadoBusqueda(null); }}
+                      className="text-neutral-gray hover:text-neutral-black"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                  <span className={`text-xs font-mono ${curpBusqueda.length === 18 ? "text-secondary" : "text-neutral-gray/50"}`}>
+                    {curpBusqueda.length}/18
+                  </span>
+                </div>
+
+                {/* Resultado de búsqueda */}
+                {busquedaEstado === "buscando" && (
+                  <div className="flex items-center gap-2 text-sm text-neutral-gray">
+                    <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block" />
+                    Buscando en el sistema...
+                  </div>
+                )}
+
+                {busquedaEstado === "encontrado" && resultadoBusqueda && (
+                  <div className="flex items-start justify-between gap-3 bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3">
+                    <div className="flex items-start gap-2">
+                      <UserCheck size={16} className="text-secondary mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-neutral-black">{resultadoBusqueda.nombre_completo}</p>
+                        <p className="text-xs text-neutral-gray mt-0.5">
+                          Unidad: <span className="font-medium">{resultadoBusqueda.nombre_unidad ?? resultadoBusqueda.clues_unidad_adscripcion}</span>
+                        </p>
+                        <p className="text-xs text-neutral-gray">
+                          Prescripciones registradas: <span className="font-medium">{resultadoBusqueda.total_registros}</span>
+                        </p>
+                        <p className="text-xs text-secondary mt-1">Paciente seleccionado automáticamente.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/pacientes/${curpBusqueda.trim().toUpperCase()}`, {
+                        state: { from: "registro-form" }
+                      })}
+                      className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark
+                        border border-primary/30 hover:border-primary px-3 py-1.5 rounded-lg transition flex-shrink-0"
+                    >
+                      <ExternalLink size={12} />
+                      Ver historial
+                    </button>
+                  </div>
+                )}
+
+                {busquedaEstado === "no_encontrado" && (
+                  <div className="flex items-center gap-2 bg-neutral-gray/5 border border-neutral-gray/20 rounded-lg px-4 py-3">
+                    <UserX size={16} className="text-neutral-gray flex-shrink-0" />
+                    <p className="text-sm text-neutral-gray">
+                      Paciente no encontrado en el sistema. Selecciónalo manualmente si ya existe en tu unidad,
+                      o será registrado al guardar la prescripción.
+                    </p>
+                  </div>
+                )}
+
+                {busquedaEstado === "error" && (
+                  <p className="text-sm text-red-500">Error al buscar. Intenta de nuevo.</p>
+                )}
+              </div>
+
               {/* Paciente */}
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">

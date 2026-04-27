@@ -50,6 +50,7 @@ from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
 from app.models import Base, CatMedicamento, Medico, Paciente, Registro, UnidadMedica, Usuario
 from app.schemas import (
+    BusquedaCurpResponse,
     CambiarPasswordRequest,
     LoginRequest,
     MedicoCreate,
@@ -230,6 +231,43 @@ def crear_paciente(
     respuesta = _paciente_to_response(nuevo)
     respuesta.dias_adherencia = _calcular_adherencia(nuevo.id_paciente, db)
     return respuesta
+
+
+@app.get(
+    "/pacientes/buscar",
+    response_model=BusquedaCurpResponse,
+    tags=["Pacientes"],
+    summary="Búsqueda nacional de paciente por CURP. Sin filtro RBAC — todos los roles.",
+)
+def buscar_paciente_por_curp(
+    curp: str = Query(..., min_length=18, max_length=18, description="CURP completa del paciente."),
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    curp_normalizada = curp.strip().upper()
+    paciente = db.query(Paciente).filter(
+        Paciente.curp_hash == hash_sha256(curp_normalizada)
+    ).first()
+
+    if not paciente:
+        return BusquedaCurpResponse(existe=False)
+
+    unidad = db.query(UnidadMedica).filter(
+        UnidadMedica.clues == paciente.clues_unidad_adscripcion
+    ).first()
+
+    total_registros = db.query(Registro).filter(
+        Registro.id_paciente == paciente.id_paciente
+    ).count()
+
+    return BusquedaCurpResponse(
+        existe=True,
+        id_paciente=paciente.id_paciente,
+        nombre_completo=descifrar(paciente.nombre_completo),
+        clues_unidad_adscripcion=paciente.clues_unidad_adscripcion,
+        nombre_unidad=unidad.nombre_de_la_unidad if unidad else None,
+        total_registros=total_registros,
+    )
 
 
 @app.get(

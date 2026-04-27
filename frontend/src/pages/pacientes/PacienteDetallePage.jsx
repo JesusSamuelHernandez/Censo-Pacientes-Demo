@@ -1,13 +1,13 @@
 /**
- * PacienteDetallePage.jsx — Detalle completo de un paciente con sus recetas.
+ * PacienteDetallePage.jsx — Detalle completo de un paciente con sus prescripciones.
  */
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { ArrowLeft, Pencil, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 
 import { obtenerPaciente } from "../../api/pacientes";
-import { listarRecetas } from "../../api/recetas";
+import { listarRegistros } from "../../api/registros";
 import useAuthStore from "../../store/authStore";
 
 const ROLES_PUEDEN_EDITAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
@@ -15,22 +15,25 @@ const ROLES_PUEDEN_EDITAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 export default function PacienteDetallePage() {
   const { curp } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { rolNombre } = useAuthStore();
 
   const [paciente, setPaciente] = useState(null);
-  const [recetas, setRecetas] = useState([]);
+  const [registros, setRegistros] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Detecta si llegamos desde el formulario de prescripción
+  const vieneDelFormulario = location.state?.from === "registro-form";
 
   useEffect(() => {
     const cargar = async () => {
       try {
         const [p, r] = await Promise.all([
           obtenerPaciente(curp),
-          listarRecetas({ soloActivos: false }),
+          listarRegistros({ soloActivos: false, porPagina: 500 }),
         ]);
         setPaciente(p);
-        // Filtrar solo las recetas de este paciente
-        setRecetas(r.resultados.filter((rec) => rec.id_paciente === p.id_paciente));
+        setRegistros(r.resultados.filter((reg) => reg.id_paciente === p.id_paciente));
       } catch {
         toast.error("Error al cargar el paciente.");
         navigate("/pacientes");
@@ -57,7 +60,7 @@ export default function PacienteDetallePage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate("/pacientes")}
+            onClick={() => vieneDelFormulario ? navigate(-1) : navigate("/pacientes")}
             className="p-2 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
           >
             <ArrowLeft size={18} />
@@ -67,16 +70,28 @@ export default function PacienteDetallePage() {
             <p className="text-sm font-mono text-neutral-gray">{paciente.curp_paciente}</p>
           </div>
         </div>
-        {ROLES_PUEDEN_EDITAR.includes(rolNombre) && paciente.es_activo && (
-          <button
-            onClick={() => navigate(`/pacientes/${curp}/editar`)}
-            className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
-              text-sm font-medium px-4 py-2 rounded-lg transition"
-          >
-            <Pencil size={15} />
-            Editar
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {vieneDelFormulario && (
+            <button
+              onClick={() => navigate(-1)}
+              className="flex items-center gap-2 border border-primary text-primary hover:bg-primary/5
+                text-sm font-medium px-4 py-2 rounded-lg transition"
+            >
+              <ArrowLeft size={15} />
+              Regresar al formulario
+            </button>
+          )}
+          {ROLES_PUEDEN_EDITAR.includes(rolNombre) && paciente.es_activo && (
+            <button
+              onClick={() => navigate(`/pacientes/${curp}/editar`)}
+              className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
+                text-sm font-medium px-4 py-2 rounded-lg transition"
+            >
+              <Pencil size={15} />
+              Editar
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Datos del paciente */}
@@ -94,24 +109,24 @@ export default function PacienteDetallePage() {
         <Campo label="Adherencia" valor={
           paciente.dias_adherencia != null
             ? <span className="text-secondary font-semibold">{paciente.dias_adherencia} días</span>
-            : "Sin receta activa"
+            : "Sin prescripción activa"
         } />
         <div className="col-span-2">
           <Campo label="Diagnóstico actual" valor={paciente.diagnostico_actual ?? "—"} />
         </div>
       </div>
 
-      {/* Recetas */}
+      {/* Historial de prescripciones */}
       <div className="bg-white rounded-xl border border-neutral-gray/20 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-gray/10">
           <div className="flex items-center gap-2">
             <ClipboardList size={18} className="text-primary" />
             <h3 className="font-semibold text-neutral-black">Historial de Prescripciones</h3>
           </div>
-          <span className="text-xs text-neutral-gray">{recetas.length} prescripción(es)</span>
+          <span className="text-xs text-neutral-gray">{registros.length} prescripción(es)</span>
         </div>
 
-        {recetas.length === 0 ? (
+        {registros.length === 0 ? (
           <p className="text-center text-neutral-gray py-10 text-sm">
             Este paciente no tiene prescripciones registradas.
           </p>
@@ -120,18 +135,19 @@ export default function PacienteDetallePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-neutral-light border-b border-neutral-gray/10">
-                  <th className="text-left px-4 py-3 font-semibold text-neutral-black">Folio</th>
+                  <th className="text-left px-4 py-3 font-semibold text-neutral-black">ID</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Medicamento</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Médico</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Inicio</th>
+                  <th className="text-left px-4 py-3 font-semibold text-neutral-black">Fin</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Dosis</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Estado</th>
                 </tr>
               </thead>
               <tbody>
-                {recetas.map((r) => (
-                  <tr key={r.id_receta} className="border-b border-neutral-gray/10 hover:bg-neutral-light/50">
-                    <td className="px-4 py-3 font-mono text-xs text-neutral-gray">{r.id_receta}</td>
+                {registros.map((r) => (
+                  <tr key={r.id_registro} className="border-b border-neutral-gray/10 hover:bg-neutral-light/50">
+                    <td className="px-4 py-3 font-mono text-xs text-neutral-gray">#{r.id_registro}</td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-neutral-black text-xs">{r.clave_cnis}</p>
                       <p className="text-neutral-gray text-xs truncate max-w-xs">
@@ -143,6 +159,9 @@ export default function PacienteDetallePage() {
                     </td>
                     <td className="px-4 py-3 text-neutral-gray text-xs">
                       {r.fecha_inicio_tratamiento ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-gray text-xs">
+                      {r.fecha_fin_tratamiento ?? "—"}
                     </td>
                     <td className="px-4 py-3 text-neutral-gray text-xs">
                       {r.dosis_administrada ?? "—"}
