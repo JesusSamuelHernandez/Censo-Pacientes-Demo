@@ -37,7 +37,7 @@ const navItems = [
   },
   {
     label: "Prescripciones",
-    to: "/recetas",
+    to: "/registros",
     icon: ClipboardList,
     roles: [ROLES.SUPER_ADMIN, ROLES.ADMIN_ESTATAL, ROLES.RESPONSABLE_UNIDAD],
   },

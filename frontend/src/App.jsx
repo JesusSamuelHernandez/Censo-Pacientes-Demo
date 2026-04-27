@@ -20,8 +20,8 @@ import PacienteFormPage from "./pages/pacientes/PacienteFormPage";
 import PacienteDetallePage from "./pages/pacientes/PacienteDetallePage";
 import MedicosPage from "./pages/medicos/MedicosPage";
 import MedicoFormPage from "./pages/medicos/MedicoFormPage";
-import RecetasPage from "./pages/recetas/RecetasPage";
-import RecetaFormPage from "./pages/recetas/RecetaFormPage";
+import RegistrosPage from "./pages/registros/RegistrosPage";
+import RegistroFormPage from "./pages/registros/RegistroFormPage";
 import ReportesPage from "./pages/reportes/ReportesPage";
 import MedicamentosPage from "./pages/catalogos/MedicamentosPage";
 import UnidadesPage from "./pages/catalogos/UnidadesPage";
@@ -66,9 +66,9 @@ export default function App() {
               <Route path="/medicos" element={<MedicosPage />} />
               <Route path="/medicos/nuevo" element={<MedicoFormPage />} />
               <Route path="/medicos/:id/editar" element={<MedicoFormPage />} />
-              <Route path="/recetas" element={<RecetasPage />} />
-              <Route path="/recetas/nueva" element={<RecetaFormPage />} />
-              <Route path="/recetas/:id/editar" element={<RecetaFormPage />} />
+              <Route path="/registros" element={<RegistrosPage />} />
+              <Route path="/registros/nuevo" element={<RegistroFormPage />} />
+              <Route path="/registros/:id/editar" element={<RegistroFormPage />} />
               <Route path="/reportes" element={<ReportesPage />} />
             </Route>
 

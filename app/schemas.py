@@ -13,10 +13,11 @@ Validaciones destacadas:
     - rol_nombre  : debe ser uno de los 3 roles definidos en el Blueprint.
     - email       : formato estándar vía EmailStr de Pydantic.
     - password    : mínimo 8 caracteres (solo en Create, nunca en Response).
-    - es_activo   : presente en Paciente y Receta (Soft Delete).
+    - es_activo   : presente en Paciente y Registro (Soft Delete).
 """
 import re
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Annotated
 
 from pydantic import (
@@ -270,7 +271,7 @@ class PacienteResponse(BaseModel):
     id_usuario_registro: int | None
     dias_adherencia: int | None = Field(
         None,
-        description="Días desde fecha_inicio_tratamiento de la receta activa más reciente.",
+        description="Días desde fecha_inicio_tratamiento del registro activo más reciente.",
     )
 
     model_config = ConfigDict(from_attributes=True)
@@ -325,31 +326,37 @@ class MedicoResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# ── 6. Receta ───────────────────────────────────────────────────────────────
+# ── 6. Registro (anteriormente Receta — Blueprint v6) ───────────────────────
 # ---------------------------------------------------------------------------
 
-class RecetaBase(BaseModel):
-    id_receta: str = Field(
-        ...,
-        min_length=1,
-        max_length=50,
-        description="Folio de la receta (provisto por el usuario).",
-    )
+class RegistroBase(BaseModel):
     id_medico: int = Field(..., description="ID del médico que prescribe.")
     id_paciente: int = Field(..., description="ID interno del paciente (PK de la tabla pacientes).")
     clave_cnis: ClaveCnisStr
     clues: CluesStr
     fecha_inicio_tratamiento: date | None = Field(
-        None, description="Inicio del esquema específico de esta receta."
+        None, description="Inicio del esquema específico de esta prescripción."
     )
-    fecha_primera_admin: date | None = Field(
+    fecha_primera_administracion: date | None = Field(
         None, description="Fecha real de la primera dosis."
+    )
+    fecha_fin_tratamiento: date | None = Field(
+        None, description="Fecha en que termina la prescripción. Se suma 1 mes para la ventana de continuidad."
     )
     dosis_administrada: str | None = Field(
         None,
         max_length=100,
         description="Ej. '200 mg', '1 ampolleta'.",
     )
+    peso: Decimal | None = Field(None, description="Peso del paciente en kg (ej. 75.50).")
+    talla: Decimal | None = Field(None, description="Talla del paciente en cm (ej. 165.00).")
+    estatus_diagnostico: str | None = Field(
+        None,
+        max_length=50,
+        description="Valores válidos: 'confirmado', 'por confirmar'.",
+    )
+    confirmado_por: str | None = Field(None, max_length=100, description="Área que confirmó el diagnóstico.")
+    prescripcion: str | None = Field(None, description="Descripción libre de la prescripción médica.")
 
     @field_validator("clues", mode="before")
     @classmethod
@@ -357,21 +364,28 @@ class RecetaBase(BaseModel):
         return v.strip().upper()
 
 
-class RecetaCreate(RecetaBase):
+class RegistroCreate(RegistroBase):
     pass
 
 
-class RecetaUpdate(BaseModel):
+class RegistroUpdate(BaseModel):
     fecha_inicio_tratamiento: date | None = None
-    fecha_primera_admin: date | None = None
+    fecha_primera_administracion: date | None = None
+    fecha_fin_tratamiento: date | None = None
     dosis_administrada: str | None = Field(None, max_length=100)
+    peso: Decimal | None = None
+    talla: Decimal | None = None
+    estatus_diagnostico: str | None = Field(None, max_length=50)
+    confirmado_por: str | None = Field(None, max_length=100)
+    prescripcion: str | None = None
     es_activo: bool | None = Field(
         None,
-        description="False = anular receta por error de captura (Soft Delete).",
+        description="False = anular registro por error de captura (Soft Delete).",
     )
 
 
-class RecetaResponse(RecetaBase):
+class RegistroResponse(RegistroBase):
+    id_registro: int
     es_activo: bool
     fecha_registro_sistema: datetime
     id_usuario_registro: int | None
@@ -383,11 +397,11 @@ class RecetaResponse(RecetaBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class RecetaListResponse(BaseModel):
+class RegistroListResponse(BaseModel):
     total: int
     pagina: int
     por_pagina: int
-    resultados: list[RecetaResponse]
+    resultados: list[RegistroResponse]
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +422,7 @@ class TokenResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# ── 9. Cambio de contraseña ─────────────────────────────────────────────────
+# ── 8. Cambio de contraseña ─────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 class CambiarPasswordRequest(BaseModel):
