@@ -3,10 +3,10 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FilePlus, Search, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { FilePlus, Search, ChevronLeft, ChevronRight, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
-import { listarRegistros, anularRegistro } from "../../api/registros";
+import { listarRegistros, anularRegistro, validarContinuidad } from "../../api/registros";
 import useAuthStore from "../../store/authStore";
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
@@ -22,6 +22,10 @@ export default function RegistrosPage() {
   const [soloActivos, setSoloActivos] = useState(true);
   const [loading, setLoading] = useState(true);
   const [confirmAnular, setConfirmAnular] = useState(null);
+
+  // Modal de validación de continuidad
+  const [modalValidar, setModalValidar] = useState(null); // { id_registro, medicamento }
+  const [nuevaFecha, setNuevaFecha] = useState("");
 
   const porPagina = 20;
   const totalPaginas = Math.ceil(total / porPagina);
@@ -61,6 +65,19 @@ export default function RegistrosPage() {
     } catch (err) {
       toast.error(err.response?.data?.detail || "Error al anular la prescripción.");
       setConfirmAnular(null);
+    }
+  };
+
+  const handleValidarContinuidad = async () => {
+    if (!modalValidar || !nuevaFecha) return;
+    try {
+      await validarContinuidad(modalValidar.id_registro, nuevaFecha);
+      toast.success("Continuidad validada. Prescripción reactivada.");
+      setModalValidar(null);
+      setNuevaFecha("");
+      cargar();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error al validar la continuidad.");
     }
   };
 
@@ -185,6 +202,19 @@ export default function RegistrosPage() {
                             </button>
                           </>
                         )}
+                        {ROLES_PUEDEN_CREAR.includes(rolNombre) && !r.es_activo && (
+                          <button
+                            onClick={() => {
+                              setModalValidar({ id_registro: r.id_registro, medicamento: r.medicamento?.descripcion ?? r.clave_cnis });
+                              setNuevaFecha("");
+                            }}
+                            className="flex items-center gap-1 p-1.5 rounded-lg text-neutral-gray hover:text-secondary hover:bg-secondary/10 transition text-xs"
+                            title="Validar continuidad"
+                          >
+                            <RefreshCw size={14} />
+                            Validar
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -221,6 +251,54 @@ export default function RegistrosPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de validación de continuidad */}
+      {modalValidar && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4 space-y-4">
+            <div>
+              <h3 className="text-base font-semibold text-neutral-black">Validar continuidad</h3>
+              <p className="text-sm text-neutral-gray mt-1 truncate">
+                {modalValidar.medicamento}
+              </p>
+            </div>
+            <p className="text-sm text-neutral-gray">
+              Indica la nueva fecha de fin de tratamiento. El registro se reactivará y el
+              contador de 30 días se reiniciará desde esa fecha.
+            </p>
+            <div>
+              <label className="block text-xs font-medium text-neutral-gray mb-1">
+                Nueva fecha de fin de tratamiento <span className="text-primary">*</span>
+              </label>
+              <input
+                type="date"
+                value={nuevaFecha}
+                onChange={(e) => setNuevaFecha(e.target.value)}
+                min={new Date().toISOString().slice(0, 10)}
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => { setModalValidar(null); setNuevaFecha(""); }}
+                className="flex-1 px-4 py-2 rounded-lg border border-neutral-gray/30
+                  text-sm text-neutral-gray hover:bg-neutral-light transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleValidarContinuidad}
+                disabled={!nuevaFecha}
+                className="flex-1 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary-dark
+                  text-white text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal confirmación de anulación */}
       {confirmAnular && (

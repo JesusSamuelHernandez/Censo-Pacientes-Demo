@@ -405,7 +405,58 @@ class RegistroListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# ── 7. Búsqueda nacional de paciente por CURP ───────────────────────────────
+# ── 7. Registro combinado paciente + prescripción (Blueprint v6 Paso 4) ─────
+# ---------------------------------------------------------------------------
+
+class RegistroCompletoCreate(BaseModel):
+    """
+    Payload para POST /registros/completo.
+    Crea (o reutiliza) un paciente y registra su prescripción en una sola llamada.
+    Los campos de paciente solo son obligatorios cuando el CURP no existe en BD.
+    """
+    # Identificador del paciente — siempre requerido
+    curp_paciente: CurpStr
+
+    # Datos del paciente — requeridos solo si el CURP no existe en BD
+    nombre_completo: str | None = Field(None, max_length=255)
+    diagnostico_actual: str | None = Field(None, max_length=5000)
+    # Si omitido, el backend usa la CLUES de la prescripción
+    clues_unidad_adscripcion: str | None = Field(None, max_length=20)
+
+    # Datos de la prescripción
+    id_medico: int = Field(..., description="ID del médico que prescribe.")
+    clave_cnis: ClaveCnisStr
+    clues: CluesStr
+    fecha_inicio_tratamiento: date | None = None
+    fecha_primera_administracion: date | None = None
+    fecha_fin_tratamiento: date | None = None
+    dosis_administrada: str | None = Field(None, max_length=100)
+    peso: Decimal | None = None
+    talla: Decimal | None = None
+    estatus_diagnostico: str | None = Field(None, max_length=50)
+    confirmado_por: str | None = Field(None, max_length=100)
+    prescripcion: str | None = None
+
+    @field_validator("curp_paciente", mode="before")
+    @classmethod
+    def normalizar_curp(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @field_validator("clues", mode="before")
+    @classmethod
+    def normalizar_clues(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class RegistroCompletoResponse(RegistroResponse):
+    """Extiende RegistroResponse con info del paciente y si fue creado en esta llamada."""
+    paciente_creado: bool = False
+    curp_paciente: str | None = None
+    nombre_paciente: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# ── 8. Búsqueda nacional de paciente por CURP ───────────────────────────────
 # ---------------------------------------------------------------------------
 
 class BusquedaCurpResponse(BaseModel):
@@ -418,7 +469,40 @@ class BusquedaCurpResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# ── 8. Auth ─────────────────────────────────────────────────────────────────
+# ── 8. Notificaciones ───────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class NotificacionResponse(BaseModel):
+    id_registro: int
+    id_paciente: int
+    nombre_paciente: str
+    clave_cnis: str
+    descripcion_medicamento: str | None
+    clues: str
+    fecha_fin_tratamiento: date
+    fecha_limite: date       # fecha_fin_tratamiento + 30 días
+    dias_restantes: int      # negativo = ya venció; 0 = vence hoy
+    es_activo: bool
+
+
+class NotificacionListResponse(BaseModel):
+    total: int
+    resultados: list[NotificacionResponse]
+
+
+# ---------------------------------------------------------------------------
+# ── 9. Validación de continuidad ────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class ValidarContinuidadRequest(BaseModel):
+    nueva_fecha_fin_tratamiento: date = Field(
+        ...,
+        description="Nueva fecha de fin de tratamiento. Reinicia el contador de 30 días.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# ── 9. Auth ─────────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 class LoginRequest(BaseModel):

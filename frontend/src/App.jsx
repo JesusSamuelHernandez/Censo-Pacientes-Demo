@@ -23,6 +23,7 @@ import MedicoFormPage from "./pages/medicos/MedicoFormPage";
 import RegistrosPage from "./pages/registros/RegistrosPage";
 import RegistroFormPage from "./pages/registros/RegistroFormPage";
 import ReportesPage from "./pages/reportes/ReportesPage";
+import NotificacionesPage from "./pages/notificaciones/NotificacionesPage";
 import MedicamentosPage from "./pages/catalogos/MedicamentosPage";
 import UnidadesPage from "./pages/catalogos/UnidadesPage";
 import UsuariosPage from "./pages/usuarios/UsuariosPage";
@@ -70,6 +71,7 @@ export default function App() {
               <Route path="/registros/nuevo" element={<RegistroFormPage />} />
               <Route path="/registros/:id/editar" element={<RegistroFormPage />} />
               <Route path="/reportes" element={<ReportesPage />} />
+              <Route path="/notificaciones" element={<NotificacionesPage />} />
             </Route>
 
             {/* Solo SUPER_ADMIN */}

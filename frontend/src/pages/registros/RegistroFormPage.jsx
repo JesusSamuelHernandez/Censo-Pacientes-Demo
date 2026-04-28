@@ -1,6 +1,7 @@
 /**
- * RegistroFormPage.jsx — Formulario para registrar o editar una prescripción.
- * El ID del registro es autoincremental — ya no lo ingresa el usuario.
+ * RegistroFormPage.jsx — Formulario combinado: registra paciente + prescripción en una sola operación.
+ * - Si la CURP ya existe en el sistema: reutiliza el paciente y crea solo la prescripción.
+ * - Si la CURP no existe: captura datos del paciente nuevo y crea ambos en una sola llamada.
  */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -10,11 +11,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
-import { crearRegistro, actualizarRegistro, obtenerRegistro } from "../../api/registros";
-import { listarPacientes, buscarPacientePorCurp } from "../../api/pacientes";
+import { crearRegistroCompleto, actualizarRegistro, obtenerRegistro } from "../../api/registros";
+import { buscarPacientePorCurp } from "../../api/pacientes";
 import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
+
+// ---------------------------------------------------------------------------
+// Constantes
+// ---------------------------------------------------------------------------
+const CURP_REGEX = /^[A-Z]{4}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d$/;
 
 const ESTATUS_OPTIONS = ["confirmado", "por confirmar"];
 
@@ -26,7 +32,8 @@ const CONFIRMADO_POR_OPTIONS = [
   "Trabajo Social",
 ];
 
-const camposComunes = {
+// Campos opcionales compartidos entre crear y editar
+const camposOpcionales = {
   estatus_diagnostico: z.string().optional().or(z.literal("")),
   confirmado_por: z.string().optional().or(z.literal("")),
   prescripcion: z.string().optional().or(z.literal("")),
@@ -39,16 +46,21 @@ const camposComunes = {
 };
 
 const schemaCrear = z.object({
+  // Campos de paciente nuevo (validación adicional en onSubmit)
+  nombre_completo: z.string().optional().or(z.literal("")),
+  diagnostico_actual: z.string().optional().or(z.literal("")),
+  // Datos de prescripción obligatorios
   id_medico: z.number({ invalid_type_error: "Selecciona un médico." }).int().positive(),
-  id_paciente: z.number({ invalid_type_error: "Selecciona un paciente." }).int().positive(),
   clave_cnis: z.string().min(1, "Selecciona un medicamento."),
   clues: z.string().min(1, "Selecciona una unidad."),
-  ...camposComunes,
+  ...camposOpcionales,
 });
 
-const schemaEditar = z.object({ ...camposComunes });
+const schemaEditar = z.object({ ...camposOpcionales });
 
-// Componente de búsqueda genérico para médicos y pacientes
+// ---------------------------------------------------------------------------
+// Componente buscador genérico (para médicos)
+// ---------------------------------------------------------------------------
 function BuscadorItem({ placeholder, items, displayFn, itemKey, onSelect, error }) {
   const [query, setQuery] = useState("");
   const [abierto, setAbierto] = useState(false);
@@ -109,15 +121,15 @@ function BuscadorItem({ placeholder, items, displayFn, itemKey, onSelect, error 
   );
 }
 
-const CURP_REGEX = /^[A-Z]{4}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d$/;
-
+// ---------------------------------------------------------------------------
+// Componente principal
+// ---------------------------------------------------------------------------
 export default function RegistroFormPage() {
   const { id } = useParams();
   const esEdicion = Boolean(id);
   const navigate = useNavigate();
 
   const [medicos, setMedicos] = useState([]);
-  const [pacientes, setPacientes] = useState([]);
   const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -135,7 +147,9 @@ export default function RegistroFormPage() {
     formState: { errors },
   } = useForm({ resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear) });
 
-  // Dispara la búsqueda nacional cuando el CURP alcanza 18 caracteres válidos
+  const cluesSeleccionada = watch("clues");
+
+  // Búsqueda nacional al completar CURP válida
   useEffect(() => {
     const curp = curpBusqueda.trim().toUpperCase();
     if (!CURP_REGEX.test(curp)) {
@@ -148,26 +162,15 @@ export default function RegistroFormPage() {
       .then((res) => {
         setResultadoBusqueda(res);
         setBusquedaEstado(res.existe ? "encontrado" : "no_encontrado");
-        // Si el paciente existe, auto-seleccionarlo en el selector de paciente
-        if (res.existe) {
-          setValue("id_paciente", res.id_paciente, { shouldValidate: true });
-        }
       })
       .catch(() => setBusquedaEstado("error"));
   }, [curpBusqueda]);
 
-  const cluesSeleccionada = watch("clues");
-
+  // Carga inicial de catálogos y datos de edición
   useEffect(() => {
-    Promise.all([
-      listarMedicos(),
-      listarPacientes({ soloActivos: true, porPagina: 500 }),
-      listarMedicamentos(),
-    ]).then(([m, p, med]) => {
-      setMedicos(m);
-      setPacientes(p.resultados);
-      setMedicamentos(med);
-    }).catch(() => toast.error("Error al cargar datos del formulario."));
+    Promise.all([listarMedicos(), listarMedicamentos()])
+      .then(([m, med]) => { setMedicos(m); setMedicamentos(med); })
+      .catch(() => toast.error("Error al cargar datos del formulario."));
 
     if (esEdicion) {
       obtenerRegistro(id).then((r) => {
@@ -186,6 +189,7 @@ export default function RegistroFormPage() {
     }
   }, [id]);
 
+  // Convierte strings vacíos a undefined y parsea números
   const _prepararPayload = (values) => {
     const payload = Object.fromEntries(
       Object.entries(values).filter(([, v]) => v !== "" && v !== undefined && v !== null)
@@ -196,15 +200,37 @@ export default function RegistroFormPage() {
   };
 
   const onSubmit = async (values) => {
+    if (!esEdicion) {
+      // Validar que hay CURP antes de enviar
+      const curp = curpBusqueda.trim().toUpperCase();
+      if (!CURP_REGEX.test(curp)) {
+        toast.error("Ingresa una CURP válida para identificar al paciente.");
+        return;
+      }
+      // Si el paciente no existe, el nombre es obligatorio
+      if (busquedaEstado === "no_encontrado" && !values.nombre_completo?.trim()) {
+        toast.error("El nombre completo del paciente es requerido.");
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      const payload = _prepararPayload(values);
+      const camposBase = _prepararPayload(values);
+
       if (esEdicion) {
-        await actualizarRegistro(id, payload);
+        await actualizarRegistro(id, camposBase);
         toast.success("Prescripción actualizada correctamente.");
       } else {
-        await crearRegistro(payload);
-        toast.success("Prescripción registrada correctamente.");
+        const payload = {
+          ...camposBase,
+          curp_paciente: curpBusqueda.trim().toUpperCase(),
+        };
+        const resultado = await crearRegistroCompleto(payload);
+        const msg = resultado.paciente_creado
+          ? "Paciente y prescripción registrados correctamente."
+          : "Prescripción registrada correctamente.";
+        toast.success(msg);
       }
       navigate("/registros");
     } catch (err) {
@@ -214,6 +240,9 @@ export default function RegistroFormPage() {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       {/* Encabezado */}
@@ -224,10 +253,12 @@ export default function RegistroFormPage() {
         </button>
         <div>
           <h2 className="text-xl font-semibold text-neutral-black">
-            {esEdicion ? `Editar prescripción #${id}` : "Registrar Prescripción"}
+            {esEdicion ? `Editar prescripción #${id}` : "Registrar Paciente"}
           </h2>
           <p className="text-sm text-neutral-gray">
-            {esEdicion ? "Solo puedes modificar fechas y dosis." : "Completa los datos de la nueva prescripción."}
+            {esEdicion
+              ? "Puedes modificar fechas, dosis y datos clínicos."
+              : "Busca al paciente por CURP y completa la prescripción."}
           </p>
         </div>
       </div>
@@ -235,13 +266,15 @@ export default function RegistroFormPage() {
       <div className="bg-white rounded-xl border border-neutral-gray/20 p-6">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
 
+          {/* ── Sección: Identificación del paciente (solo en creación) ── */}
           {!esEdicion && (
-            <>
-              {/* ── Verificación nacional por CURP ── */}
+            <div className="space-y-4">
+              <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-2">
+                1. Identificación del paciente
+              </p>
+
+              {/* Widget de verificación CURP */}
               <div className="rounded-xl border border-neutral-gray/20 bg-neutral-light/50 p-4 space-y-3">
-                <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide">
-                  Verificar paciente por CURP
-                </p>
                 <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-white text-sm">
                   <Search size={14} className="text-neutral-gray flex-shrink-0" />
                   <input
@@ -253,11 +286,9 @@ export default function RegistroFormPage() {
                     className="flex-1 bg-transparent outline-none text-neutral-black placeholder:text-neutral-gray font-mono"
                   />
                   {curpBusqueda && (
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={() => { setCurpBusqueda(""); setBusquedaEstado(null); setResultadoBusqueda(null); }}
-                      className="text-neutral-gray hover:text-neutral-black"
-                    >
+                      className="text-neutral-gray hover:text-neutral-black">
                       <X size={14} />
                     </button>
                   )}
@@ -266,7 +297,6 @@ export default function RegistroFormPage() {
                   </span>
                 </div>
 
-                {/* Resultado de búsqueda */}
                 {busquedaEstado === "buscando" && (
                   <div className="flex items-center gap-2 text-sm text-neutral-gray">
                     <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block" />
@@ -286,17 +316,13 @@ export default function RegistroFormPage() {
                         <p className="text-xs text-neutral-gray">
                           Prescripciones registradas: <span className="font-medium">{resultadoBusqueda.total_registros}</span>
                         </p>
-                        <p className="text-xs text-secondary mt-1">Paciente seleccionado automáticamente.</p>
+                        <p className="text-xs text-secondary mt-1">Paciente identificado — continúa llenando la prescripción.</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/pacientes/${curpBusqueda.trim().toUpperCase()}`, {
-                        state: { from: "registro-form" }
-                      })}
+                    <button type="button"
+                      onClick={() => navigate(`/pacientes/${curpBusqueda}`, { state: { from: "registro-form" } })}
                       className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark
-                        border border-primary/30 hover:border-primary px-3 py-1.5 rounded-lg transition flex-shrink-0"
-                    >
+                        border border-primary/30 hover:border-primary px-3 py-1.5 rounded-lg transition flex-shrink-0">
                       <ExternalLink size={12} />
                       Ver historial
                     </button>
@@ -304,11 +330,10 @@ export default function RegistroFormPage() {
                 )}
 
                 {busquedaEstado === "no_encontrado" && (
-                  <div className="flex items-center gap-2 bg-neutral-gray/5 border border-neutral-gray/20 rounded-lg px-4 py-3">
-                    <UserX size={16} className="text-neutral-gray flex-shrink-0" />
-                    <p className="text-sm text-neutral-gray">
-                      Paciente no encontrado en el sistema. Selecciónalo manualmente si ya existe en tu unidad,
-                      o será registrado al guardar la prescripción.
+                  <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                    <UserX size={16} className="text-amber-600 flex-shrink-0" />
+                    <p className="text-sm text-amber-700">
+                      Paciente no encontrado. Completa los datos a continuación para registrarlo.
                     </p>
                   </div>
                 )}
@@ -318,23 +343,48 @@ export default function RegistroFormPage() {
                 )}
               </div>
 
-              {/* Paciente */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-black mb-1">
-                  Paciente <span className="text-primary">*</span>
-                </label>
-                <BuscadorItem
-                  placeholder="Escribe nombre o CURP (mín. 2 caracteres)..."
-                  items={pacientes}
-                  displayFn={(p) => `${p.nombre_completo} (${p.curp_paciente})`}
-                  itemKey={(p) => p.id_paciente}
-                  onSelect={(p) => setValue("id_paciente", p?.id_paciente ?? null, { shouldValidate: true })}
-                  error={errors.id_paciente}
-                />
-                {errors.id_paciente && <p className="text-red-500 text-xs mt-1">{errors.id_paciente.message}</p>}
-              </div>
+              {/* Campos del paciente nuevo — solo si no fue encontrado */}
+              {busquedaEstado === "no_encontrado" && (
+                <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50/30 p-4">
+                  <p className="text-xs font-medium text-amber-700">Datos del paciente nuevo</p>
 
-              {/* Médico */}
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-black mb-1">
+                      Nombre completo <span className="text-primary">*</span>
+                    </label>
+                    <input type="text" placeholder="Apellido Apellido Nombre"
+                      className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                        focus:ring-2 focus:ring-primary/20 focus:border-primary
+                        ${errors.nombre_completo ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-white"}`}
+                      {...register("nombre_completo")} />
+                    {errors.nombre_completo && <p className="text-red-500 text-xs mt-1">{errors.nombre_completo.message}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-black mb-1">
+                      Diagnóstico actual
+                      <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+                    </label>
+                    <textarea rows={2} placeholder="Diagnóstico médico del paciente..."
+                      className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-white
+                        text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition resize-none"
+                      {...register("diagnostico_actual")} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Sección: Datos de la prescripción ── */}
+          <div className="space-y-4">
+            {!esEdicion && (
+              <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-2">
+                2. Datos de la prescripción
+              </p>
+            )}
+
+            {/* Médico */}
+            {!esEdicion && (
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
                   Médico <span className="text-primary">*</span>
@@ -349,8 +399,10 @@ export default function RegistroFormPage() {
                 />
                 {errors.id_medico && <p className="text-red-500 text-xs mt-1">{errors.id_medico.message}</p>}
               </div>
+            )}
 
-              {/* Medicamento */}
+            {/* Medicamento */}
+            {!esEdicion && (
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
                   Medicamento (clave CNIS) <span className="text-primary">*</span>
@@ -370,8 +422,10 @@ export default function RegistroFormPage() {
                 </select>
                 {errors.clave_cnis && <p className="text-red-500 text-xs mt-1">{errors.clave_cnis.message}</p>}
               </div>
+            )}
 
-              {/* Unidad */}
+            {/* Unidad */}
+            {!esEdicion && (
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
                   Unidad donde se genera la prescripción <span className="text-primary">*</span>
@@ -383,139 +437,124 @@ export default function RegistroFormPage() {
                 />
                 {errors.clues && <p className="text-red-500 text-xs mt-1">{errors.clues.message}</p>}
               </div>
-            </>
-          )}
+            )}
 
-          {/* Estatus del diagnóstico */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-black mb-1">
-              Estatus del diagnóstico
-              <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-            </label>
-            <select
-              className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-              {...register("estatus_diagnostico")}
-            >
-              <option value="">— Selecciona un estatus —</option>
-              {ESTATUS_OPTIONS.map((op) => (
-                <option key={op} value={op}>{op}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Confirmado por */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-black mb-1">
-              Confirmado por
-              <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-            </label>
-            <select
-              className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-              {...register("confirmado_por")}
-            >
-              <option value="">— Selecciona un área —</option>
-              {CONFIRMADO_POR_OPTIONS.map((op) => (
-                <option key={op} value={op}>{op}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Prescripción */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-black mb-1">
-              Prescripción
-              <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-            </label>
-            <textarea
-              rows={3}
-              placeholder="Descripción de la prescripción médica..."
-              className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition resize-none"
-              {...register("prescripcion")}
-            />
-          </div>
-
-          {/* Fecha inicio tratamiento */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-black mb-1">
-              Fecha inicio de tratamiento
-              <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-            </label>
-            <input type="date"
-              className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-              {...register("fecha_inicio_tratamiento")} />
-          </div>
-
-          {/* Fecha fin de tratamiento */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-black mb-1">
-              Fecha fin de tratamiento
-              <span className="text-neutral-gray font-normal ml-1">(opcional — se suma 1 mes para validación de continuidad)</span>
-            </label>
-            <input type="date"
-              className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-              {...register("fecha_fin_tratamiento")} />
-          </div>
-
-          {/* Fecha primera administración */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-black mb-1">
-              Fecha de primera administración
-              <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-            </label>
-            <input type="date"
-              className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-              {...register("fecha_primera_administracion")} />
-          </div>
-
-          {/* Dosis */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-black mb-1">
-              Dosis administrada
-              <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-            </label>
-            <input type="text" placeholder="ej. 500 mg IV, 40 mg SC"
-              className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-              {...register("dosis_administrada")} />
-          </div>
-
-          {/* Peso y Talla */}
-          <div className="grid grid-cols-2 gap-4">
+            {/* Estatus del diagnóstico */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Peso <span className="text-neutral-gray font-normal">(kg, opcional)</span>
+                Estatus del diagnóstico
+                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
               </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="999.99"
-                placeholder="ej. 75.50"
+              <select
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
                   text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-                {...register("peso")}
-              />
+                {...register("estatus_diagnostico")}
+              >
+                <option value="">— Selecciona un estatus —</option>
+                {ESTATUS_OPTIONS.map((op) => (
+                  <option key={op} value={op}>{op}</option>
+                ))}
+              </select>
             </div>
+
+            {/* Confirmado por */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Talla <span className="text-neutral-gray font-normal">(cm, opcional)</span>
+                Confirmado por
+                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
               </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="999.99"
-                placeholder="ej. 165.00"
+              <select
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
                   text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-                {...register("talla")}
-              />
+                {...register("confirmado_por")}
+              >
+                <option value="">— Selecciona un área —</option>
+                {CONFIRMADO_POR_OPTIONS.map((op) => (
+                  <option key={op} value={op}>{op}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Prescripción */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Prescripción
+                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+              </label>
+              <textarea rows={3} placeholder="Descripción de la prescripción médica..."
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition resize-none"
+                {...register("prescripcion")} />
+            </div>
+
+            {/* Fecha inicio tratamiento */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Fecha inicio de tratamiento
+                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+              </label>
+              <input type="date"
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("fecha_inicio_tratamiento")} />
+            </div>
+
+            {/* Fecha fin de tratamiento */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Fecha fin de tratamiento
+                <span className="text-neutral-gray font-normal ml-1">(opcional — se suma 1 mes para validación de continuidad)</span>
+              </label>
+              <input type="date"
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("fecha_fin_tratamiento")} />
+            </div>
+
+            {/* Fecha primera administración */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Fecha de primera administración
+                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+              </label>
+              <input type="date"
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("fecha_primera_administracion")} />
+            </div>
+
+            {/* Dosis */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Dosis administrada
+                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+              </label>
+              <input type="text" placeholder="ej. 500 mg IV, 40 mg SC"
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("dosis_administrada")} />
+            </div>
+
+            {/* Peso y Talla */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Peso <span className="text-neutral-gray font-normal">(kg, opcional)</span>
+                </label>
+                <input type="number" step="0.01" min="0" max="999.99" placeholder="ej. 75.50"
+                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  {...register("peso")} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Talla <span className="text-neutral-gray font-normal">(cm, opcional)</span>
+                </label>
+                <input type="number" step="0.01" min="0" max="999.99" placeholder="ej. 165.00"
+                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  {...register("talla")} />
+              </div>
             </div>
           </div>
 
@@ -533,9 +572,10 @@ export default function RegistroFormPage() {
               {loading
                 ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 : <Save size={15} />}
-              {loading ? "Guardando..." : esEdicion ? "Guardar cambios" : "Registrar prescripción"}
+              {loading ? "Guardando..." : esEdicion ? "Guardar cambios" : "Registrar"}
             </button>
           </div>
+
         </form>
       </div>
     </div>

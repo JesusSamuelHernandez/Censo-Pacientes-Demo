@@ -31,7 +31,7 @@ from datetime import date, datetime, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import (
@@ -52,6 +52,10 @@ from app.models import Base, CatMedicamento, Medico, Paciente, Registro, UnidadM
 from app.schemas import (
     BusquedaCurpResponse,
     CambiarPasswordRequest,
+    NotificacionListResponse,
+    NotificacionResponse,
+    RegistroCompletoCreate,
+    RegistroCompletoResponse,
     LoginRequest,
     MedicoCreate,
     MedicoResponse,
@@ -75,6 +79,7 @@ from app.schemas import (
     UsuarioCreateResponse,
     UsuarioResponse,
     UsuarioUpdate,
+    ValidarContinuidadRequest,
 )
 
 # ---------------------------------------------------------------------------
@@ -281,13 +286,16 @@ def obtener_paciente(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
+    marcar_registros_vencidos(db)
     paciente = db.query(Paciente).filter(
         Paciente.curp_hash == hash_sha256(curp_paciente)
     ).first()
     if not paciente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
 
-    _verificar_acceso_paciente(paciente, current_user, db)
+    # Lectura nacional sin restricción: cualquier rol puede consultar el detalle de
+    # un paciente para hacer búsquedas al registrar una nueva prescripción.
+    # La restricción RBAC aplica solo en escritura (PATCH / DELETE).
 
     respuesta = _paciente_to_response(paciente)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
@@ -312,7 +320,32 @@ def actualizar_paciente(
     if not paciente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
 
-    _verificar_acceso_paciente(paciente, current_user, db)
+    # RBAC para escritura — permite traslado entrante para RESPONSABLE_UNIDAD
+    if current_user.es_responsable_unidad:
+        nueva_clues = payload.clues_unidad_adscripcion
+        if nueva_clues:
+            # Si cambia la CLUES, el destino debe ser su propia unidad
+            if nueva_clues.strip().upper() != current_user.clues_unidad_asignada:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Solo puede transferir pacientes a su propia unidad médica.",
+                )
+        else:
+            # Si no cambia la CLUES, el paciente debe ser ya de su unidad
+            if paciente.clues_unidad_adscripcion != current_user.clues_unidad_asignada:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Para editar un paciente de otra unidad, selecciona tu unidad en el campo de adscripción para transferirlo.",
+                )
+    elif current_user.es_admin_estatal:
+        unidad = db.query(UnidadMedica).filter(
+            UnidadMedica.clues == paciente.clues_unidad_adscripcion
+        ).first()
+        if not unidad or unidad.id_entidad != current_user.id_entidad:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tiene acceso a pacientes de otro estado.",
+            )
 
     datos = payload.model_dump(exclude_none=True)
     if "nombre_completo" in datos:
@@ -515,6 +548,7 @@ def listar_registros(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
+    marcar_registros_vencidos(db)
     filtro = apply_rbac_filter(current_user)
 
     query = (
@@ -627,6 +661,123 @@ def crear_registro(
     return _registro_to_response(registro)
 
 
+@app.post(
+    "/registros/completo",
+    response_model=RegistroCompletoResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Registros"],
+    summary="Registrar paciente + prescripción en una sola llamada. Crea el paciente si no existe.",
+)
+def crear_registro_completo(
+    payload: RegistroCompletoCreate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    if current_user.es_admin_estatal:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Administrador Estatal no puede registrar prescripciones.",
+        )
+
+    # 1. Buscar paciente por CURP hash
+    curp_hash = hash_sha256(payload.curp_paciente)
+    paciente = db.query(Paciente).filter(Paciente.curp_hash == curp_hash).first()
+    paciente_creado = False
+
+    if not paciente:
+        if not payload.nombre_completo:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="nombre_completo es requerido para registrar un paciente nuevo.",
+            )
+
+        # La CLUES del paciente: usa la explícita o toma la de la prescripción
+        clues_paciente = (payload.clues_unidad_adscripcion or payload.clues).strip().upper()
+
+        if current_user.es_responsable_unidad:
+            if clues_paciente != current_user.clues_unidad_asignada:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Solo puede registrar pacientes en su propia unidad médica.",
+                )
+
+        paciente = Paciente(
+            curp_hash=curp_hash,
+            curp_paciente=cifrar(payload.curp_paciente),
+            nombre_completo=cifrar(payload.nombre_completo),
+            diagnostico_actual=cifrar(payload.diagnostico_actual) if payload.diagnostico_actual else None,
+            clues_unidad_adscripcion=clues_paciente,
+            es_activo=True,
+            id_usuario_registro=current_user.id_usuario,
+        )
+        db.add(paciente)
+        db.flush()  # Obtiene id_paciente sin hacer commit aún
+        paciente_creado = True
+    else:
+        _verificar_acceso_paciente(paciente, current_user, db)
+
+    # 2. Validar CLUES de la prescripción
+    if current_user.es_responsable_unidad:
+        if payload.clues != current_user.clues_unidad_asignada:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puede registrar prescripciones en su propia unidad médica.",
+            )
+
+    # 3. Validar médico
+    if not db.query(Medico).filter(Medico.id_medico == payload.id_medico).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Médico con id '{payload.id_medico}' no encontrado.",
+        )
+
+    # 4. Validar medicamento activo
+    if not db.query(CatMedicamento).filter(
+        CatMedicamento.clave_cnis == payload.clave_cnis,
+        CatMedicamento.es_activo == True,
+    ).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Medicamento '{payload.clave_cnis}' no encontrado en catálogo activo.",
+        )
+
+    # 5. Crear registro (prescripción)
+    nuevo = Registro(
+        id_paciente=paciente.id_paciente,
+        id_medico=payload.id_medico,
+        clave_cnis=payload.clave_cnis,
+        clues=payload.clues,
+        fecha_inicio_tratamiento=payload.fecha_inicio_tratamiento,
+        fecha_primera_administracion=payload.fecha_primera_administracion,
+        fecha_fin_tratamiento=payload.fecha_fin_tratamiento,
+        dosis_administrada=payload.dosis_administrada,
+        peso=payload.peso,
+        talla=payload.talla,
+        estatus_diagnostico=payload.estatus_diagnostico,
+        confirmado_por=payload.confirmado_por,
+        prescripcion=payload.prescripcion,
+        id_usuario_registro=current_user.id_usuario,
+        es_activo=True,
+    )
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+
+    registro = (
+        db.query(Registro)
+        .options(joinedload(Registro.medicamento), joinedload(Registro.medico))
+        .filter(Registro.id_registro == nuevo.id_registro)
+        .first()
+    )
+    base = _registro_to_response(registro)
+    return RegistroCompletoResponse(
+        **base.model_dump(),
+        paciente_creado=paciente_creado,
+        curp_paciente=descifrar(paciente.curp_paciente),
+        nombre_paciente=descifrar(paciente.nombre_completo),
+    )
+
+
 @app.get(
     "/registros/{id_registro}",
     response_model=RegistroResponse,
@@ -727,6 +878,116 @@ def anular_registro(
     db.commit()
     db.refresh(registro)
     return _registro_to_response(registro)
+
+
+@app.patch(
+    "/registros/{id_registro}/validar-continuidad",
+    response_model=RegistroResponse,
+    tags=["Registros"],
+    summary="Valida la continuidad de un tratamiento: actualiza la fecha de fin y reactiva el registro si estaba vencido.",
+)
+def validar_continuidad(
+    id_registro: int,
+    payload: ValidarContinuidadRequest,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    if current_user.es_admin_estatal:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Administrador Estatal no puede validar continuidad de registros.",
+        )
+
+    registro = (
+        db.query(Registro)
+        .options(joinedload(Registro.medicamento), joinedload(Registro.medico))
+        .filter(Registro.id_registro == id_registro)
+        .first()
+    )
+    if not registro:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Registro no encontrado.")
+
+    # RBAC: RESPONSABLE_UNIDAD solo puede validar registros de su unidad
+    if current_user.es_responsable_unidad:
+        if registro.clues != current_user.clues_unidad_asignada:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puede validar registros de otra unidad médica.",
+            )
+
+    registro.fecha_fin_tratamiento = payload.nueva_fecha_fin_tratamiento
+    # Si el registro estaba inactivo por vencimiento, se reactiva
+    registro.es_activo = True
+    registro.id_usuario_registro = current_user.id_usuario
+    db.commit()
+    db.refresh(registro)
+    return _registro_to_response(registro)
+
+
+# ===========================================================================
+# NOTIFICACIONES
+# ===========================================================================
+
+@app.get(
+    "/notificaciones",
+    response_model=NotificacionListResponse,
+    tags=["Notificaciones"],
+    summary="Registros que requieren validación de continuidad (vencidos o por vencer en 7 días).",
+)
+def listar_notificaciones(
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    from datetime import timedelta
+
+    # Primero marca los vencidos en BD
+    marcar_registros_vencidos(db)
+
+    # Ventana de alerta: registros cuyo plazo de continuidad vence en los próximos 7 días
+    # fecha_fin + 30 días <= hoy + 7  →  fecha_fin <= hoy - 23
+    fecha_alerta = date.today() - timedelta(days=23)
+
+    filtro = apply_rbac_filter(current_user)
+
+    query = (
+        db.query(Registro)
+        .options(
+            joinedload(Registro.paciente),
+            joinedload(Registro.medicamento),
+        )
+        .filter(
+            Registro.fecha_fin_tratamiento.isnot(None),
+            Registro.fecha_fin_tratamiento <= fecha_alerta,
+        )
+    )
+
+    if filtro.filtrar_por_clues:
+        query = query.filter(Registro.clues == filtro.valor_clues)
+    elif filtro.filtrar_por_entidad:
+        query = query.join(
+            UnidadMedica, Registro.clues == UnidadMedica.clues
+        ).filter(UnidadMedica.id_entidad == filtro.valor_entidad)
+
+    registros = query.order_by(Registro.fecha_fin_tratamiento.asc()).all()
+
+    resultados = []
+    for r in registros:
+        fecha_limite = r.fecha_fin_tratamiento + timedelta(days=30)
+        dias_restantes = (fecha_limite - date.today()).days
+        resultados.append(NotificacionResponse(
+            id_registro=r.id_registro,
+            id_paciente=r.id_paciente,
+            nombre_paciente=descifrar(r.paciente.nombre_completo) if r.paciente else "—",
+            clave_cnis=r.clave_cnis,
+            descripcion_medicamento=r.medicamento.descripcion if r.medicamento else None,
+            clues=r.clues,
+            fecha_fin_tratamiento=r.fecha_fin_tratamiento,
+            fecha_limite=fecha_limite,
+            dias_restantes=dias_restantes,
+            es_activo=r.es_activo,
+        ))
+
+    return NotificacionListResponse(total=len(resultados), resultados=resultados)
 
 
 # ===========================================================================
@@ -1249,6 +1510,28 @@ def _verificar_acceso_paciente(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tiene acceso a pacientes de otro estado.",
             )
+
+
+def marcar_registros_vencidos(db: Session) -> int:
+    """
+    Marca es_activo=False en todos los registros activos cuyo plazo de continuidad
+    ya venció: fecha_fin_tratamiento + 30 días <= hoy.
+    Retorna el número de registros marcados. Se llama al inicio de los endpoints
+    de lectura relevantes (lazy marking — sin scheduler externo).
+    """
+    from datetime import timedelta
+    fecha_limite = date.today() - timedelta(days=30)
+    resultado = db.execute(
+        update(Registro)
+        .where(
+            Registro.es_activo == True,
+            Registro.fecha_fin_tratamiento.isnot(None),
+            Registro.fecha_fin_tratamiento <= fecha_limite,
+        )
+        .values(es_activo=False)
+    )
+    db.commit()
+    return resultado.rowcount
 
 
 def _verificar_acceso_registro(

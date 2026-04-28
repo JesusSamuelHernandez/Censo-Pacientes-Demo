@@ -2,12 +2,14 @@
  * Sidebar.jsx — Navegación lateral.
  * Las opciones visibles dependen del rol almacenado en Zustand.
  */
+import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   Users,
   Stethoscope,
   ClipboardList,
   BarChart2,
+  Bell,
   BookOpen,
   Building2,
   UserCog,
@@ -15,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import useAuthStore from "../../store/authStore";
+import { listarNotificaciones } from "../../api/notificaciones";
 
 const ROLES = {
   SUPER_ADMIN: "SUPER_ADMIN",
@@ -48,6 +51,13 @@ const navItems = [
     roles: [ROLES.SUPER_ADMIN, ROLES.ADMIN_ESTATAL, ROLES.RESPONSABLE_UNIDAD],
   },
   {
+    label: "Notificaciones",
+    to: "/notificaciones",
+    icon: Bell,
+    roles: [ROLES.SUPER_ADMIN, ROLES.ADMIN_ESTATAL, ROLES.RESPONSABLE_UNIDAD],
+    badge: true,
+  },
+  {
     label: "Medicamentos",
     to: "/catalogos/medicamentos",
     icon: BookOpen,
@@ -76,6 +86,13 @@ const rolLabel = {
 export default function Sidebar() {
   const { rolNombre, logout } = useAuthStore();
   const navigate = useNavigate();
+  const [notifCount, setNotifCount] = useState(0);
+
+  useEffect(() => {
+    listarNotificaciones()
+      .then((data) => setNotifCount(data.total))
+      .catch(() => {});
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -107,7 +124,7 @@ export default function Sidebar() {
 
       {/* Navegación */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {itemsVisibles.map(({ label, to, icon: Icon }) => (
+        {itemsVisibles.map(({ label, to, icon: Icon, badge }) => (
           <NavLink
             key={to}
             to={to}
@@ -120,7 +137,12 @@ export default function Sidebar() {
             }
           >
             <Icon size={18} />
-            {label}
+            <span className="flex-1">{label}</span>
+            {badge && notifCount > 0 && (
+              <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
+                {notifCount > 99 ? "99+" : notifCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

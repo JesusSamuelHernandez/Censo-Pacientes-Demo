@@ -34,3 +34,18 @@ export const anularRegistro = async (idRegistro) => {
   const { data } = await axiosClient.delete(`/registros/${idRegistro}`);
   return data;
 };
+
+// POST /registros/completo — Registrar paciente nuevo (o existente) + prescripción en una llamada
+export const crearRegistroCompleto = async (payload) => {
+  const { data } = await axiosClient.post("/registros/completo", payload);
+  return data;
+};
+
+// PATCH /registros/{id}/validar-continuidad — Reactivar y extender fecha de fin
+export const validarContinuidad = async (idRegistro, nuevaFechaFin) => {
+  const { data } = await axiosClient.patch(
+    `/registros/${idRegistro}/validar-continuidad`,
+    { nueva_fecha_fin_tratamiento: nuevaFechaFin }
+  );
+  return data;
+};

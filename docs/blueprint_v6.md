@@ -295,10 +295,10 @@
 
 | Paso | Nombre | Estado |
 |---|---|---|
-| 1 | Renombrar recetas → registros | ⏳ Pendiente |
-| 2 | Nuevos campos en registros | ⏳ Pendiente |
-| 3 | Búsqueda nacional por CURP | ⏳ Pendiente |
-| 4 | Formulario combinado paciente+prescripción | ⏳ Pendiente |
-| 5 | Lógica de inactividad (marcado lazy) | ⏳ Pendiente |
-| 6 | Validación de continuidad | ⏳ Pendiente |
-| 7 | Notificaciones al login | ⏳ Pendiente |
+| 1 | Renombrar recetas → registros | ✅ Completado 2026-04-27 |
+| 2 | Nuevos campos en registros | ✅ Completado 2026-04-27 |
+| 3 | Búsqueda nacional por CURP | ✅ Completado 2026-04-27 |
+| 4 | Formulario combinado paciente+prescripción | ✅ Completado 2026-04-27 |
+| 5 | Lógica de inactividad (marcado lazy) | ✅ Completado 2026-04-27 |
+| 6 | Validación de continuidad | ✅ Completado 2026-04-27 |
+| 7 | Notificaciones al login | ✅ Completado 2026-04-27 |
