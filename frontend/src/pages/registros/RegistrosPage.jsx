@@ -86,7 +86,7 @@ export default function RegistrosPage() {
       {/* Encabezado */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-neutral-black">Prescripciones</h2>
+          <h2 className="text-xl font-semibold text-neutral-black">Registrar Paciente</h2>
           <p className="text-sm text-neutral-gray mt-0.5">{total} prescripciones registradas</p>
         </div>
         {ROLES_PUEDEN_CREAR.includes(rolNombre) && (
@@ -96,7 +96,7 @@ export default function RegistrosPage() {
               text-sm font-medium px-4 py-2 rounded-lg transition"
           >
             <FilePlus size={16} />
-            Registrar Prescripción
+            Registrar Paciente
           </button>
         )}
       </div>

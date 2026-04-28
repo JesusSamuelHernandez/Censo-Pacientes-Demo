@@ -27,7 +27,7 @@ const ROLES = {
 
 const navItems = [
   {
-    label: "Pacientes",
+    label: "Pacientes Activos",
     to: "/pacientes",
     icon: Users,
     roles: [ROLES.SUPER_ADMIN, ROLES.ADMIN_ESTATAL, ROLES.RESPONSABLE_UNIDAD],
@@ -39,7 +39,7 @@ const navItems = [
     roles: [ROLES.SUPER_ADMIN, ROLES.ADMIN_ESTATAL, ROLES.RESPONSABLE_UNIDAD],
   },
   {
-    label: "Prescripciones",
+    label: "Registrar Paciente",
     to: "/registros",
     icon: ClipboardList,
     roles: [ROLES.SUPER_ADMIN, ROLES.ADMIN_ESTATAL, ROLES.RESPONSABLE_UNIDAD],
