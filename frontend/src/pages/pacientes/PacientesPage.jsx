@@ -68,8 +68,12 @@ export default function PacientesPage() {
       {/* Encabezado */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-neutral-black">Padrón de Pacientes</h2>
-          <p className="text-sm text-neutral-gray mt-0.5">{total} pacientes registrados</p>
+          <h2 className="text-xl font-semibold text-neutral-black">
+            {soloActivos ? "Pacientes Activos" : "Padrón de Pacientes"}
+          </h2>
+          <p className="text-sm text-neutral-gray mt-0.5">
+            {total} {soloActivos ? "paciente(s) con prescripción activa" : "paciente(s) registrado(s)"}
+          </p>
         </div>
         {ROLES_PUEDEN_CREAR.includes(rolNombre) && (
           <button
@@ -150,12 +154,19 @@ export default function PacientesPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                        ${p.es_activo
-                          ? "bg-secondary/10 text-secondary"
-                          : "bg-neutral-gray/10 text-neutral-gray"}`}>
-                        {p.es_activo ? "Activo" : "Baja"}
-                      </span>
+                      {!p.es_activo ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-gray/10 text-neutral-gray">
+                          Baja
+                        </span>
+                      ) : p.tiene_prescripcion_activa ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary/10 text-secondary">
+                          Activo
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                          Sin prescripción activa
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">

@@ -273,6 +273,10 @@ class PacienteResponse(BaseModel):
         None,
         description="Días desde fecha_inicio_tratamiento del registro activo más reciente.",
     )
+    tiene_prescripcion_activa: bool = Field(
+        False,
+        description="True si el paciente tiene al menos un registro con es_activo=True.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

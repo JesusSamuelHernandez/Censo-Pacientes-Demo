@@ -31,7 +31,7 @@ from datetime import date, datetime, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import func, update
+from sqlalchemy import exists, func, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import (
@@ -167,11 +167,19 @@ def listar_pacientes(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
+    marcar_registros_vencidos(db)
     filtro = apply_rbac_filter(current_user)
     query = db.query(Paciente)
 
     if solo_activos:
         query = query.filter(Paciente.es_activo == True)
+        # Solo pacientes con al menos una prescripción activa
+        query = query.filter(
+            exists().where(
+                Registro.id_paciente == Paciente.id_paciente,
+                Registro.es_activo == True,
+            )
+        )
 
     if filtro.filtrar_por_clues:
         query = query.filter(Paciente.clues_unidad_adscripcion == filtro.valor_clues)
@@ -181,11 +189,28 @@ def listar_pacientes(
         )
 
     total = query.count()
-    pacientes = query.offset((pagina - 1) * por_pagina).limit(por_pagina).all()
+    pacientes_pag = query.offset((pagina - 1) * por_pagina).limit(por_pagina).all()
+
+    # Calcula tiene_prescripcion_activa de forma eficiente: una sola query para la página
+    if solo_activos:
+        # Todos los devueltos ya pasaron el filtro EXISTS → todos tienen prescripción activa
+        ids_con_activo = {p.id_paciente for p in pacientes_pag}
+    else:
+        ids_con_activo = {
+            row[0]
+            for row in db.query(Registro.id_paciente)
+            .filter(
+                Registro.es_activo == True,
+                Registro.id_paciente.in_([p.id_paciente for p in pacientes_pag]),
+            )
+            .distinct()
+            .all()
+        }
 
     resultados = []
-    for p in pacientes:
-        datos = _paciente_to_response(p)
+    for p in pacientes_pag:
+        tiene = p.id_paciente in ids_con_activo
+        datos = _paciente_to_response(p, tiene_prescripcion_activa=tiene)
         datos.dias_adherencia = _calcular_adherencia(p.id_paciente, db)
         resultados.append(datos)
 
@@ -233,8 +258,8 @@ def crear_paciente(
     db.commit()
     db.refresh(nuevo)
 
-    respuesta = _paciente_to_response(nuevo)
-    respuesta.dias_adherencia = _calcular_adherencia(nuevo.id_paciente, db)
+    respuesta = _paciente_to_response(nuevo, tiene_prescripcion_activa=False)
+    respuesta.dias_adherencia = None
     return respuesta
 
 
@@ -297,7 +322,8 @@ def obtener_paciente(
     # un paciente para hacer búsquedas al registrar una nueva prescripción.
     # La restricción RBAC aplica solo en escritura (PATCH / DELETE).
 
-    respuesta = _paciente_to_response(paciente)
+    tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -360,7 +386,8 @@ def actualizar_paciente(
     db.commit()
     db.refresh(paciente)
 
-    respuesta = _paciente_to_response(paciente)
+    tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -395,7 +422,7 @@ def dar_baja_paciente(
     db.commit()
     db.refresh(paciente)
 
-    respuesta = _paciente_to_response(paciente)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=False)
     respuesta.dias_adherencia = None
     return respuesta
 
@@ -1416,7 +1443,7 @@ def _generar_password_temporal(longitud: int = 12) -> str:
     return "".join(secrets.choice(alfabeto) for _ in range(longitud))
 
 
-def _paciente_to_response(p: Paciente) -> PacienteResponse:
+def _paciente_to_response(p: Paciente, tiene_prescripcion_activa: bool = False) -> PacienteResponse:
     """Descifra los campos LargeBinary y construye el schema de respuesta."""
     return PacienteResponse(
         id_paciente=p.id_paciente,
@@ -1428,7 +1455,18 @@ def _paciente_to_response(p: Paciente) -> PacienteResponse:
         fecha_registro=p.fecha_registro,
         id_usuario_registro=p.id_usuario_registro,
         dias_adherencia=None,
+        tiene_prescripcion_activa=tiene_prescripcion_activa,
     )
+
+
+def _tiene_prescripcion_activa(id_paciente: int, db: Session) -> bool:
+    """Retorna True si el paciente tiene al menos un registro con es_activo=True."""
+    return db.query(
+        exists().where(
+            Registro.id_paciente == id_paciente,
+            Registro.es_activo == True,
+        )
+    ).scalar()
 
 
 def _medico_to_response(m: Medico) -> MedicoResponse:

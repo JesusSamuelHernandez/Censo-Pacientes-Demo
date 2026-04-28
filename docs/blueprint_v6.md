@@ -291,6 +291,41 @@
 
 ---
 
+---
+
+### PASO 8 — Pacientes activos = pacientes con prescripción activa
+
+**Estado:** ⏳ Pendiente
+**Complejidad:** Baja
+**Archivos afectados:** `app/main.py`, `app/schemas.py`, `frontend/src/pages/pacientes/PacientesPage.jsx`
+
+**Regla de negocio:** Un paciente se considera "activo" únicamente si tiene al menos una prescripción (`registro`) con `es_activo = True`. El campo `es_activo` en la tabla `pacientes` se conserva exclusivamente para la baja manual (soft delete).
+
+**Decisiones:**
+- `GET /pacientes?solo_activos=true` → `es_activo=True` **Y** `EXISTS (registro activo para ese paciente)`
+- `GET /pacientes?solo_activos=false` → todos los pacientes sin filtro de prescripciones
+- Se agrega `tiene_prescripcion_activa: bool` al `PacienteResponse`
+- El `es_activo` del response sigue siendo el flag manual de baja — no se sobreescribe
+
+#### Backend — `app/main.py`
+- [ ] Modificar `listar_pacientes`: cuando `solo_activos=True`, agregar filtro `EXISTS` sobre `Registro.es_activo == True`
+- [ ] Modificar `obtener_paciente`: calcular y agregar `tiene_prescripcion_activa` en la respuesta
+- [ ] Modificar `_paciente_to_response`: incluir `tiene_prescripcion_activa`
+
+#### Backend — `app/schemas.py`
+- [ ] Agregar campo `tiene_prescripcion_activa: bool` a `PacienteResponse`
+
+#### Frontend — `PacientesPage.jsx`
+- [ ] El badge de estado del paciente debe mostrar "Sin prescripción activa" cuando `tiene_prescripcion_activa=False` y `es_activo=True`
+
+#### Validación
+- [ ] Un paciente registrado sin prescripciones **no** aparece en `solo_activos=true`
+- [ ] Un paciente con prescripción activa **sí** aparece
+- [ ] Un paciente con todas sus prescripciones vencidas/anuladas **no** aparece
+- [ ] Un paciente dado de baja manualmente (`es_activo=false`) **no** aparece en ningún caso
+
+---
+
 ## Estado General
 
 | Paso | Nombre | Estado |
@@ -302,3 +337,4 @@
 | 5 | Lógica de inactividad (marcado lazy) | ✅ Completado 2026-04-27 |
 | 6 | Validación de continuidad | ✅ Completado 2026-04-27 |
 | 7 | Notificaciones al login | ✅ Completado 2026-04-27 |
+| 8 | Pacientes activos = con prescripción activa | ⏳ Pendiente |
