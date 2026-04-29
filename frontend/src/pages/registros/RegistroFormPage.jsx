@@ -4,7 +4,7 @@
  * - Si la CURP no existe: captura datos del paciente nuevo y crea ambos en una sola llamada.
  */
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -128,6 +128,7 @@ export default function RegistroFormPage() {
   const { id } = useParams();
   const esEdicion = Boolean(id);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [medicos, setMedicos] = useState([]);
   const [medicamentos, setMedicamentos] = useState([]);
@@ -165,6 +166,13 @@ export default function RegistroFormPage() {
       })
       .catch(() => setBusquedaEstado("error"));
   }, [curpBusqueda]);
+
+  // Pre-carga la CURP cuando se regresa desde el historial del paciente
+  useEffect(() => {
+    if (location.state?.curpPreCargado) {
+      setCurpBusqueda(location.state.curpPreCargado);
+    }
+  }, []);
 
   // Carga inicial de catálogos y datos de edición
   useEffect(() => {
@@ -320,7 +328,9 @@ export default function RegistroFormPage() {
                       </div>
                     </div>
                     <button type="button"
-                      onClick={() => navigate(`/pacientes/${curpBusqueda}`, { state: { from: "registro-form" } })}
+                      onClick={() => navigate(`/pacientes/${curpBusqueda}`, {
+                        state: { from: "registro-form", curpOrigen: curpBusqueda }
+                      })}
                       className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark
                         border border-primary/30 hover:border-primary px-3 py-1.5 rounded-lg transition flex-shrink-0">
                       <ExternalLink size={12} />

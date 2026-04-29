@@ -4,10 +4,10 @@
 import axiosClient from "../lib/axiosClient";
 
 // GET /pacientes
-export const listarPacientes = async ({ pagina = 1, porPagina = 20, soloActivos = true } = {}) => {
-  const { data } = await axiosClient.get("/pacientes", {
-    params: { pagina, por_pagina: porPagina, solo_activos: soloActivos },
-  });
+export const listarPacientes = async ({ pagina = 1, porPagina = 20, soloActivos = true, claveCnis = null } = {}) => {
+  const params = { pagina, por_pagina: porPagina, solo_activos: soloActivos };
+  if (claveCnis) params.clave_cnis = claveCnis;
+  const { data } = await axiosClient.get("/pacientes", { params });
   return data; // { total, pagina, por_pagina, resultados }
 };
 

@@ -277,6 +277,10 @@ class PacienteResponse(BaseModel):
         False,
         description="True si el paciente tiene al menos un registro con es_activo=True.",
     )
+    medicamentos_activos: list[str] = Field(
+        default_factory=list,
+        description="Descripciones de los medicamentos de prescripciones activas.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -394,6 +398,10 @@ class RegistroResponse(RegistroBase):
     fecha_registro_sistema: datetime
     id_usuario_registro: int | None
 
+    # Datos del paciente embebidos (descifrados)
+    nombre_paciente: str | None = None
+    curp_paciente: str | None = None
+
     # Datos embebidos
     medicamento: MedicamentoResponse | None = None
     medico: MedicoResponse | None = None
@@ -487,6 +495,12 @@ class NotificacionResponse(BaseModel):
     fecha_limite: date       # fecha_fin_tratamiento + 30 días
     dias_restantes: int      # negativo = ya venció; 0 = vence hoy
     es_activo: bool
+    # Campos adicionales para la tarjeta de detalle
+    fecha_inicio_tratamiento: date | None = None
+    dosis_administrada: str | None = None
+    peso: Decimal | None = None
+    talla: Decimal | None = None
+    prescripcion: str | None = None
 
 
 class NotificacionListResponse(BaseModel):

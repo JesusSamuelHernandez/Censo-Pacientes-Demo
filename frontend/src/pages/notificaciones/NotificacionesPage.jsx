@@ -1,21 +1,47 @@
 /**
  * NotificacionesPage.jsx — Registros que requieren validación de continuidad.
- * Muestra prescripciones vencidas o por vencer en los próximos 7 días.
  */
 import { useEffect, useState } from "react";
-import { Bell, RefreshCw, CheckCircle, AlertTriangle, Clock } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Bell, RefreshCw, CheckCircle, AlertTriangle, Clock, Eye } from "lucide-react";
 import { toast } from "sonner";
 
 import { listarNotificaciones } from "../../api/notificaciones";
 import { validarContinuidad } from "../../api/registros";
 
+function getBadge(diasRestantes, esActivo) {
+  if (!esActivo) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+        <AlertTriangle size={11} />
+        Vencida hace {Math.abs(diasRestantes)} día(s)
+      </span>
+    );
+  }
+  if (diasRestantes <= 0) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+        <AlertTriangle size={11} />
+        Vence hoy
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+      <Clock size={11} />
+      Vence en {diasRestantes} día(s)
+    </span>
+  );
+}
+
 export default function NotificacionesPage() {
+  const navigate = useNavigate();
   const [notificaciones, setNotificaciones] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Modal de validación
-  const [modalValidar, setModalValidar] = useState(null); // { id_registro, nombre, medicamento }
+  // Modal de validación rápida
+  const [modalValidar, setModalValidar] = useState(null);
   const [nuevaFecha, setNuevaFecha] = useState("");
   const [guardando, setGuardando] = useState(false);
 
@@ -50,31 +76,6 @@ export default function NotificacionesPage() {
     }
   };
 
-  const getBadge = (diasRestantes, esActivo) => {
-    if (!esActivo) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-          <AlertTriangle size={11} />
-          Vencida hace {Math.abs(diasRestantes)} día(s)
-        </span>
-      );
-    }
-    if (diasRestantes <= 0) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-          <AlertTriangle size={11} />
-          Vence hoy
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
-        <Clock size={11} />
-        Vence en {diasRestantes} día(s)
-      </span>
-    );
-  };
-
   return (
     <div className="space-y-4">
       {/* Encabezado */}
@@ -95,7 +96,6 @@ export default function NotificacionesPage() {
         </button>
       </div>
 
-      {/* Contenido */}
       {loading ? (
         <div className="flex justify-center items-center h-48">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -110,16 +110,13 @@ export default function NotificacionesPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Resumen */}
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 flex items-center gap-3">
             <Bell size={18} className="text-amber-600 flex-shrink-0" />
             <p className="text-sm text-amber-800">
               <span className="font-semibold">{total}</span> prescripción(es) requieren tu atención.
-              Valida la continuidad para mantenerlas activas.
             </p>
           </div>
 
-          {/* Lista */}
           <div className="bg-white rounded-xl border border-neutral-gray/20 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -130,15 +127,15 @@ export default function NotificacionesPage() {
                     <th className="text-left px-4 py-3 font-semibold text-neutral-black">Fin tratamiento</th>
                     <th className="text-left px-4 py-3 font-semibold text-neutral-black">Límite validación</th>
                     <th className="text-left px-4 py-3 font-semibold text-neutral-black">Estado</th>
-                    <th className="text-left px-4 py-3 font-semibold text-neutral-black">Acción</th>
+                    <th className="text-left px-4 py-3 font-semibold text-neutral-black">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {notificaciones.map((n) => (
                     <tr
                       key={n.id_registro}
-                      className={`border-b border-neutral-gray/10 ${
-                        !n.es_activo ? "bg-red-50/40" : "hover:bg-neutral-light/60"
+                      className={`border-b border-neutral-gray/10 hover:bg-neutral-light/60 ${
+                        !n.es_activo ? "bg-red-50/30" : ""
                       }`}
                     >
                       <td className="px-4 py-3">
@@ -151,31 +148,35 @@ export default function NotificacionesPage() {
                           {n.descripcion_medicamento ?? "—"}
                         </p>
                       </td>
-                      <td className="px-4 py-3 text-sm text-neutral-gray">
-                        {n.fecha_fin_tratamiento}
-                      </td>
-                      <td className="px-4 py-3 text-sm font-medium text-neutral-black">
-                        {n.fecha_limite}
-                      </td>
+                      <td className="px-4 py-3 text-sm text-neutral-gray">{n.fecha_fin_tratamiento}</td>
+                      <td className="px-4 py-3 text-sm font-medium text-neutral-black">{n.fecha_limite}</td>
+                      <td className="px-4 py-3">{getBadge(n.dias_restantes, n.es_activo)}</td>
                       <td className="px-4 py-3">
-                        {getBadge(n.dias_restantes, n.es_activo)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => {
-                            setModalValidar({
-                              id_registro: n.id_registro,
-                              nombre: n.nombre_paciente,
-                              medicamento: n.descripcion_medicamento ?? n.clave_cnis,
-                            });
-                            setNuevaFecha("");
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
-                            bg-secondary/10 text-secondary hover:bg-secondary/20 transition"
-                        >
-                          <RefreshCw size={12} />
-                          Validar
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {/* Ver detalle completo */}
+                          <button
+                            onClick={() => navigate(`/registros/${n.id_registro}`, {
+                              state: { from: "notificaciones" }
+                            })}
+                            className="p-1.5 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
+                            title="Ver detalle"
+                          >
+                            <Eye size={15} />
+                          </button>
+                          {/* Validación rápida */}
+                          <button
+                            onClick={() => {
+                              setModalValidar({ id_registro: n.id_registro, nombre: n.nombre_paciente, medicamento: n.descripcion_medicamento ?? n.clave_cnis });
+                              setNuevaFecha("");
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium
+                              bg-secondary/10 text-secondary hover:bg-secondary/20 transition"
+                            title="Validar continuidad"
+                          >
+                            <RefreshCw size={12} />
+                            Validar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -186,7 +187,7 @@ export default function NotificacionesPage() {
         </div>
       )}
 
-      {/* Modal de validación */}
+      {/* Modal de validación rápida */}
       {modalValidar && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4 space-y-4">
@@ -212,7 +213,7 @@ export default function NotificacionesPage() {
                   text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               />
             </div>
-            <div className="flex gap-3 pt-1">
+            <div className="flex gap-3">
               <button
                 onClick={() => { setModalValidar(null); setNuevaFecha(""); }}
                 className="flex-1 px-4 py-2 rounded-lg border border-neutral-gray/30

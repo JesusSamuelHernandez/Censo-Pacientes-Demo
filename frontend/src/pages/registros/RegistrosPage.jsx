@@ -3,13 +3,32 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FilePlus, Search, ChevronLeft, ChevronRight, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { FilePlus, Search, ChevronLeft, ChevronRight, Eye, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { listarRegistros, anularRegistro, validarContinuidad } from "../../api/registros";
 import useAuthStore from "../../store/authStore";
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
+
+/**
+ * Determina el estado visual de un registro.
+ * - "activa"  : es_activo = true
+ * - "vencida" : es_activo = false, fecha_fin_tratamiento + 30 días <= hoy (expiró por tiempo)
+ * - "anulada" : es_activo = false, fue cancelada manualmente o no tiene fecha_fin
+ */
+function getEstadoRegistro(r) {
+  if (r.es_activo) return { label: "Activa", classes: "bg-secondary/10 text-secondary" };
+  if (r.fecha_fin_tratamiento) {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const limite = new Date(r.fecha_fin_tratamiento);
+    limite.setDate(limite.getDate() + 30);
+    limite.setHours(0, 0, 0, 0);
+    if (limite <= hoy) return { label: "Vencida", classes: "bg-red-100 text-red-700" };
+  }
+  return { label: "Anulada", classes: "bg-neutral-gray/10 text-neutral-gray" };
+}
 
 export default function RegistrosPage() {
   const navigate = useNavigate();
@@ -134,7 +153,7 @@ export default function RegistrosPage() {
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">ID</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Medicamento</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Médico</th>
-                <th className="text-left px-4 py-3 font-semibold text-neutral-black">Paciente ID</th>
+                <th className="text-left px-4 py-3 font-semibold text-neutral-black">Paciente</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Unidad</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Inicio</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Estado</th>
@@ -169,21 +188,42 @@ export default function RegistrosPage() {
                     <td className="px-4 py-3 text-neutral-black text-xs">
                       {r.medico?.nombre_medico ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-neutral-gray text-xs">#{r.id_paciente}</td>
+                    <td className="px-4 py-3">
+                      {r.nombre_paciente ? (
+                        <button
+                          onClick={() => navigate(`/pacientes/${r.curp_paciente}`, {
+                            state: { from: "registros-list" }
+                          })}
+                          className="text-left hover:text-primary transition"
+                        >
+                          <p className="text-xs font-medium text-neutral-black">{r.nombre_paciente}</p>
+                          <p className="text-xs font-mono text-neutral-gray">{r.curp_paciente}</p>
+                        </button>
+                      ) : (
+                        <span className="text-xs text-neutral-gray">#{r.id_paciente}</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 font-mono text-xs text-neutral-gray">{r.clues}</td>
                     <td className="px-4 py-3 text-neutral-gray text-xs">
                       {r.fecha_inicio_tratamiento ?? "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                        ${r.es_activo
-                          ? "bg-secondary/10 text-secondary"
-                          : "bg-neutral-gray/10 text-neutral-gray"}`}>
-                        {r.es_activo ? "Activa" : "Anulada"}
-                      </span>
+                      {(() => { const e = getEstadoRegistro(r); return (
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${e.classes}`}>
+                          {e.label}
+                        </span>
+                      ); })()}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
+                        {/* Ver detalle */}
+                        <button
+                          onClick={() => navigate(`/registros/${r.id_registro}`)}
+                          className="p-1.5 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
+                          title="Ver detalle"
+                        >
+                          <Eye size={15} />
+                        </button>
                         {ROLES_PUEDEN_CREAR.includes(rolNombre) && r.es_activo && (
                           <>
                             <button
@@ -202,7 +242,7 @@ export default function RegistrosPage() {
                             </button>
                           </>
                         )}
-                        {ROLES_PUEDEN_CREAR.includes(rolNombre) && !r.es_activo && (
+                        {ROLES_PUEDEN_CREAR.includes(rolNombre) && getEstadoRegistro(r).label === "Vencida" && (
                           <button
                             onClick={() => {
                               setModalValidar({ id_registro: r.id_registro, medicamento: r.medicamento?.descripcion ?? r.clave_cnis });

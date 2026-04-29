@@ -10,6 +10,19 @@ import { obtenerPaciente } from "../../api/pacientes";
 import { listarRegistros } from "../../api/registros";
 import useAuthStore from "../../store/authStore";
 
+function getEstadoRegistro(r) {
+  if (r.es_activo) return { label: "Activa", classes: "bg-secondary/10 text-secondary" };
+  if (r.fecha_fin_tratamiento) {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const limite = new Date(r.fecha_fin_tratamiento);
+    limite.setDate(limite.getDate() + 30);
+    limite.setHours(0, 0, 0, 0);
+    if (limite <= hoy) return { label: "Vencida", classes: "bg-red-100 text-red-700" };
+  }
+  return { label: "Anulada", classes: "bg-neutral-gray/10 text-neutral-gray" };
+}
+
 const ROLES_PUEDEN_EDITAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 
 export default function PacienteDetallePage() {
@@ -22,8 +35,8 @@ export default function PacienteDetallePage() {
   const [registros, setRegistros] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Detecta si llegamos desde el formulario de prescripción
   const vieneDelFormulario = location.state?.from === "registro-form";
+  const vieneDeLista = location.state?.from === "registros-list";
 
   useEffect(() => {
     const cargar = async () => {
@@ -60,7 +73,11 @@ export default function PacienteDetallePage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => vieneDelFormulario ? navigate(-1) : navigate("/pacientes")}
+            onClick={() => {
+              if (vieneDelFormulario) navigate("/registros/nuevo", { state: { curpPreCargado: location.state?.curpOrigen } });
+              else if (vieneDeLista) navigate(-1);
+              else navigate("/pacientes");
+            }}
             className="p-2 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
           >
             <ArrowLeft size={18} />
@@ -73,12 +90,24 @@ export default function PacienteDetallePage() {
         <div className="flex items-center gap-2">
           {vieneDelFormulario && (
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate("/registros/nuevo", {
+                state: { curpPreCargado: location.state?.curpOrigen }
+              })}
               className="flex items-center gap-2 border border-primary text-primary hover:bg-primary/5
                 text-sm font-medium px-4 py-2 rounded-lg transition"
             >
               <ArrowLeft size={15} />
               Regresar al formulario
+            </button>
+          )}
+          {vieneDeLista && (
+            <button
+              onClick={() => navigate(-1)}
+              className="flex items-center gap-2 border border-neutral-gray/30 text-neutral-gray
+                hover:bg-neutral-light text-sm font-medium px-4 py-2 rounded-lg transition"
+            >
+              <ArrowLeft size={15} />
+              Regresar a la lista
             </button>
           )}
           {ROLES_PUEDEN_EDITAR.includes(rolNombre) && paciente.es_activo && (
@@ -167,10 +196,11 @@ export default function PacienteDetallePage() {
                       {r.dosis_administrada ?? "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                        ${r.es_activo ? "bg-secondary/10 text-secondary" : "bg-neutral-gray/10 text-neutral-gray"}`}>
-                        {r.es_activo ? "Activa" : "Anulada"}
-                      </span>
+                      {(() => { const e = getEstadoRegistro(r); return (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${e.classes}`}>
+                          {e.label}
+                        </span>
+                      ); })()}
                     </td>
                   </tr>
                 ))}

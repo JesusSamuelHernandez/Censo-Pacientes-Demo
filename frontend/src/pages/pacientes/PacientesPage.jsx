@@ -1,5 +1,5 @@
 /**
- * PacientesPage.jsx — Lista paginada de pacientes con búsqueda y acciones.
+ * PacientesPage.jsx — Lista paginada de pacientes con búsqueda, filtro por medicamento y acciones.
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +7,7 @@ import { UserPlus, Search, ChevronLeft, ChevronRight, Eye, UserX } from "lucide-
 import { toast } from "sonner";
 
 import { listarPacientes, darBajaPaciente } from "../../api/pacientes";
+import { listarMedicamentos } from "../../api/catalogos";
 import useAuthStore from "../../store/authStore";
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
@@ -20,16 +21,30 @@ export default function PacientesPage() {
   const [pagina, setPagina] = useState(1);
   const [busqueda, setBusqueda] = useState("");
   const [soloActivos, setSoloActivos] = useState(true);
+  const [filtroClaveCnis, setFiltroClaveCnis] = useState("");
+  const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [confirmBaja, setConfirmBaja] = useState(null); // curp del paciente a dar de baja
+  const [confirmBaja, setConfirmBaja] = useState(null);
 
   const porPagina = 20;
   const totalPaginas = Math.ceil(total / porPagina);
 
+  // Carga el catálogo de medicamentos para el filtro (solo una vez)
+  useEffect(() => {
+    listarMedicamentos()
+      .then(setMedicamentos)
+      .catch(() => {});
+  }, []);
+
   const cargar = async () => {
     setLoading(true);
     try {
-      const data = await listarPacientes({ pagina, porPagina, soloActivos });
+      const data = await listarPacientes({
+        pagina,
+        porPagina,
+        soloActivos,
+        claveCnis: filtroClaveCnis || null,
+      });
       setPacientes(data.resultados);
       setTotal(data.total);
     } catch {
@@ -41,7 +56,7 @@ export default function PacientesPage() {
 
   useEffect(() => {
     cargar();
-  }, [pagina, soloActivos]);
+  }, [pagina, soloActivos, filtroClaveCnis]);
 
   const pacientesFiltrados = pacientes.filter((p) =>
     busqueda
@@ -88,8 +103,9 @@ export default function PacientesPage() {
       </div>
 
       {/* Filtros */}
-      <div className="flex items-center gap-3 bg-white rounded-xl border border-neutral-gray/20 px-4 py-3">
-        <div className="flex-1 relative">
+      <div className="flex flex-wrap items-center gap-3 bg-white rounded-xl border border-neutral-gray/20 px-4 py-3">
+        {/* Búsqueda por nombre/CURP */}
+        <div className="flex-1 min-w-[200px] relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-gray" />
           <input
             type="text"
@@ -100,6 +116,23 @@ export default function PacientesPage() {
               bg-neutral-light outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           />
         </div>
+
+        {/* Filtro por medicamento */}
+        <select
+          value={filtroClaveCnis}
+          onChange={(e) => { setFiltroClaveCnis(e.target.value); setPagina(1); }}
+          className="px-3 py-2 text-sm rounded-lg border border-neutral-gray/30 bg-neutral-light
+            outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary min-w-[200px]"
+        >
+          <option value="">— Todos los medicamentos —</option>
+          {medicamentos.map((m) => (
+            <option key={m.clave_cnis} value={m.clave_cnis}>
+              {m.clave_cnis} — {m.descripcion.slice(0, 50)}
+            </option>
+          ))}
+        </select>
+
+        {/* Solo activos */}
         <label className="flex items-center gap-2 text-sm text-neutral-gray cursor-pointer select-none">
           <input
             type="checkbox"
@@ -120,6 +153,7 @@ export default function PacientesPage() {
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Nombre</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">CURP</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Unidad</th>
+                <th className="text-left px-4 py-3 font-semibold text-neutral-black">Medicamentos activos</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Adherencia</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Estado</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Acciones</th>
@@ -128,7 +162,7 @@ export default function PacientesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-neutral-gray">
+                  <td colSpan={7} className="text-center py-12">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
@@ -136,7 +170,7 @@ export default function PacientesPage() {
                 </tr>
               ) : pacientesFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-neutral-gray">
+                  <td colSpan={7} className="text-center py-12 text-neutral-gray">
                     No se encontraron pacientes.
                   </td>
                 </tr>
@@ -145,7 +179,32 @@ export default function PacientesPage() {
                   <tr key={p.curp_paciente} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-4 py-3 font-medium text-neutral-black">{p.nombre_completo}</td>
                     <td className="px-4 py-3 text-neutral-gray font-mono text-xs">{p.curp_paciente}</td>
-                    <td className="px-4 py-3 text-neutral-gray">{p.clues_unidad_adscripcion}</td>
+                    <td className="px-4 py-3 text-neutral-gray text-xs">{p.clues_unidad_adscripcion}</td>
+
+                    {/* Columna de medicamentos activos */}
+                    <td className="px-4 py-3">
+                      {p.medicamentos_activos && p.medicamentos_activos.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {p.medicamentos_activos.slice(0, 2).map((med, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center px-2 py-0.5 rounded-md text-xs
+                                bg-primary/10 text-primary font-medium"
+                            >
+                              {med}
+                            </span>
+                          ))}
+                          {p.medicamentos_activos.length > 2 && (
+                            <span className="text-xs text-neutral-gray">
+                              +{p.medicamentos_activos.length - 2} más
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-neutral-gray">—</span>
+                      )}
+                    </td>
+
                     <td className="px-4 py-3">
                       {p.dias_adherencia != null ? (
                         <span className="text-secondary font-medium">{p.dias_adherencia} días</span>
@@ -153,6 +212,7 @@ export default function PacientesPage() {
                         <span className="text-neutral-gray">—</span>
                       )}
                     </td>
+
                     <td className="px-4 py-3">
                       {!p.es_activo ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-gray/10 text-neutral-gray">
@@ -168,6 +228,7 @@ export default function PacientesPage() {
                         </span>
                       )}
                     </td>
+
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button

@@ -164,6 +164,7 @@ def listar_pacientes(
     solo_activos: bool = Query(True),
     pagina: int = Query(1, ge=1),
     por_pagina: int = Query(20, ge=1, le=500),
+    clave_cnis: str | None = Query(None, description="Filtrar pacientes que tienen prescripción activa con este medicamento."),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
@@ -173,11 +174,20 @@ def listar_pacientes(
 
     if solo_activos:
         query = query.filter(Paciente.es_activo == True)
-        # Solo pacientes con al menos una prescripción activa
         query = query.filter(
             exists().where(
                 Registro.id_paciente == Paciente.id_paciente,
                 Registro.es_activo == True,
+            )
+        )
+
+    # Filtro por medicamento específico
+    if clave_cnis:
+        query = query.filter(
+            exists().where(
+                Registro.id_paciente == Paciente.id_paciente,
+                Registro.es_activo == True,
+                Registro.clave_cnis == clave_cnis,
             )
         )
 
@@ -191,26 +201,33 @@ def listar_pacientes(
     total = query.count()
     pacientes_pag = query.offset((pagina - 1) * por_pagina).limit(por_pagina).all()
 
-    # Calcula tiene_prescripcion_activa de forma eficiente: una sola query para la página
-    if solo_activos:
-        # Todos los devueltos ya pasaron el filtro EXISTS → todos tienen prescripción activa
-        ids_con_activo = {p.id_paciente for p in pacientes_pag}
-    else:
-        ids_con_activo = {
-            row[0]
-            for row in db.query(Registro.id_paciente)
-            .filter(
-                Registro.es_activo == True,
-                Registro.id_paciente.in_([p.id_paciente for p in pacientes_pag]),
-            )
+    # Una sola query para obtener medicamentos activos de la página actual.
+    # De paso sirve para calcular `tiene_prescripcion_activa` e `ids_con_activo`.
+    ids_con_activo: set[int] = set()
+    medicamentos_por_paciente: dict[int, list[str]] = {}
+
+    if pacientes_pag:
+        ids_pag = [p.id_paciente for p in pacientes_pag]
+        meds_rows = (
+            db.query(Registro.id_paciente, CatMedicamento.descripcion, CatMedicamento.clave_cnis)
+            .join(CatMedicamento, Registro.clave_cnis == CatMedicamento.clave_cnis)
+            .filter(Registro.id_paciente.in_(ids_pag), Registro.es_activo == True)
             .distinct()
             .all()
-        }
+        )
+        for id_p, desc, clave in meds_rows:
+            ids_con_activo.add(id_p)
+            label = (desc[:60] + "..." if desc and len(desc) > 60 else desc or clave)
+            if id_p not in medicamentos_por_paciente:
+                medicamentos_por_paciente[id_p] = []
+            if label not in medicamentos_por_paciente[id_p]:
+                medicamentos_por_paciente[id_p].append(label)
 
     resultados = []
     for p in pacientes_pag:
         tiene = p.id_paciente in ids_con_activo
-        datos = _paciente_to_response(p, tiene_prescripcion_activa=tiene)
+        meds = medicamentos_por_paciente.get(p.id_paciente, [])
+        datos = _paciente_to_response(p, tiene_prescripcion_activa=tiene, medicamentos_activos=meds)
         datos.dias_adherencia = _calcular_adherencia(p.id_paciente, db)
         resultados.append(datos)
 
@@ -323,7 +340,8 @@ def obtener_paciente(
     # La restricción RBAC aplica solo en escritura (PATCH / DELETE).
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
-    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene)
+    meds = _get_medicamentos_activos(paciente.id_paciente, db)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -387,7 +405,8 @@ def actualizar_paciente(
     db.refresh(paciente)
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
-    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene)
+    meds = _get_medicamentos_activos(paciente.id_paciente, db)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -581,6 +600,7 @@ def listar_registros(
     query = (
         db.query(Registro)
         .options(
+            joinedload(Registro.paciente),
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
         )
@@ -792,17 +812,19 @@ def crear_registro_completo(
 
     registro = (
         db.query(Registro)
-        .options(joinedload(Registro.medicamento), joinedload(Registro.medico))
+        .options(
+            joinedload(Registro.paciente),
+            joinedload(Registro.medicamento),
+            joinedload(Registro.medico),
+        )
         .filter(Registro.id_registro == nuevo.id_registro)
         .first()
     )
-    base = _registro_to_response(registro)
-    return RegistroCompletoResponse(
-        **base.model_dump(),
-        paciente_creado=paciente_creado,
-        curp_paciente=descifrar(paciente.curp_paciente),
-        nombre_paciente=descifrar(paciente.nombre_completo),
-    )
+    # _registro_to_response ya puebla curp_paciente y nombre_paciente via joinedload.
+    # Usamos dict.update para agregar paciente_creado sin conflicto de clave duplicada.
+    base_dict = _registro_to_response(registro).model_dump()
+    base_dict["paciente_creado"] = paciente_creado
+    return RegistroCompletoResponse(**base_dict)
 
 
 @app.get(
@@ -818,7 +840,11 @@ def obtener_registro(
 ):
     registro = (
         db.query(Registro)
-        .options(joinedload(Registro.medicamento), joinedload(Registro.medico))
+        .options(
+            joinedload(Registro.paciente),
+            joinedload(Registro.medicamento),
+            joinedload(Registro.medico),
+        )
         .filter(Registro.id_registro == id_registro)
         .first()
     )
@@ -1012,6 +1038,11 @@ def listar_notificaciones(
             fecha_limite=fecha_limite,
             dias_restantes=dias_restantes,
             es_activo=r.es_activo,
+            fecha_inicio_tratamiento=r.fecha_inicio_tratamiento,
+            dosis_administrada=r.dosis_administrada,
+            peso=r.peso,
+            talla=r.talla,
+            prescripcion=r.prescripcion,
         ))
 
     return NotificacionListResponse(total=len(resultados), resultados=resultados)
@@ -1443,7 +1474,11 @@ def _generar_password_temporal(longitud: int = 12) -> str:
     return "".join(secrets.choice(alfabeto) for _ in range(longitud))
 
 
-def _paciente_to_response(p: Paciente, tiene_prescripcion_activa: bool = False) -> PacienteResponse:
+def _paciente_to_response(
+    p: Paciente,
+    tiene_prescripcion_activa: bool = False,
+    medicamentos_activos: list[str] | None = None,
+) -> PacienteResponse:
     """Descifra los campos LargeBinary y construye el schema de respuesta."""
     return PacienteResponse(
         id_paciente=p.id_paciente,
@@ -1456,7 +1491,20 @@ def _paciente_to_response(p: Paciente, tiene_prescripcion_activa: bool = False) 
         id_usuario_registro=p.id_usuario_registro,
         dias_adherencia=None,
         tiene_prescripcion_activa=tiene_prescripcion_activa,
+        medicamentos_activos=medicamentos_activos or [],
     )
+
+
+def _get_medicamentos_activos(id_paciente: int, db: Session) -> list[str]:
+    """Retorna las descripciones de medicamentos de prescripciones activas del paciente."""
+    rows = (
+        db.query(CatMedicamento.descripcion, CatMedicamento.clave_cnis)
+        .join(Registro, Registro.clave_cnis == CatMedicamento.clave_cnis)
+        .filter(Registro.id_paciente == id_paciente, Registro.es_activo == True)
+        .distinct()
+        .all()
+    )
+    return [(desc[:60] + "..." if desc and len(desc) > 60 else desc or clave) for desc, clave in rows]
 
 
 def _tiene_prescripcion_activa(id_paciente: int, db: Session) -> bool:
@@ -1481,7 +1529,7 @@ def _medico_to_response(m: Medico) -> MedicoResponse:
 
 
 def _registro_to_response(r: Registro) -> RegistroResponse:
-    """Construye RegistroResponse descifrando los campos del médico embebido."""
+    """Construye RegistroResponse descifrando los campos del médico y paciente embebidos."""
     return RegistroResponse(
         id_registro=r.id_registro,
         id_medico=r.id_medico,
@@ -1500,6 +1548,8 @@ def _registro_to_response(r: Registro) -> RegistroResponse:
         es_activo=r.es_activo,
         fecha_registro_sistema=r.fecha_registro_sistema,
         id_usuario_registro=r.id_usuario_registro,
+        nombre_paciente=descifrar(r.paciente.nombre_completo) if r.paciente else None,
+        curp_paciente=descifrar(r.paciente.curp_paciente) if r.paciente else None,
         medicamento=MedicamentoResponse.model_validate(r.medicamento) if r.medicamento else None,
         medico=_medico_to_response(r.medico) if r.medico else None,
     )

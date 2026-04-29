@@ -1,6 +1,6 @@
 # Blueprint Detalles 01 — Mejoras de UX y Visualización
 
-> Iniciado: 2026-04-28
+> Iniciado: 2026-04-28 — **Completado: 2026-04-28**
 > Continuación del Blueprint v6. Mejoras de interfaz, visualización de datos y correcciones de flujo.
 
 ---
@@ -240,8 +240,8 @@ La lista de pacientes activos muestra, por cada paciente, los medicamentos de su
 | Paso | Nombre | Estado |
 |---|---|---|
 | 1 | Renombres de módulos y etiquetas | ✅ Completado 2026-04-28 |
-| 2 | Etiqueta "Vencida" para prescripciones expiradas | ⏳ Pendiente |
-| 3 | Nombre y CURP del paciente en prescripciones | ⏳ Pendiente |
-| 4 | CURP persiste al volver del historial | ⏳ Pendiente |
-| 5 | Tarjeta de detalle en notificaciones | ⏳ Pendiente |
-| 6 | Medicamentos activos en lista de pacientes + filtro | ⏳ Pendiente |
+| 2 | Etiqueta "Vencida" para prescripciones expiradas | ✅ Completado 2026-04-28 |
+| 3 | Nombre y CURP del paciente en prescripciones | ✅ Completado 2026-04-28 |
+| 4 | CURP persiste al volver del historial | ✅ Completado 2026-04-28 |
+| 5 | Tarjeta de detalle en notificaciones | ✅ Completado 2026-04-28 |
+| 6 | Medicamentos activos en lista de pacientes + filtro | ✅ Completado 2026-04-28 |
