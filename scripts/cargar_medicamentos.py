@@ -4,6 +4,7 @@ scripts/cargar_medicamentos.py — Carga masiva de medicamentos desde Excel.
 Uso:
     python scripts/cargar_medicamentos.py
     python scripts/cargar_medicamentos.py --archivo ruta/a/mi_archivo.xlsx
+    python scripts/cargar_medicamentos.py --actualizar
 
 Columnas requeridas en el Excel:
     clave_cnis    : Clave CNIS del medicamento (ej. 010.000.4155.00) — PK única.
@@ -14,8 +15,9 @@ Columnas opcionales:
     tipo_clave    : Tipo de clave (ej. CUADRO BASICO, GASTOS CATASTROFICOS).
 
 Comportamiento:
-    - Registros con clave_cnis ya existente en la BD se OMITEN.
-    - Al final imprime un resumen: insertados / omitidos / errores.
+    - Sin --actualizar : registros con clave_cnis ya existente se OMITEN (solo inserta nuevos).
+    - Con --actualizar : registros existentes se ACTUALIZAN (descripcion, grupo, tipo_clave).
+    - Al final imprime un resumen: insertados / actualizados / omitidos / errores.
 """
 import argparse
 import os
@@ -38,11 +40,12 @@ ARCHIVO_DEFAULT = os.path.join(os.path.dirname(__file__), "data", "medicamentos.
 COLUMNAS_REQUERIDAS = {"clave_cnis", "descripcion"}
 
 
-def cargar_medicamentos(archivo: str) -> None:
+def cargar_medicamentos(archivo: str, actualizar: bool = False) -> None:
     print(f"\n{'='*60}")
     print(f"  CARGA MASIVA — CATÁLOGO DE MEDICAMENTOS")
     print(f"{'='*60}")
-    print(f"Archivo : {archivo}")
+    print(f"Archivo   : {archivo}")
+    print(f"Modo      : {'INSERTAR + ACTUALIZAR existentes' if actualizar else 'SOLO INSERTAR nuevos'}")
 
     # 1. Leer Excel
     try:
@@ -66,6 +69,7 @@ def cargar_medicamentos(archivo: str) -> None:
 
     db = SessionLocal()
     insertados = 0
+    actualizados = 0
     omitidos = 0
     errores = 0
 
@@ -96,8 +100,16 @@ def cargar_medicamentos(archivo: str) -> None:
             ).first()
 
             if existe:
-                print(f"  [OMITIDA] Fila {fila_num}: clave '{clave}' ya existe.")
-                omitidos += 1
+                if actualizar:
+                    existe.descripcion = descripcion
+                    existe.grupo = grupo if grupo != "NAN" else None
+                    existe.tipo_clave = tipo_clave if tipo_clave != "NAN" else None
+                    db.commit()
+                    print(f"  [ACTUALIZ] Fila {fila_num}: '{clave}' — {descripcion[:50]}")
+                    actualizados += 1
+                else:
+                    print(f"  [OMITIDA] Fila {fila_num}: clave '{clave}' ya existe.")
+                    omitidos += 1
                 continue
 
             nuevo = CatMedicamento(
@@ -122,9 +134,10 @@ def cargar_medicamentos(archivo: str) -> None:
     print(f"\n{'='*60}")
     print(f"  RESUMEN")
     print(f"{'='*60}")
-    print(f"  Insertados : {insertados}")
-    print(f"  Omitidos   : {omitidos}  (ya existían o fila vacía)")
-    print(f"  Errores    : {errores}")
+    print(f"  Insertados  : {insertados}")
+    print(f"  Actualizados: {actualizados}")
+    print(f"  Omitidos    : {omitidos}  (ya existían o fila vacía)")
+    print(f"  Errores     : {errores}")
     print(f"{'='*60}\n")
 
 
@@ -135,5 +148,10 @@ if __name__ == "__main__":
         default=ARCHIVO_DEFAULT,
         help=f"Ruta al archivo Excel (default: {ARCHIVO_DEFAULT})",
     )
+    parser.add_argument(
+        "--actualizar",
+        action="store_true",
+        help="Actualiza descripcion, grupo y tipo_clave de claves que ya existen en la BD.",
+    )
     args = parser.parse_args()
-    cargar_medicamentos(args.archivo)
+    cargar_medicamentos(args.archivo, actualizar=args.actualizar)
