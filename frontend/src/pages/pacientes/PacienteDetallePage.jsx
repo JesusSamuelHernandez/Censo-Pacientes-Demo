@@ -6,8 +6,7 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { ArrowLeft, Pencil, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 
-import { obtenerPaciente } from "../../api/pacientes";
-import { listarRegistros } from "../../api/registros";
+import { obtenerPaciente, listarRegistrosDePaciente } from "../../api/pacientes";
 import useAuthStore from "../../store/authStore";
 
 function getEstadoRegistro(r) {
@@ -43,10 +42,10 @@ export default function PacienteDetallePage() {
       try {
         const [p, r] = await Promise.all([
           obtenerPaciente(curp),
-          listarRegistros({ soloActivos: false, porPagina: 500 }),
+          listarRegistrosDePaciente(curp),
         ]);
         setPaciente(p);
-        setRegistros(r.resultados.filter((reg) => reg.id_paciente === p.id_paciente));
+        setRegistros(r.resultados);
       } catch {
         toast.error("Error al cargar el paciente.");
         navigate("/pacientes");
@@ -179,7 +178,10 @@ export default function PacienteDetallePage() {
                     <td className="px-4 py-3 font-mono text-xs text-neutral-gray">#{r.id_registro}</td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-neutral-black text-xs">{r.clave_cnis}</p>
-                      <p className="text-neutral-gray text-xs truncate max-w-xs">
+                      <p
+                        title={r.medicamento?.descripcion}
+                        className="text-neutral-gray text-xs truncate max-w-xs"
+                      >
                         {r.medicamento?.descripcion ?? "—"}
                       </p>
                     </td>

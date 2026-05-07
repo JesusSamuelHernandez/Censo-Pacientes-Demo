@@ -42,3 +42,11 @@ export const buscarPacientePorCurp = async (curp) => {
   });
   return data; // { existe, id_paciente, nombre_completo, clues_unidad_adscripcion, nombre_unidad, total_registros }
 };
+
+// GET /pacientes/{curp}/registros — Todas las prescripciones del paciente, sin filtro de unidad
+export const listarRegistrosDePaciente = async (curp, soloActivos = false) => {
+  const { data } = await axiosClient.get(`/pacientes/${curp}/registros`, {
+    params: { solo_activos: soloActivos },
+  });
+  return data; // RegistroListResponse
+};

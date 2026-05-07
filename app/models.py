@@ -312,3 +312,62 @@ class Registro(Base):
             f"id_paciente={self.id_paciente!r} "
             f"med={self.clave_cnis!r}>"
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. Notificaciones de Transferencia (Blueprint Transferencia Paciente Paso 3)
+# ---------------------------------------------------------------------------
+class NotificacionTransferencia(Base):
+    """
+    Registro generado automáticamente cuando un paciente es transferido entre unidades.
+    Notifica a la unidad de origen para que quede enterada del traslado.
+    Se marca como leída a nivel de unidad: el primer usuario de la unidad que la acepta
+    la desaparece para todos.
+    """
+    __tablename__ = "notificaciones_transferencia"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    id_paciente: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("pacientes.id_paciente", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    clues_unidad_origen: Mapped[str] = mapped_column(
+        String(20),
+        ForeignKey("cat_unidades.clues", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    clues_unidad_destino: Mapped[str] = mapped_column(
+        String(20),
+        ForeignKey("cat_unidades.clues", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    id_usuario_traslado: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("usuarios.id_usuario", ondelete="SET NULL"),
+        nullable=True,
+    )
+    fecha_traslado: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    leida: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    id_usuario_leida: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("usuarios.id_usuario", ondelete="SET NULL"),
+        nullable=True,
+    )
+    fecha_leida: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    paciente: Mapped["Paciente"] = relationship(foreign_keys=[id_paciente])
+    unidad_origen: Mapped["UnidadMedica"] = relationship(foreign_keys=[clues_unidad_origen])
+    unidad_destino: Mapped["UnidadMedica"] = relationship(foreign_keys=[clues_unidad_destino])
+    usuario_traslado: Mapped["Usuario | None"] = relationship(foreign_keys=[id_usuario_traslado])
+    usuario_leida: Mapped["Usuario | None"] = relationship(foreign_keys=[id_usuario_leida])
+
+    def __repr__(self) -> str:
+        return f"<NotificacionTransferencia id={self.id} paciente={self.id_paciente}>"

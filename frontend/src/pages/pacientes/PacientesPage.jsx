@@ -177,7 +177,7 @@ export default function PacientesPage() {
               ) : (
                 pacientesFiltrados.map((p) => (
                   <tr key={p.curp_paciente} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
-                    <td className="px-4 py-3 font-medium text-neutral-black">{p.nombre_completo}</td>
+                    <td className="px-4 py-3 font-medium text-neutral-black" title={p.nombre_completo}>{p.nombre_completo}</td>
                     <td className="px-4 py-3 text-neutral-gray font-mono text-xs">{p.curp_paciente}</td>
                     <td className="px-4 py-3 text-neutral-gray text-xs">{p.clues_unidad_adscripcion}</td>
 
@@ -188,14 +188,18 @@ export default function PacientesPage() {
                           {p.medicamentos_activos.slice(0, 2).map((med, i) => (
                             <span
                               key={i}
+                              title={med}
                               className="inline-flex items-center px-2 py-0.5 rounded-md text-xs
-                                bg-primary/10 text-primary font-medium"
+                                bg-primary/10 text-primary font-medium max-w-[180px] truncate"
                             >
                               {med}
                             </span>
                           ))}
                           {p.medicamentos_activos.length > 2 && (
-                            <span className="text-xs text-neutral-gray">
+                            <span
+                              title={p.medicamentos_activos.slice(2).join("\n")}
+                              className="text-xs text-neutral-gray cursor-default"
+                            >
                               +{p.medicamentos_activos.length - 2} más
                             </span>
                           )}

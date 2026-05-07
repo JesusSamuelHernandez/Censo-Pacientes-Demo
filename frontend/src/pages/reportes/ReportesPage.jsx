@@ -174,17 +174,17 @@ function ReporteDetallado() {
                 datos.map((r) => (
                   <tr key={r.id_registro} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-3 py-2 font-mono text-neutral-gray">#{r.id_registro}</td>
-                    <td className="px-3 py-2 font-medium text-neutral-black max-w-[160px] truncate">{r.nombre_paciente}</td>
+                    <td className="px-3 py-2 font-medium text-neutral-black max-w-[160px] truncate" title={r.nombre_paciente}>{r.nombre_paciente}</td>
                     <td className="px-3 py-2 font-mono text-neutral-gray">{r.curp_paciente}</td>
-                    <td className="px-3 py-2 text-neutral-gray max-w-[160px] truncate">{r.diagnostico ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray max-w-[160px] truncate" title={r.diagnostico ?? undefined}>{r.diagnostico ?? "—"}</td>
                     <td className="px-3 py-2 font-mono text-neutral-gray">{r.clues_unidad}</td>
-                    <td className="px-3 py-2 text-neutral-black max-w-[140px] truncate">{r.medico ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-black max-w-[140px] truncate" title={r.medico ?? undefined}>{r.medico ?? "—"}</td>
                     <td className="px-3 py-2 text-center">
                       {r.dias_adherencia != null
                         ? <span className="text-secondary font-semibold">{r.dias_adherencia}</span>
                         : "—"}
                     </td>
-                    <td className="px-3 py-2 text-neutral-gray max-w-[180px] truncate">{r.descripcion_medicamento ?? r.clave_cnis}</td>
+                    <td className="px-3 py-2 text-neutral-gray max-w-[180px] truncate" title={r.descripcion_medicamento ?? r.clave_cnis}>{r.descripcion_medicamento ?? r.clave_cnis}</td>
                     <td className="px-3 py-2 text-neutral-gray">{r.dosis_administrada ?? "—"}</td>
                     <td className="px-3 py-2 text-neutral-gray">{r.fecha_inicio_tratamiento ?? "—"}</td>
                   </tr>

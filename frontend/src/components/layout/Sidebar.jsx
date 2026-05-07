@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import useAuthStore from "../../store/authStore";
-import { listarNotificaciones } from "../../api/notificaciones";
+import { listarNotificaciones, listarNotificacionesTraslados } from "../../api/notificaciones";
 
 const ROLES = {
   SUPER_ADMIN: "SUPER_ADMIN",
@@ -89,9 +89,14 @@ export default function Sidebar() {
   const [notifCount, setNotifCount] = useState(0);
 
   useEffect(() => {
-    listarNotificaciones()
-      .then((data) => setNotifCount(data.total))
-      .catch(() => {});
+    Promise.allSettled([
+      listarNotificaciones(),
+      listarNotificacionesTraslados(),
+    ]).then(([prescripciones, traslados]) => {
+      const totalPrescripciones = prescripciones.status === "fulfilled" ? prescripciones.value.total : 0;
+      const totalTraslados = traslados.status === "fulfilled" ? traslados.value.total : 0;
+      setNotifCount(totalPrescripciones + totalTraslados);
+    });
   }, []);
 
   const handleLogout = () => {

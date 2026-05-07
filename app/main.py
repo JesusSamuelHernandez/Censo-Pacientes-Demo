@@ -48,12 +48,14 @@ from app.auth import (
 )
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
-from app.models import Base, CatMedicamento, Medico, Paciente, Registro, UnidadMedica, Usuario
+from app.models import Base, CatMedicamento, Medico, NotificacionTransferencia, Paciente, Registro, UnidadMedica, Usuario
 from app.schemas import (
     BusquedaCurpResponse,
     CambiarPasswordRequest,
     NotificacionListResponse,
     NotificacionResponse,
+    NotificacionTransferenciaListResponse,
+    NotificacionTransferenciaResponse,
     RegistroCompletoCreate,
     RegistroCompletoResponse,
     LoginRequest,
@@ -391,6 +393,8 @@ def actualizar_paciente(
                 detail="No tiene acceso a pacientes de otro estado.",
             )
 
+    clues_anterior = paciente.clues_unidad_adscripcion
+
     datos = payload.model_dump(exclude_none=True)
     if "nombre_completo" in datos:
         paciente.nombre_completo = cifrar(datos.pop("nombre_completo"))
@@ -403,6 +407,17 @@ def actualizar_paciente(
     paciente.id_usuario_registro = current_user.id_usuario
     db.commit()
     db.refresh(paciente)
+
+    # Si la unidad cambió, registrar notificación de traslado para la unidad de origen
+    if clues_anterior != paciente.clues_unidad_adscripcion:
+        notif = NotificacionTransferencia(
+            id_paciente=paciente.id_paciente,
+            clues_unidad_origen=clues_anterior,
+            clues_unidad_destino=paciente.clues_unidad_adscripcion,
+            id_usuario_traslado=current_user.id_usuario,
+        )
+        db.add(notif)
+        db.commit()
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds = _get_medicamentos_activos(paciente.id_paciente, db)
@@ -444,6 +459,49 @@ def dar_baja_paciente(
     respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=False)
     respuesta.dias_adherencia = None
     return respuesta
+
+
+@app.get(
+    "/pacientes/{curp_paciente}/registros",
+    response_model=RegistroListResponse,
+    tags=["Pacientes"],
+    summary="Todas las prescripciones de un paciente, sin filtro de unidad.",
+)
+def listar_registros_de_paciente(
+    curp_paciente: str,
+    solo_activos: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    marcar_registros_vencidos(db)
+    paciente = db.query(Paciente).filter(
+        Paciente.curp_hash == hash_sha256(curp_paciente)
+    ).first()
+    if not paciente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+
+    query = (
+        db.query(Registro)
+        .options(
+            joinedload(Registro.paciente),
+            joinedload(Registro.medicamento),
+            joinedload(Registro.medico),
+        )
+        .filter(Registro.id_paciente == paciente.id_paciente)
+    )
+
+    if solo_activos:
+        query = query.filter(Registro.es_activo == True)
+
+    registros = query.order_by(Registro.id_registro.desc()).all()
+    total = len(registros)
+
+    return RegistroListResponse(
+        total=total,
+        pagina=1,
+        por_pagina=total if total > 0 else 1,
+        resultados=[_registro_to_response(r) for r in registros],
+    )
 
 
 # ===========================================================================
@@ -610,7 +668,12 @@ def listar_registros(
         query = query.filter(Registro.es_activo == True)
 
     if filtro.filtrar_por_clues:
-        query = query.filter(Registro.clues == filtro.valor_clues)
+        # La prescripción "sigue al paciente": filtramos por unidad actual del paciente,
+        # no por la unidad donde fue generada la prescripción.
+        query = (
+            query.join(Paciente, Registro.id_paciente == Paciente.id_paciente)
+                 .filter(Paciente.clues_unidad_adscripcion == filtro.valor_clues)
+        )
     elif filtro.filtrar_por_entidad:
         query = query.join(
             UnidadMedica, Registro.clues == UnidadMedica.clues
@@ -1048,6 +1111,92 @@ def listar_notificaciones(
     return NotificacionListResponse(total=len(resultados), resultados=resultados)
 
 
+@app.get(
+    "/notificaciones/transferencias",
+    response_model=NotificacionTransferenciaListResponse,
+    tags=["Notificaciones"],
+    summary="Traslados de pacientes pendientes de aceptar (RESPONSABLE_UNIDAD y SUPER_ADMIN).",
+)
+def listar_notificaciones_transferencia(
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    if current_user.es_admin_estatal:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Administrador Estatal no tiene notificaciones de traslado.",
+        )
+
+    query = (
+        db.query(NotificacionTransferencia)
+        .options(
+            joinedload(NotificacionTransferencia.paciente),
+            joinedload(NotificacionTransferencia.unidad_origen),
+            joinedload(NotificacionTransferencia.unidad_destino),
+            joinedload(NotificacionTransferencia.usuario_traslado),
+        )
+        .filter(NotificacionTransferencia.leida == False)
+    )
+
+    if current_user.es_responsable_unidad:
+        query = query.filter(
+            NotificacionTransferencia.clues_unidad_origen == current_user.clues_unidad_asignada
+        )
+
+    notifs = query.order_by(NotificacionTransferencia.fecha_traslado.desc()).all()
+
+    resultados = [
+        NotificacionTransferenciaResponse(
+            id=n.id,
+            id_paciente=n.id_paciente,
+            nombre_paciente=descifrar(n.paciente.nombre_completo) if n.paciente else "—",
+            curp_paciente=descifrar(n.paciente.curp_paciente) if n.paciente else "—",
+            clues_unidad_origen=n.clues_unidad_origen,
+            nombre_unidad_origen=n.unidad_origen.nombre_de_la_unidad if n.unidad_origen else None,
+            clues_unidad_destino=n.clues_unidad_destino,
+            nombre_unidad_destino=n.unidad_destino.nombre_de_la_unidad if n.unidad_destino else None,
+            nombre_usuario_traslado=n.usuario_traslado.nombre_usuario if n.usuario_traslado else None,
+            fecha_traslado=n.fecha_traslado,
+        )
+        for n in notifs
+    ]
+
+    return NotificacionTransferenciaListResponse(total=len(resultados), resultados=resultados)
+
+
+@app.patch(
+    "/notificaciones/transferencias/{id_notificacion}/leer",
+    tags=["Notificaciones"],
+    summary="Marcar traslado como leído por la unidad de origen.",
+)
+def marcar_traslado_leido(
+    id_notificacion: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    if current_user.es_admin_estatal:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sin acceso.")
+
+    notif = db.query(NotificacionTransferencia).filter(
+        NotificacionTransferencia.id == id_notificacion
+    ).first()
+    if not notif:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notificación no encontrada.")
+
+    if current_user.es_responsable_unidad and notif.clues_unidad_origen != current_user.clues_unidad_asignada:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo la unidad de origen puede aceptar este traslado.",
+        )
+
+    notif.leida = True
+    notif.id_usuario_leida = current_user.id_usuario
+    notif.fecha_leida = datetime.now(timezone.utc)
+    db.commit()
+
+    return {"ok": True}
+
+
 # ===========================================================================
 # REPORTES
 # ===========================================================================
@@ -1081,7 +1230,7 @@ def reporte_resumen_detallado(
         query = query.filter(Registro.es_activo == True, Paciente.es_activo == True)
 
     if filtro.filtrar_por_clues:
-        query = query.filter(Registro.clues == filtro.valor_clues)
+        query = query.filter(Paciente.clues_unidad_adscripcion == filtro.valor_clues)
     elif filtro.filtrar_por_entidad:
         query = query.join(
             UnidadMedica, Registro.clues == UnidadMedica.clues
@@ -1630,10 +1779,16 @@ def _verificar_acceso_registro(
     if usuario.es_super_admin:
         return
     if usuario.es_responsable_unidad:
-        if registro.clues != usuario.clues_unidad_asignada:
+        # La prescripción "sigue al paciente": el acceso se determina por la unidad
+        # actual del paciente, no por la unidad donde fue generada la prescripción.
+        paciente = db.query(Paciente).filter(
+            Paciente.id_paciente == registro.id_paciente
+        ).first()
+        clues_paciente = paciente.clues_unidad_adscripcion if paciente else registro.clues
+        if clues_paciente != usuario.clues_unidad_asignada:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene acceso a registros de otra unidad médica.",
+                detail="No tiene acceso a registros de pacientes de otra unidad médica.",
             )
         return
     if usuario.es_admin_estatal:

@@ -181,11 +181,14 @@ export default function RegistrosPage() {
                     <td className="px-4 py-3 font-mono text-xs text-neutral-gray">#{r.id_registro}</td>
                     <td className="px-4 py-3">
                       <p className="font-mono text-xs text-neutral-gray">{r.clave_cnis}</p>
-                      <p className="text-xs text-neutral-black truncate max-w-[200px]">
+                      <p
+                        title={r.medicamento?.descripcion}
+                        className="text-xs text-neutral-black truncate max-w-[200px]"
+                      >
                         {r.medicamento?.descripcion ?? "—"}
                       </p>
                     </td>
-                    <td className="px-4 py-3 text-neutral-black text-xs">
+                    <td className="px-4 py-3 text-neutral-black text-xs" title={r.medico?.nombre_medico}>
                       {r.medico?.nombre_medico ?? "—"}
                     </td>
                     <td className="px-4 py-3">
@@ -194,6 +197,7 @@ export default function RegistrosPage() {
                           onClick={() => navigate(`/pacientes/${r.curp_paciente}`, {
                             state: { from: "registros-list" }
                           })}
+                          title={r.nombre_paciente}
                           className="text-left hover:text-primary transition"
                         >
                           <p className="text-xs font-medium text-neutral-black">{r.nombre_paciente}</p>

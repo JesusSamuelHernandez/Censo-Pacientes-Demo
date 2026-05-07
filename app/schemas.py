@@ -520,6 +520,28 @@ class ValidarContinuidadRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# ── 10. Notificaciones de Transferencia ─────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class NotificacionTransferenciaResponse(BaseModel):
+    id: int
+    id_paciente: int
+    nombre_paciente: str
+    curp_paciente: str
+    clues_unidad_origen: str
+    nombre_unidad_origen: str | None
+    clues_unidad_destino: str
+    nombre_unidad_destino: str | None
+    nombre_usuario_traslado: str | None
+    fecha_traslado: datetime
+
+
+class NotificacionTransferenciaListResponse(BaseModel):
+    total: int
+    resultados: list[NotificacionTransferenciaResponse]
+
+
+# ---------------------------------------------------------------------------
 # ── 9. Auth ─────────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
