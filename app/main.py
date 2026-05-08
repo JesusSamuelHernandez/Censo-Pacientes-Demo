@@ -732,10 +732,11 @@ def crear_registro(
             detail=f"Médico con id '{payload.id_medico}' no encontrado.",
         )
 
-    if not db.query(CatMedicamento).filter(
+    medicamento = db.query(CatMedicamento).filter(
         CatMedicamento.clave_cnis == payload.clave_cnis,
         CatMedicamento.es_activo == True,
-    ).first():
+    ).first()
+    if not medicamento:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Medicamento '{payload.clave_cnis}' no encontrado en catálogo activo.",
@@ -755,9 +756,14 @@ def crear_registro(
         estatus_diagnostico=payload.estatus_diagnostico,
         confirmado_por=payload.confirmado_por,
         prescripcion=payload.prescripcion,
+        dosis=payload.dosis,
+        frecuencia=payload.frecuencia,
+        unidad_tiempo=payload.unidad_tiempo,
+        duracion=payload.duracion,
         id_usuario_registro=current_user.id_usuario,
         es_activo=True,
     )
+    _aplicar_posologia(nuevo, medicamento.unidad)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
@@ -842,10 +848,11 @@ def crear_registro_completo(
         )
 
     # 4. Validar medicamento activo
-    if not db.query(CatMedicamento).filter(
+    medicamento = db.query(CatMedicamento).filter(
         CatMedicamento.clave_cnis == payload.clave_cnis,
         CatMedicamento.es_activo == True,
-    ).first():
+    ).first()
+    if not medicamento:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Medicamento '{payload.clave_cnis}' no encontrado en catálogo activo.",
@@ -866,9 +873,14 @@ def crear_registro_completo(
         estatus_diagnostico=payload.estatus_diagnostico,
         confirmado_por=payload.confirmado_por,
         prescripcion=payload.prescripcion,
+        dosis=payload.dosis,
+        frecuencia=payload.frecuencia,
+        unidad_tiempo=payload.unidad_tiempo,
+        duracion=payload.duracion,
         id_usuario_registro=current_user.id_usuario,
         es_activo=True,
     )
+    _aplicar_posologia(nuevo, medicamento.unidad)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
@@ -947,8 +959,16 @@ def actualizar_registro(
 
     _verificar_acceso_registro(registro, current_user, db)
 
-    for campo, valor in payload.model_dump(exclude_none=True).items():
+    CAMPOS_POSOLOGIA = {"dosis", "frecuencia", "unidad_tiempo", "duracion"}
+    campos_actualizados = payload.model_dump(exclude_none=True)
+    for campo, valor in campos_actualizados.items():
         setattr(registro, campo, valor)
+
+    # Recalcular prescripcion y total_medicamento si se modificó algún campo de posología
+    if CAMPOS_POSOLOGIA & set(campos_actualizados):
+        unidad_med = registro.medicamento.unidad if registro.medicamento else None
+        _aplicar_posologia(registro, unidad_med)
+
     registro.id_usuario_registro = current_user.id_usuario
     db.commit()
     db.refresh(registro)
@@ -1269,7 +1289,7 @@ def reporte_resumen_detallado(
                 ),
                 "clave_cnis": r.clave_cnis,
                 "descripcion_medicamento": r.medicamento.descripcion if r.medicamento else None,
-                "dosis_administrada": r.dosis_administrada,
+                "prescripcion": r.prescripcion,
                 "fecha_inicio_tratamiento": (
                     r.fecha_inicio_tratamiento.isoformat()
                     if r.fecha_inicio_tratamiento else None
@@ -1677,6 +1697,48 @@ def _medico_to_response(m: Medico) -> MedicoResponse:
     )
 
 
+def _pluralizar_unidad(unidad: str, cantidad: float) -> str:
+    """Pluraliza la unidad del medicamento según cantidad. Ej: "tableta" → "tabletas"."""
+    if cantidad == 1:
+        return unidad
+    u = unidad.lower()
+    if u in {"ml", "mg", "mcg", "g", "ui", "dosis"}:
+        return unidad
+    if u.endswith("ón"):
+        return unidad[:-2] + "ones"
+    if u[-1] in "aeiouáéíóú":
+        return unidad + "s"
+    return unidad + "es"
+
+
+def _calcular_prescripcion_y_total(
+    dosis: float,
+    frecuencia: int,
+    duracion: int,
+    unidad_tiempo: str,
+    unidad: str,
+) -> tuple[str, float]:
+    """Retorna (texto_prescripcion, total_medicamento) a partir de los campos de posología."""
+    factor = {"días": 1, "semanas": 7, "meses": 30}.get(unidad_tiempo, 1)
+    duracion_dias = duracion * factor
+    total = dosis * (24 / frecuencia) * duracion_dias
+    unidad_txt = _pluralizar_unidad(unidad, dosis)
+    texto = f"{dosis:g} {unidad_txt}, cada {frecuencia} horas, por {duracion} {unidad_tiempo}"
+    return texto, round(total, 2)
+
+
+def _aplicar_posologia(registro: Registro, unidad_medicamento: str | None) -> None:
+    """Si los 4 campos de posología están completos, calcula y asigna prescripcion y total_medicamento."""
+    if registro.dosis and registro.frecuencia and registro.duracion and registro.unidad_tiempo:
+        unidad = unidad_medicamento or "unidad"
+        texto, total = _calcular_prescripcion_y_total(
+            registro.dosis, registro.frecuencia, registro.duracion,
+            registro.unidad_tiempo, unidad,
+        )
+        registro.prescripcion = texto
+        registro.total_medicamento = total
+
+
 def _registro_to_response(r: Registro) -> RegistroResponse:
     """Construye RegistroResponse descifrando los campos del médico y paciente embebidos."""
     return RegistroResponse(
@@ -1694,6 +1756,11 @@ def _registro_to_response(r: Registro) -> RegistroResponse:
         estatus_diagnostico=r.estatus_diagnostico,
         confirmado_por=r.confirmado_por,
         prescripcion=r.prescripcion,
+        dosis=r.dosis,
+        frecuencia=r.frecuencia,
+        unidad_tiempo=r.unidad_tiempo,
+        duracion=r.duracion,
+        total_medicamento=r.total_medicamento,
         es_activo=r.es_activo,
         fecha_registro_sistema=r.fecha_registro_sistema,
         id_usuario_registro=r.id_usuario_registro,

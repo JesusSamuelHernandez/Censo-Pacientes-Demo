@@ -24,12 +24,14 @@ const schemaCrear = z.object({
   descripcion: z.string().min(1, "La descripción es requerida.").max(2000),
   grupo: z.string().max(150).optional().or(z.literal("")),
   tipo_clave: z.string().max(100).optional().or(z.literal("")),
+  unidad: z.string().max(100).optional().or(z.literal("")),
 });
 
 const schemaEditar = z.object({
   descripcion: z.string().min(1, "La descripción es requerida.").max(2000),
   grupo: z.string().max(150).optional().or(z.literal("")),
   tipo_clave: z.string().max(100).optional().or(z.literal("")),
+  unidad: z.string().max(100).optional().or(z.literal("")),
   es_activo: z.boolean(),
 });
 
@@ -49,9 +51,10 @@ function Modal({ item, onClose, onGuardado }) {
           descripcion: item.descripcion,
           grupo: item.grupo ?? "",
           tipo_clave: item.tipo_clave ?? "",
+          unidad: item.unidad ?? "",
           es_activo: item.es_activo,
         }
-      : { clave_cnis: "", descripcion: "", grupo: "", tipo_clave: "" },
+      : { clave_cnis: "", descripcion: "", grupo: "", tipo_clave: "", unidad: "" },
   });
 
   const onSubmit = async (values) => {
@@ -62,6 +65,7 @@ function Modal({ item, onClose, onGuardado }) {
           descripcion: values.descripcion,
           grupo: values.grupo || undefined,
           tipo_clave: values.tipo_clave || undefined,
+          unidad: values.unidad || undefined,
           es_activo: values.es_activo,
         };
         await actualizarMedicamento(item.clave_cnis, payload);
@@ -72,6 +76,7 @@ function Modal({ item, onClose, onGuardado }) {
           descripcion: values.descripcion,
           grupo: values.grupo || undefined,
           tipo_clave: values.tipo_clave || undefined,
+          unidad: values.unidad || undefined,
         };
         await crearMedicamento(payload);
         toast.success("Medicamento registrado.");
@@ -165,6 +170,23 @@ function Modal({ item, onClose, onGuardado }) {
                 {...register("tipo_clave")}
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-neutral-black mb-1">
+              Unidad de dosis{" "}
+              <span className="text-neutral-gray font-normal">(singular, opcional)</span>
+            </label>
+            <input
+              type="text"
+              placeholder="ej. tableta, inyección, ml, cápsula"
+              className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+              {...register("unidad")}
+            />
+            <p className="text-xs text-neutral-gray mt-1">
+              Se usa para generar el texto de prescripción (ej. "2 tabletas, cada 8 horas…").
+            </p>
           </div>
 
           {esEdicion && (
@@ -296,6 +318,7 @@ export default function MedicamentosPage() {
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Descripción</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black whitespace-nowrap">Grupo</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black whitespace-nowrap">Tipo Clave</th>
+                <th className="text-left px-4 py-3 font-semibold text-neutral-black whitespace-nowrap">Unidad</th>
                 <th className="text-center px-4 py-3 font-semibold text-neutral-black">Estado</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -303,7 +326,7 @@ export default function MedicamentosPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12">
+                  <td colSpan={7} className="text-center py-12">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
@@ -311,7 +334,7 @@ export default function MedicamentosPage() {
                 </tr>
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12">
+                  <td colSpan={7} className="text-center py-12">
                     <Pill size={32} className="mx-auto text-neutral-gray/40 mb-2" />
                     <p className="text-neutral-gray text-sm">Sin registros.</p>
                   </td>
@@ -322,7 +345,7 @@ export default function MedicamentosPage() {
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-neutral-black whitespace-nowrap">
                       {m.clave_cnis}
                     </td>
-                    <td className="px-4 py-3 text-neutral-gray max-w-xs">
+                    <td className="px-4 py-3 text-neutral-gray max-w-xs" title={m.descripcion}>
                       <span className="line-clamp-2">{m.descripcion}</span>
                     </td>
                     <td className="px-4 py-3 text-neutral-gray whitespace-nowrap">
@@ -330,6 +353,11 @@ export default function MedicamentosPage() {
                     </td>
                     <td className="px-4 py-3 text-neutral-gray whitespace-nowrap">
                       {m.tipo_clave ?? <span className="text-neutral-gray/40">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {m.unidad
+                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-primary/10 text-primary font-medium">{m.unidad}</span>
+                        : <span className="text-neutral-gray/40">—</span>}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium

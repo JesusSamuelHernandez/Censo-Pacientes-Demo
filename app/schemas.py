@@ -88,6 +88,7 @@ class MedicamentoBase(BaseModel):
     descripcion: str = Field(..., min_length=1, max_length=2000)
     grupo: str | None = Field(None, max_length=150)
     tipo_clave: str | None = Field(None, max_length=100)
+    unidad: str | None = Field(None, max_length=100, description="Unidad singular del medicamento (ej. 'tableta', 'inyección', 'ml').")
 
 
 class MedicamentoCreate(MedicamentoBase):
@@ -98,6 +99,7 @@ class MedicamentoUpdate(BaseModel):
     descripcion: str | None = Field(None, min_length=1, max_length=2000)
     grupo: str | None = Field(None, max_length=150)
     tipo_clave: str | None = Field(None, max_length=100)
+    unidad: str | None = Field(None, max_length=100)
     es_activo: bool | None = None
 
 
@@ -364,7 +366,15 @@ class RegistroBase(BaseModel):
         description="Valores válidos: 'confirmado', 'por confirmar'.",
     )
     confirmado_por: str | None = Field(None, max_length=100, description="Área que confirmó el diagnóstico.")
-    prescripcion: str | None = Field(None, description="Descripción libre de la prescripción médica.")
+    prescripcion: str | None = Field(
+        None,
+        description="Auto-generado por el backend si se envían dosis/frecuencia/duracion/unidad_tiempo.",
+    )
+    # Posología — el backend calcula prescripcion y total_medicamento a partir de estos 4 campos
+    dosis: float | None = Field(None, gt=0, description="Cantidad de unidades por toma (ej. 2).")
+    frecuencia: int | None = Field(None, gt=0, description="Horas entre tomas (ej. 8, 12, 24).")
+    unidad_tiempo: str | None = Field(None, description="'días', 'semanas' o 'meses'.")
+    duracion: int | None = Field(None, gt=0, description="Número de unidades de tiempo (ej. 7).")
 
     @field_validator("clues", mode="before")
     @classmethod
@@ -386,6 +396,10 @@ class RegistroUpdate(BaseModel):
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
     prescripcion: str | None = None
+    dosis: float | None = Field(None, gt=0)
+    frecuencia: int | None = Field(None, gt=0)
+    unidad_tiempo: str | None = None
+    duracion: int | None = Field(None, gt=0)
     es_activo: bool | None = Field(
         None,
         description="False = anular registro por error de captura (Soft Delete).",
@@ -401,6 +415,9 @@ class RegistroResponse(RegistroBase):
     # Datos del paciente embebidos (descifrados)
     nombre_paciente: str | None = None
     curp_paciente: str | None = None
+
+    # Dato calculado por el backend
+    total_medicamento: float | None = None
 
     # Datos embebidos
     medicamento: MedicamentoResponse | None = None
@@ -448,6 +465,10 @@ class RegistroCompletoCreate(BaseModel):
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
     prescripcion: str | None = None
+    dosis: float | None = Field(None, gt=0)
+    frecuencia: int | None = Field(None, gt=0)
+    unidad_tiempo: str | None = None
+    duracion: int | None = Field(None, gt=0)
 
     @field_validator("curp_paciente", mode="before")
     @classmethod

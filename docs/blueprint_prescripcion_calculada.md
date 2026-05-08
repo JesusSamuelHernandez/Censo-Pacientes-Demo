@@ -58,7 +58,7 @@ Ejemplo: dosis=2, frecuencia=8, duracion=7, unidad_tiempo="días", unidad="table
 
 ## PASO 1 — Migración de BD
 
-**Estado:** ⏳ Pendiente
+**Estado:** ✅ Completado — ejecutado 2026-05-08, 6 columnas agregadas
 **Complejidad:** Baja
 **Archivos afectados:** `scripts/migrar_prescripcion.py`
 
@@ -121,6 +121,23 @@ Se necesita un script de migración con los `ALTER TABLE`.
 **Complejidad:** Media
 **Archivos afectados:** `app/main.py`
 
+### Helper `_pluralizar_unidad` (singular/plural español)
+
+- [ ] Nueva función auxiliar para pluralizar la unidad del medicamento:
+  ```python
+  def _pluralizar_unidad(unidad: str, cantidad: float) -> str:
+      if cantidad == 1:
+          return unidad
+      u = unidad.lower()
+      if u in {"ml", "mg", "mcg", "g", "ui", "dosis"}:   # invariables
+          return unidad
+      if u.endswith("ón"):                                  # inyección → inyecciones
+          return unidad[:-2] + "ones"
+      if u[-1] in "aeiouáéíóú":                            # tableta → tabletas
+          return unidad + "s"
+      return unidad + "es"                                  # consonante genérica
+  ```
+
 ### Helper `_calcular_prescripcion_y_total`
 
 - [ ] Nueva función auxiliar:
@@ -130,15 +147,20 @@ Se necesita un script de migración con los `ALTER TABLE`.
       frecuencia: int,
       duracion: int,
       unidad_tiempo: str,   # "días" | "semanas" | "meses"
-      unidad: str,           # de cat_medicamentos.unidad, ej. "tabletas"
+      unidad: str,          # singular, de cat_medicamentos.unidad, ej. "tableta"
   ) -> tuple[str, float]:
       """Retorna (texto_prescripcion, total_medicamento)."""
       factor = {"días": 1, "semanas": 7, "meses": 30}.get(unidad_tiempo, 1)
       duracion_dias = duracion * factor
       total = dosis * (24 / frecuencia) * duracion_dias
-      texto = f"{dosis:g} {unidad}, cada {frecuencia} horas, por {duracion} {unidad_tiempo}"
+      unidad_txt = _pluralizar_unidad(unidad, dosis)
+      texto = f"{dosis:g} {unidad_txt}, cada {frecuencia} horas, por {duracion} {unidad_tiempo}"
       return texto, round(total, 2)
   ```
+
+> **Regla de plural**: `unidad` se guarda en singular en el catálogo (ej. "tableta",
+> "inyección"). El helper aplica: invariables (ml, mg…) sin cambio; terminación en
+> "-ón" → "-ones"; vocal final → + "s"; otra consonante → + "es".
 
 ### Aplicar en endpoints
 
@@ -262,9 +284,9 @@ al registrar una prescripción vean la unidad correcta del medicamento.
 
 | Paso | Nombre | Estado |
 |---|---|---|
-| 1 | Migración de BD (ALTER TABLE) | ⏳ Pendiente |
-| 2 | Modelos ORM y Schemas | ⏳ Pendiente |
-| 3 | Lógica de cálculo en backend | ⏳ Pendiente |
-| 4 | Catálogo de medicamentos: campo unidad | ⏳ Pendiente |
-| 5 | Formulario de registro (frontend) | ⏳ Pendiente |
-| 6 | Visualización: historial, reportes y Excel | ⏳ Pendiente |
+| 1 | Migración de BD (ALTER TABLE) | ✅ Completado |
+| 2 | Modelos ORM y Schemas | ✅ Completado |
+| 3 | Lógica de cálculo en backend | ✅ Completado |
+| 4 | Catálogo de medicamentos: campo unidad | ✅ Completado |
+| 5 | Formulario de registro (frontend) | ✅ Completado |
+| 6 | Visualización: historial, reportes y Excel | ✅ Completado |

@@ -23,6 +23,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     LargeBinary,
@@ -61,6 +62,7 @@ class CatMedicamento(Base):
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)
     grupo: Mapped[str | None] = mapped_column(String(150))
     tipo_clave: Mapped[str | None] = mapped_column(String(100))
+    unidad: Mapped[str | None] = mapped_column(String(100), nullable=True)
     es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     registros: Mapped[list["Registro"]] = relationship(back_populates="medicamento")
@@ -282,6 +284,13 @@ class Registro(Base):
     estatus_diagnostico: Mapped[str | None] = mapped_column(String(50), nullable=True)
     confirmado_por: Mapped[str | None] = mapped_column(String(100), nullable=True)
     prescripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Campos de posología — calculados automáticamente por el backend
+    dosis: Mapped[float | None] = mapped_column(Float, nullable=True)
+    frecuencia: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    unidad_tiempo: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    duracion: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_medicamento: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     fecha_registro_sistema: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -168,7 +168,7 @@ export default function PacienteDetallePage() {
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Médico</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Inicio</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Fin</th>
-                  <th className="text-left px-4 py-3 font-semibold text-neutral-black">Dosis</th>
+                  <th className="text-left px-4 py-3 font-semibold text-neutral-black">Prescripción</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Estado</th>
                 </tr>
               </thead>
@@ -194,8 +194,8 @@ export default function PacienteDetallePage() {
                     <td className="px-4 py-3 text-neutral-gray text-xs">
                       {r.fecha_fin_tratamiento ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-neutral-gray text-xs">
-                      {r.dosis_administrada ?? "—"}
+                    <td className="px-4 py-3 text-neutral-gray text-xs" title={r.prescripcion ?? undefined}>
+                      {r.prescripcion ?? "—"}
                     </td>
                     <td className="px-4 py-3">
                       {(() => { const e = getEstadoRegistro(r); return (

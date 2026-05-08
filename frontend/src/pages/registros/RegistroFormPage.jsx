@@ -36,13 +36,17 @@ const CONFIRMADO_POR_OPTIONS = [
 const camposOpcionales = {
   estatus_diagnostico: z.string().optional().or(z.literal("")),
   confirmado_por: z.string().optional().or(z.literal("")),
-  prescripcion: z.string().optional().or(z.literal("")),
   fecha_inicio_tratamiento: z.string().optional().or(z.literal("")),
   fecha_primera_administracion: z.string().optional().or(z.literal("")),
   fecha_fin_tratamiento: z.string().optional().or(z.literal("")),
   dosis_administrada: z.string().max(100).optional().or(z.literal("")),
   peso: z.string().optional().or(z.literal("")),
   talla: z.string().optional().or(z.literal("")),
+  // Posología
+  dosis: z.string().optional().or(z.literal("")),
+  frecuencia: z.string().optional().or(z.literal("")),
+  unidad_tiempo: z.string().optional().or(z.literal("")),
+  duracion: z.string().optional().or(z.literal("")),
 };
 
 const schemaCrear = z.object({
@@ -133,6 +137,7 @@ export default function RegistroFormPage() {
   const [medicos, setMedicos] = useState([]);
   const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [unidadMedicamentoEdicion, setUnidadMedicamentoEdicion] = useState(null);
 
   // Estado del widget de búsqueda por CURP
   const [curpBusqueda, setCurpBusqueda] = useState("");
@@ -149,6 +154,44 @@ export default function RegistroFormPage() {
   } = useForm({ resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear) });
 
   const cluesSeleccionada = watch("clues");
+  const claveCnisSeleccionada = watch("clave_cnis");
+
+  // Unidad del medicamento seleccionado (para etiqueta dinámica en posología)
+  const unidadMedicamento = esEdicion
+    ? unidadMedicamentoEdicion
+    : (medicamentos.find((m) => m.clave_cnis === claveCnisSeleccionada)?.unidad ?? null);
+
+  // Watch de campos de posología para el preview en tiempo real
+  const dosisVal       = watch("dosis");
+  const frecuenciaVal  = watch("frecuencia");
+  const duracionVal    = watch("duracion");
+  const unidadTiempoVal = watch("unidad_tiempo");
+
+  // Calcula el preview de prescripción en el cliente (espejo de la lógica del backend)
+  const previewPrescripcion = (() => {
+    const d   = parseFloat(dosisVal);
+    const f   = parseInt(frecuenciaVal, 10);
+    const dur = parseInt(duracionVal, 10);
+    const ut  = unidadTiempoVal;
+    if (!d || !f || !dur || !ut) return null;
+
+    const factor = { días: 1, semanas: 7, meses: 30 }[ut] ?? 1;
+    const total  = Math.round(d * (24 / f) * dur * factor * 100) / 100;
+
+    const pluralizar = (u, cant) => {
+      if (!u) return "unidad(es)";
+      if (cant === 1) return u;
+      const ul = u.toLowerCase();
+      if (["ml", "mg", "mcg", "g", "ui", "dosis"].includes(ul)) return u;
+      if (ul.endsWith("ón")) return u.slice(0, -2) + "ones";
+      if ("aeiouáéíóú".includes(ul[ul.length - 1])) return u + "s";
+      return u + "es";
+    };
+
+    const unidadTxt = pluralizar(unidadMedicamento, d);
+    const texto = `${d % 1 === 0 ? d : d} ${unidadTxt}, cada ${f} horas, por ${dur} ${ut}`;
+    return { texto, total, unidadTxt };
+  })();
 
   // Búsqueda nacional al completar CURP válida
   useEffect(() => {
@@ -182,16 +225,20 @@ export default function RegistroFormPage() {
 
     if (esEdicion) {
       obtenerRegistro(id).then((r) => {
+        setUnidadMedicamentoEdicion(r.medicamento?.unidad ?? null);
         reset({
           estatus_diagnostico: r.estatus_diagnostico ?? "",
           confirmado_por: r.confirmado_por ?? "",
-          prescripcion: r.prescripcion ?? "",
           fecha_inicio_tratamiento: r.fecha_inicio_tratamiento ?? "",
           fecha_primera_administracion: r.fecha_primera_administracion ?? "",
           fecha_fin_tratamiento: r.fecha_fin_tratamiento ?? "",
           dosis_administrada: r.dosis_administrada ?? "",
           peso: r.peso != null ? String(r.peso) : "",
           talla: r.talla != null ? String(r.talla) : "",
+          dosis: r.dosis != null ? String(r.dosis) : "",
+          frecuencia: r.frecuencia != null ? String(r.frecuencia) : "",
+          unidad_tiempo: r.unidad_tiempo ?? "",
+          duracion: r.duracion != null ? String(r.duracion) : "",
         });
       }).catch(() => toast.error("Error al cargar la prescripción."));
     }
@@ -204,6 +251,9 @@ export default function RegistroFormPage() {
     );
     if (payload.peso !== undefined) payload.peso = parseFloat(payload.peso);
     if (payload.talla !== undefined) payload.talla = parseFloat(payload.talla);
+    if (payload.dosis !== undefined) payload.dosis = parseFloat(payload.dosis);
+    if (payload.frecuencia !== undefined) payload.frecuencia = parseInt(payload.frecuencia, 10);
+    if (payload.duracion !== undefined) payload.duracion = parseInt(payload.duracion, 10);
     return payload;
   };
 
@@ -485,18 +535,6 @@ export default function RegistroFormPage() {
               </select>
             </div>
 
-            {/* Prescripción */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-black mb-1">
-                Prescripción
-                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-              </label>
-              <textarea rows={3} placeholder="Descripción de la prescripción médica..."
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition resize-none"
-                {...register("prescripcion")} />
-            </div>
-
             {/* Fecha inicio tratamiento */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
@@ -533,18 +571,6 @@ export default function RegistroFormPage() {
                 {...register("fecha_primera_administracion")} />
             </div>
 
-            {/* Dosis */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-black mb-1">
-                Dosis administrada
-                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-              </label>
-              <input type="text" placeholder="ej. 500 mg IV, 40 mg SC"
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-                {...register("dosis_administrada")} />
-            </div>
-
             {/* Peso y Talla */}
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -566,6 +592,113 @@ export default function RegistroFormPage() {
                   {...register("talla")} />
               </div>
             </div>
+          </div>
+
+          {/* ── Sección: Posología ── */}
+          <div className="space-y-4">
+            <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-2">
+              {esEdicion ? "Posología" : "3. Posología"}
+              <span className="normal-case font-normal ml-2">
+                (opcional — calcula el total de medicamento requerido)
+              </span>
+            </p>
+
+            {/* Dosis por toma */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Dosis por toma
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.5"
+                  placeholder="ej. 2"
+                  className="w-28 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  {...register("dosis")}
+                />
+                <span className="text-sm text-neutral-gray">
+                  {unidadMedicamento ? `${unidadMedicamento}(s)` : "unidad(es)"}
+                </span>
+              </div>
+            </div>
+
+            {/* Frecuencia */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Frecuencia
+              </label>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-neutral-gray">Cada</span>
+                <select
+                  className="px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  {...register("frecuencia")}
+                >
+                  <option value="">— —</option>
+                  <option value="1">1 hora</option>
+                  <option value="2">2 horas</option>
+                  <option value="4">4 horas</option>
+                  <option value="6">6 horas</option>
+                  <option value="8">8 horas</option>
+                  <option value="12">12 horas</option>
+                  <option value="24">24 horas</option>
+                  <option value="48">48 horas</option>
+                  <option value="72">72 horas</option>
+                  <option value="96">96 horas</option>
+                  <option value="168">168 horas</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Duración */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Duración del tratamiento
+              </label>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-neutral-gray">Por</span>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="7"
+                  className="w-24 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  {...register("duracion")}
+                />
+                <select
+                  className="px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  {...register("unidad_tiempo")}
+                >
+                  <option value="">— Unidad —</option>
+                  <option value="días">Días</option>
+                  <option value="semanas">Semanas</option>
+                  <option value="meses">Meses</option>
+                </select>
+              </div>
+            </div>
+
+            {previewPrescripcion ? (
+              <div className="bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3 space-y-1">
+                <p className="text-xs text-neutral-gray uppercase tracking-wide font-semibold">Prescripción generada</p>
+                <p className="text-sm font-medium text-neutral-black">{previewPrescripcion.texto}</p>
+                <p className="text-xs text-neutral-gray">
+                  Total del tratamiento:{" "}
+                  <span className="font-semibold text-secondary">
+                    {previewPrescripcion.total % 1 === 0
+                      ? previewPrescripcion.total
+                      : previewPrescripcion.total.toFixed(2)}{" "}
+                    {previewPrescripcion.unidadTxt}
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-neutral-gray/60 bg-neutral-light/80 rounded-lg px-3 py-2">
+                Completa los tres campos para ver la prescripción calculada.
+              </p>
+            )}
           </div>
 
           {/* Botones */}

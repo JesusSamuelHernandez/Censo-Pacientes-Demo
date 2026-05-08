@@ -94,7 +94,7 @@ function ReporteDetallado() {
       "Días Adherencia": r.dias_adherencia,
       "Clave CNIS": r.clave_cnis,
       "Medicamento": r.descripcion_medicamento,
-      "Dosis": r.dosis_administrada,
+      "Prescripción": r.prescripcion,
       "Fecha Inicio Tratamiento": r.fecha_inicio_tratamiento,
       "Fecha Primera Adm.": r.fecha_primera_administracion,
       "Fecha Registro": r.fecha_registro_sistema,
@@ -156,7 +156,7 @@ function ReporteDetallado() {
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-neutral-light border-b border-neutral-gray/20">
-                {["Folio", "Paciente", "CURP", "Diagnóstico", "Unidad", "Médico", "Días Adh.", "Medicamento", "Dosis", "Inicio Trat."].map((h) => (
+                {["Folio", "Paciente", "CURP", "Diagnóstico", "Unidad", "Médico", "Días Adh.", "Medicamento", "Prescripción", "Inicio Trat."].map((h) => (
                   <th key={h} className="text-left px-3 py-3 font-semibold text-neutral-black whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -185,7 +185,7 @@ function ReporteDetallado() {
                         : "—"}
                     </td>
                     <td className="px-3 py-2 text-neutral-gray max-w-[180px] truncate" title={r.descripcion_medicamento ?? r.clave_cnis}>{r.descripcion_medicamento ?? r.clave_cnis}</td>
-                    <td className="px-3 py-2 text-neutral-gray">{r.dosis_administrada ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray max-w-[200px] truncate" title={r.prescripcion ?? undefined}>{r.prescripcion ?? "—"}</td>
                     <td className="px-3 py-2 text-neutral-gray">{r.fecha_inicio_tratamiento ?? "—"}</td>
                   </tr>
                 ))
