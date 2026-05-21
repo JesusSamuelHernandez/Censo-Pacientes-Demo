@@ -26,7 +26,7 @@ Adherencia:
     Calculada en endpoint desde el registro activo más reciente del paciente:
     (date.today() - registro.fecha_inicio_tratamiento).days
 """
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -742,6 +742,13 @@ def crear_registro(
             detail=f"Medicamento '{payload.clave_cnis}' no encontrado en catálogo activo.",
         )
 
+    if any([payload.dosis, payload.frecuencia, payload.duracion, payload.unidad_tiempo]):
+        if not payload.fecha_primera_administracion:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="La fecha de primera administración es obligatoria cuando se indica posología.",
+            )
+
     nuevo = Registro(
         id_medico=payload.id_medico,
         id_paciente=payload.id_paciente,
@@ -757,13 +764,14 @@ def crear_registro(
         confirmado_por=payload.confirmado_por,
         prescripcion=payload.prescripcion,
         dosis=payload.dosis,
+        cantidad=payload.cantidad,
         frecuencia=payload.frecuencia,
         unidad_tiempo=payload.unidad_tiempo,
         duracion=payload.duracion,
         id_usuario_registro=current_user.id_usuario,
         es_activo=True,
     )
-    _aplicar_posologia(nuevo, medicamento.unidad)
+    _aplicar_posologia(nuevo, medicamento.unidad, medicamento.unidad_de_medida)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
@@ -874,13 +882,20 @@ def crear_registro_completo(
         confirmado_por=payload.confirmado_por,
         prescripcion=payload.prescripcion,
         dosis=payload.dosis,
+        cantidad=payload.cantidad,
         frecuencia=payload.frecuencia,
         unidad_tiempo=payload.unidad_tiempo,
         duracion=payload.duracion,
         id_usuario_registro=current_user.id_usuario,
         es_activo=True,
     )
-    _aplicar_posologia(nuevo, medicamento.unidad)
+    if any([payload.dosis, payload.frecuencia, payload.duracion, payload.unidad_tiempo]):
+        if not payload.fecha_primera_administracion:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="La fecha de primera administración es obligatoria cuando se indica posología.",
+            )
+    _aplicar_posologia(nuevo, medicamento.unidad, medicamento.unidad_de_medida)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
@@ -959,15 +974,17 @@ def actualizar_registro(
 
     _verificar_acceso_registro(registro, current_user, db)
 
-    CAMPOS_POSOLOGIA = {"dosis", "frecuencia", "unidad_tiempo", "duracion"}
+    CAMPOS_POSOLOGIA = {"dosis", "cantidad", "frecuencia", "unidad_tiempo", "duracion",
+                        "fecha_primera_administracion"}
     campos_actualizados = payload.model_dump(exclude_none=True)
     for campo, valor in campos_actualizados.items():
         setattr(registro, campo, valor)
 
-    # Recalcular prescripcion y total_medicamento si se modificó algún campo de posología
+    # Recalcular prescripcion, total y fecha_fin si se modificó algún campo de posología
     if CAMPOS_POSOLOGIA & set(campos_actualizados):
         unidad_med = registro.medicamento.unidad if registro.medicamento else None
-        _aplicar_posologia(registro, unidad_med)
+        unidad_dm = registro.medicamento.unidad_de_medida if registro.medicamento else None
+        _aplicar_posologia(registro, unidad_med, unidad_dm)
 
     registro.id_usuario_registro = current_user.id_usuario
     db.commit()
@@ -1051,13 +1068,117 @@ def validar_continuidad(
                 detail="No puede validar registros de otra unidad médica.",
             )
 
-    registro.fecha_fin_tratamiento = payload.nueva_fecha_fin_tratamiento
-    # Si el registro estaba inactivo por vencimiento, se reactiva
+    # Si tiene posología guardada → calcular nueva fecha desde hoy
+    if registro.duracion and registro.unidad_tiempo:
+        factor = {"días": 1, "semanas": 7, "meses": 30}.get(registro.unidad_tiempo, 1)
+        registro.fecha_fin_tratamiento = date.today() + timedelta(days=registro.duracion * factor)
+    else:
+        # Fallback legacy: requiere fecha manual
+        if not payload.nueva_fecha_fin_tratamiento:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Este registro no tiene posología guardada. Indica la nueva fecha de fin manualmente.",
+            )
+        registro.fecha_fin_tratamiento = payload.nueva_fecha_fin_tratamiento
+
     registro.es_activo = True
     registro.id_usuario_registro = current_user.id_usuario
     db.commit()
     db.refresh(registro)
     return _registro_to_response(registro)
+
+
+@app.post(
+    "/registros/{id_registro}/reemplazar",
+    response_model=RegistroResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Registros"],
+    summary="Reemplaza una prescripción con cambios: crea una nueva activa y anula la original.",
+)
+def reemplazar_registro(
+    id_registro: int,
+    payload: RegistroUpdate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    if current_user.es_admin_estatal:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Administrador Estatal no puede reemplazar registros.",
+        )
+
+    original = (
+        db.query(Registro)
+        .options(
+            joinedload(Registro.medicamento),
+            joinedload(Registro.medico),
+            joinedload(Registro.paciente),
+        )
+        .filter(Registro.id_registro == id_registro)
+        .first()
+    )
+    if not original:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Registro no encontrado.")
+
+    _verificar_acceso_registro(original, current_user, db)
+
+    # Copiar todos los campos del original al nuevo registro
+    campos_nuevo = {
+        "id_medico": original.id_medico,
+        "id_paciente": original.id_paciente,
+        "clave_cnis": original.clave_cnis,
+        "clues": original.clues,
+        "fecha_inicio_tratamiento": original.fecha_inicio_tratamiento,
+        "fecha_primera_administracion": original.fecha_primera_administracion,
+        "fecha_fin_tratamiento": original.fecha_fin_tratamiento,
+        "dosis_administrada": original.dosis_administrada,
+        "peso": original.peso,
+        "talla": original.talla,
+        "estatus_diagnostico": original.estatus_diagnostico,
+        "confirmado_por": original.confirmado_por,
+        "prescripcion": original.prescripcion,
+        "dosis": original.dosis,
+        "cantidad": original.cantidad,
+        "frecuencia": original.frecuencia,
+        "unidad_tiempo": original.unidad_tiempo,
+        "duracion": original.duracion,
+        "total_medicamento": original.total_medicamento,
+        "id_usuario_registro": current_user.id_usuario,
+        "id_registro_origen": original.id_registro,
+        "es_activo": True,
+    }
+
+    # Aplicar los cambios del payload sobre la copia
+    for campo, valor in payload.model_dump(exclude_none=True).items():
+        if campo != "es_activo":  # no permitir cambiar el estado directamente
+            campos_nuevo[campo] = valor
+
+    nuevo = Registro(**campos_nuevo)
+
+    # Recalcular posología si aplica
+    unidad_med = original.medicamento.unidad if original.medicamento else None
+    unidad_dm = original.medicamento.unidad_de_medida if original.medicamento else None
+    _aplicar_posologia(nuevo, unidad_med, unidad_dm)
+
+    # Anular el registro original
+    original.es_activo = False
+    original.id_usuario_registro = current_user.id_usuario
+
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+
+    nuevo_cargado = (
+        db.query(Registro)
+        .options(
+            joinedload(Registro.paciente),
+            joinedload(Registro.medicamento),
+            joinedload(Registro.medico),
+        )
+        .filter(Registro.id_registro == nuevo.id_registro)
+        .first()
+    )
+    return _registro_to_response(nuevo_cargado)
 
 
 # ===========================================================================
@@ -1717,26 +1838,47 @@ def _calcular_prescripcion_y_total(
     duracion: int,
     unidad_tiempo: str,
     unidad: str,
+    cantidad: float | None = None,
+    unidad_de_medida: str | None = None,
 ) -> tuple[str, float]:
     """Retorna (texto_prescripcion, total_medicamento) a partir de los campos de posología."""
     factor = {"días": 1, "semanas": 7, "meses": 30}.get(unidad_tiempo, 1)
     duracion_dias = duracion * factor
     total = dosis * (24 / frecuencia) * duracion_dias
     unidad_txt = _pluralizar_unidad(unidad, dosis)
-    texto = f"{dosis:g} {unidad_txt}, cada {frecuencia} horas, por {duracion} {unidad_tiempo}"
+    if cantidad and unidad_de_medida:
+        texto = (
+            f"{dosis:g} {unidad_txt} de {cantidad:g} {unidad_de_medida}, "
+            f"cada {frecuencia} horas, por {duracion} {unidad_tiempo}"
+        )
+    else:
+        texto = f"{dosis:g} {unidad_txt}, cada {frecuencia} horas, por {duracion} {unidad_tiempo}"
     return texto, round(total, 2)
 
 
-def _aplicar_posologia(registro: Registro, unidad_medicamento: str | None) -> None:
-    """Si los 4 campos de posología están completos, calcula y asigna prescripcion y total_medicamento."""
-    if registro.dosis and registro.frecuencia and registro.duracion and registro.unidad_tiempo:
-        unidad = unidad_medicamento or "unidad"
-        texto, total = _calcular_prescripcion_y_total(
-            registro.dosis, registro.frecuencia, registro.duracion,
-            registro.unidad_tiempo, unidad,
+def _aplicar_posologia(
+    registro: Registro,
+    unidad_medicamento: str | None,
+    unidad_de_medida: str | None = None,
+) -> None:
+    """Calcula prescripcion, total_medicamento y fecha_fin_tratamiento si la posología está completa."""
+    if not (registro.dosis and registro.frecuencia and registro.duracion and registro.unidad_tiempo):
+        return
+    unidad = unidad_medicamento or "unidad"
+    texto, total = _calcular_prescripcion_y_total(
+        registro.dosis, registro.frecuencia, registro.duracion,
+        registro.unidad_tiempo, unidad,
+        cantidad=registro.cantidad,
+        unidad_de_medida=unidad_de_medida,
+    )
+    registro.prescripcion = texto
+    registro.total_medicamento = total
+    # Auto-calcular fecha_fin_tratamiento a partir de la primera administración
+    if registro.fecha_primera_administracion:
+        factor = {"días": 1, "semanas": 7, "meses": 30}.get(registro.unidad_tiempo, 1)
+        registro.fecha_fin_tratamiento = (
+            registro.fecha_primera_administracion + timedelta(days=registro.duracion * factor)
         )
-        registro.prescripcion = texto
-        registro.total_medicamento = total
 
 
 def _registro_to_response(r: Registro) -> RegistroResponse:
@@ -1757,10 +1899,12 @@ def _registro_to_response(r: Registro) -> RegistroResponse:
         confirmado_por=r.confirmado_por,
         prescripcion=r.prescripcion,
         dosis=r.dosis,
+        cantidad=r.cantidad,
         frecuencia=r.frecuencia,
         unidad_tiempo=r.unidad_tiempo,
         duracion=r.duracion,
         total_medicamento=r.total_medicamento,
+        id_registro_origen=r.id_registro_origen,
         es_activo=r.es_activo,
         fecha_registro_sistema=r.fecha_registro_sistema,
         id_usuario_registro=r.id_usuario_registro,

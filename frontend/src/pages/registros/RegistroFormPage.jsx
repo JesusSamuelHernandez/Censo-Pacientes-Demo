@@ -11,7 +11,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
-import { crearRegistroCompleto, actualizarRegistro, obtenerRegistro } from "../../api/registros";
+import { crearRegistroCompleto, actualizarRegistro, reemplazarRegistro, obtenerRegistro } from "../../api/registros";
 import { buscarPacientePorCurp } from "../../api/pacientes";
 import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos } from "../../api/catalogos";
@@ -38,12 +38,12 @@ const camposOpcionales = {
   confirmado_por: z.string().optional().or(z.literal("")),
   fecha_inicio_tratamiento: z.string().optional().or(z.literal("")),
   fecha_primera_administracion: z.string().optional().or(z.literal("")),
-  fecha_fin_tratamiento: z.string().optional().or(z.literal("")),
   dosis_administrada: z.string().max(100).optional().or(z.literal("")),
   peso: z.string().optional().or(z.literal("")),
   talla: z.string().optional().or(z.literal("")),
   // Posología
   dosis: z.string().optional().or(z.literal("")),
+  cantidad: z.string().optional().or(z.literal("")),
   frecuencia: z.string().optional().or(z.literal("")),
   unidad_tiempo: z.string().optional().or(z.literal("")),
   duracion: z.string().optional().or(z.literal("")),
@@ -133,11 +133,13 @@ export default function RegistroFormPage() {
   const esEdicion = Boolean(id);
   const navigate = useNavigate();
   const location = useLocation();
+  const modoReemplazar = location.state?.modo === "reemplazar";
 
   const [medicos, setMedicos] = useState([]);
   const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [unidadMedicamentoEdicion, setUnidadMedicamentoEdicion] = useState(null);
+  const [unidadDeMedidaEdicion, setUnidadDeMedidaEdicion] = useState(null);
 
   // Estado del widget de búsqueda por CURP
   const [curpBusqueda, setCurpBusqueda] = useState("");
@@ -157,15 +159,21 @@ export default function RegistroFormPage() {
   const claveCnisSeleccionada = watch("clave_cnis");
 
   // Unidad del medicamento seleccionado (para etiqueta dinámica en posología)
+  const medSeleccionado = medicamentos.find((m) => m.clave_cnis === claveCnisSeleccionada);
   const unidadMedicamento = esEdicion
     ? unidadMedicamentoEdicion
-    : (medicamentos.find((m) => m.clave_cnis === claveCnisSeleccionada)?.unidad ?? null);
+    : (medSeleccionado?.unidad ?? null);
+  const unidadDeMedida = esEdicion
+    ? unidadDeMedidaEdicion
+    : (medSeleccionado?.unidad_de_medida ?? null);
 
   // Watch de campos de posología para el preview en tiempo real
-  const dosisVal       = watch("dosis");
-  const frecuenciaVal  = watch("frecuencia");
-  const duracionVal    = watch("duracion");
-  const unidadTiempoVal = watch("unidad_tiempo");
+  const dosisVal            = watch("dosis");
+  const cantidadVal         = watch("cantidad");
+  const frecuenciaVal       = watch("frecuencia");
+  const duracionVal         = watch("duracion");
+  const unidadTiempoVal     = watch("unidad_tiempo");
+  const fechaPrimeraAdminVal = watch("fecha_primera_administracion");
 
   // Calcula el preview de prescripción en el cliente (espejo de la lógica del backend)
   const previewPrescripcion = (() => {
@@ -189,8 +197,19 @@ export default function RegistroFormPage() {
     };
 
     const unidadTxt = pluralizar(unidadMedicamento, d);
-    const texto = `${d % 1 === 0 ? d : d} ${unidadTxt}, cada ${f} horas, por ${dur} ${ut}`;
-    return { texto, total, unidadTxt };
+    const cant = parseFloat(cantidadVal);
+    const textoCantidad = (cant && unidadDeMedida) ? ` de ${cant} ${unidadDeMedida}` : "";
+    const texto = `${d % 1 === 0 ? d : d} ${unidadTxt}${textoCantidad}, cada ${f} horas, por ${dur} ${ut}`;
+
+    // Calcular fecha fin estimada si hay fecha de primera administración
+    let fechaFinTexto = null;
+    if (fechaPrimeraAdminVal) {
+      const fechaBase = new Date(fechaPrimeraAdminVal + "T12:00:00");
+      fechaBase.setDate(fechaBase.getDate() + dur * factor);
+      fechaFinTexto = fechaBase.toLocaleDateString("es-MX", { dateStyle: "long" });
+    }
+
+    return { texto, total, unidadTxt, fechaFinTexto };
   })();
 
   // Búsqueda nacional al completar CURP válida
@@ -226,16 +245,17 @@ export default function RegistroFormPage() {
     if (esEdicion) {
       obtenerRegistro(id).then((r) => {
         setUnidadMedicamentoEdicion(r.medicamento?.unidad ?? null);
+        setUnidadDeMedidaEdicion(r.medicamento?.unidad_de_medida ?? null);
         reset({
           estatus_diagnostico: r.estatus_diagnostico ?? "",
           confirmado_por: r.confirmado_por ?? "",
           fecha_inicio_tratamiento: r.fecha_inicio_tratamiento ?? "",
           fecha_primera_administracion: r.fecha_primera_administracion ?? "",
-          fecha_fin_tratamiento: r.fecha_fin_tratamiento ?? "",
           dosis_administrada: r.dosis_administrada ?? "",
           peso: r.peso != null ? String(r.peso) : "",
           talla: r.talla != null ? String(r.talla) : "",
           dosis: r.dosis != null ? String(r.dosis) : "",
+          cantidad: r.cantidad != null ? String(r.cantidad) : "",
           frecuencia: r.frecuencia != null ? String(r.frecuencia) : "",
           unidad_tiempo: r.unidad_tiempo ?? "",
           duracion: r.duracion != null ? String(r.duracion) : "",
@@ -246,12 +266,15 @@ export default function RegistroFormPage() {
 
   // Convierte strings vacíos a undefined y parsea números
   const _prepararPayload = (values) => {
+    // fecha_fin_tratamiento ya no se envía: el backend la calcula
+    const { fecha_fin_tratamiento: _descartado, ...resto } = values;
     const payload = Object.fromEntries(
-      Object.entries(values).filter(([, v]) => v !== "" && v !== undefined && v !== null)
+      Object.entries(resto).filter(([, v]) => v !== "" && v !== undefined && v !== null)
     );
     if (payload.peso !== undefined) payload.peso = parseFloat(payload.peso);
     if (payload.talla !== undefined) payload.talla = parseFloat(payload.talla);
     if (payload.dosis !== undefined) payload.dosis = parseFloat(payload.dosis);
+    if (payload.cantidad !== undefined) payload.cantidad = parseFloat(payload.cantidad);
     if (payload.frecuencia !== undefined) payload.frecuencia = parseInt(payload.frecuencia, 10);
     if (payload.duracion !== undefined) payload.duracion = parseInt(payload.duracion, 10);
     return payload;
@@ -272,11 +295,24 @@ export default function RegistroFormPage() {
       }
     }
 
+    // Validar: si hay posología, fecha_primera_administracion es obligatoria
+    const hayPosologia = [values.dosis, values.frecuencia, values.duracion, values.unidad_tiempo]
+      .some((v) => v && v !== "");
+    if (hayPosologia && !values.fecha_primera_administracion) {
+      toast.error("La fecha de primera administración es obligatoria cuando se indica posología.");
+      return;
+    }
+
     setLoading(true);
     try {
       const camposBase = _prepararPayload(values);
 
-      if (esEdicion) {
+      if (modoReemplazar) {
+        await reemplazarRegistro(id, camposBase);
+        toast.success("Nueva prescripción creada. La anterior ha quedado anulada.");
+        navigate("/notificaciones");
+        return;
+      } else if (esEdicion) {
         await actualizarRegistro(id, camposBase);
         toast.success("Prescripción actualizada correctamente.");
       } else {
@@ -311,15 +347,32 @@ export default function RegistroFormPage() {
         </button>
         <div>
           <h2 className="text-xl font-semibold text-neutral-black">
-            {esEdicion ? `Editar prescripción #${id}` : "Registrar Paciente"}
+            {modoReemplazar
+              ? `Editar y validar prescripción #${id}`
+              : esEdicion ? `Editar prescripción #${id}` : "Registrar Paciente"}
           </h2>
           <p className="text-sm text-neutral-gray">
-            {esEdicion
-              ? "Puedes modificar fechas, dosis y datos clínicos."
-              : "Busca al paciente por CURP y completa la prescripción."}
+            {modoReemplazar
+              ? "Los cambios crearán una nueva prescripción activa y anularán la actual."
+              : esEdicion
+                ? "Puedes modificar fechas, dosis y datos clínicos."
+                : "Busca al paciente por CURP y completa la prescripción."}
           </p>
         </div>
       </div>
+
+      {modoReemplazar && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 flex items-start gap-3">
+          <span className="text-amber-600 mt-0.5 flex-shrink-0 text-base">⚠</span>
+          <div>
+            <p className="text-sm font-medium text-amber-800">Modo: Editar y validar</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Al guardar se creará una nueva prescripción activa y la prescripción #{id} quedará anulada.
+              Ambas quedarán visibles en el historial del paciente.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-neutral-gray/20 p-6">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -547,29 +600,6 @@ export default function RegistroFormPage() {
                 {...register("fecha_inicio_tratamiento")} />
             </div>
 
-            {/* Fecha fin de tratamiento */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-black mb-1">
-                Fecha fin de tratamiento
-                <span className="text-neutral-gray font-normal ml-1">(opcional — se suma 1 mes para validación de continuidad)</span>
-              </label>
-              <input type="date"
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-                {...register("fecha_fin_tratamiento")} />
-            </div>
-
-            {/* Fecha primera administración */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-black mb-1">
-                Fecha de primera administración
-                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-              </label>
-              <input type="date"
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-                {...register("fecha_primera_administracion")} />
-            </div>
 
             {/* Peso y Talla */}
             <div className="grid grid-cols-2 gap-4">
@@ -603,24 +633,61 @@ export default function RegistroFormPage() {
               </span>
             </p>
 
-            {/* Dosis por toma */}
+            {/* Fecha de primera administración — obligatoria con posología */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Dosis por toma
+                Fecha de primera administración
+                <span className="text-primary ml-1">*</span>
+                <span className="text-neutral-gray font-normal ml-1">(requerida con posología)</span>
               </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  placeholder="ej. 2"
-                  className="w-28 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-                  {...register("dosis")}
-                />
-                <span className="text-sm text-neutral-gray">
-                  {unidadMedicamento ? `${unidadMedicamento}(s)` : "unidad(es)"}
-                </span>
+              <input type="date"
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("fecha_primera_administracion")} />
+              <p className="text-xs text-neutral-gray mt-1">
+                La fecha de fin se calculará automáticamente a partir de esta fecha y la duración.
+              </p>
+            </div>
+
+            {/* Dosis por toma + Cantidad */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Dosis por toma
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    placeholder="ej. 2"
+                    className="w-24 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                      text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                    {...register("dosis")}
+                  />
+                  <span className="text-sm text-neutral-gray">
+                    {unidadMedicamento ? `${unidadMedicamento}(s)` : "unidad(es)"}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Cantidad por unidad
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="ej. 10"
+                    className="w-24 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                      text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                    {...register("cantidad")}
+                  />
+                  <span className="text-sm text-neutral-gray">
+                    {unidadDeMedida ?? "mg/ml"}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -681,22 +748,32 @@ export default function RegistroFormPage() {
             </div>
 
             {previewPrescripcion ? (
-              <div className="bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3 space-y-1">
+              <div className="bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3 space-y-1.5">
                 <p className="text-xs text-neutral-gray uppercase tracking-wide font-semibold">Prescripción generada</p>
                 <p className="text-sm font-medium text-neutral-black">{previewPrescripcion.texto}</p>
-                <p className="text-xs text-neutral-gray">
-                  Total del tratamiento:{" "}
-                  <span className="font-semibold text-secondary">
-                    {previewPrescripcion.total % 1 === 0
-                      ? previewPrescripcion.total
-                      : previewPrescripcion.total.toFixed(2)}{" "}
-                    {previewPrescripcion.unidadTxt}
-                  </span>
-                </p>
+                <div className="flex flex-wrap gap-x-6 gap-y-1">
+                  <p className="text-xs text-neutral-gray">
+                    Total:{" "}
+                    <span className="font-semibold text-secondary">
+                      {previewPrescripcion.total % 1 === 0
+                        ? previewPrescripcion.total
+                        : previewPrescripcion.total.toFixed(2)}{" "}
+                      {previewPrescripcion.unidadTxt}
+                    </span>
+                  </p>
+                  {previewPrescripcion.fechaFinTexto && (
+                    <p className="text-xs text-neutral-gray">
+                      Fin estimado:{" "}
+                      <span className="font-semibold text-neutral-black">
+                        {previewPrescripcion.fechaFinTexto}
+                      </span>
+                    </p>
+                  )}
+                </div>
               </div>
             ) : (
               <p className="text-xs text-neutral-gray/60 bg-neutral-light/80 rounded-lg px-3 py-2">
-                Completa los tres campos para ver la prescripción calculada.
+                Completa los campos de posología para ver la prescripción calculada.
               </p>
             )}
           </div>

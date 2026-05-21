@@ -372,10 +372,10 @@ P7 (independiente, puede hacerse en paralelo con P4)
 
 | Paso | Nombre | Estado |
 |---|---|---|
-| 1 | Migración de BD | ⏳ Pendiente |
-| 2 | Modelos ORM y Schemas | ⏳ Pendiente |
-| 3 | Lógica de backend | ⏳ Pendiente |
-| 4 | Catálogo: campo unidad_de_medida | ⏳ Pendiente |
-| 5 | Formulario de registro: cantidad y fecha_fin auto | ⏳ Pendiente |
-| 6 | Notificaciones: nuevo flujo validación y edición | ⏳ Pendiente |
-| 7 | Modal de detalle en historial del paciente | ⏳ Pendiente |
+| 1 | Migración de BD | ✅ Completado |
+| 2 | Modelos ORM y Schemas | ✅ Completado |
+| 3 | Lógica de backend | ✅ Completado |
+| 4 | Catálogo: campo unidad_de_medida | ✅ Completado |
+| 5 | Formulario de registro: cantidad y fecha_fin auto | ✅ Completado |
+| 6 | Notificaciones: nuevo flujo validación y edición | ✅ Completado |
+| 7 | Modal de detalle en historial del paciente | ✅ Completado |

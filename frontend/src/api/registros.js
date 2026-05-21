@@ -42,10 +42,19 @@ export const crearRegistroCompleto = async (payload) => {
 };
 
 // PATCH /registros/{id}/validar-continuidad — Reactivar y extender fecha de fin
-export const validarContinuidad = async (idRegistro, nuevaFechaFin) => {
+// Si el registro tiene posología guardada, el backend calcula la fecha desde hoy (payload vacío).
+// Si no tiene (legacy), se pasa nueva_fecha_fin_tratamiento manualmente.
+export const validarContinuidad = async (idRegistro, nuevaFechaFin = null) => {
+  const payload = nuevaFechaFin ? { nueva_fecha_fin_tratamiento: nuevaFechaFin } : {};
   const { data } = await axiosClient.patch(
     `/registros/${idRegistro}/validar-continuidad`,
-    { nueva_fecha_fin_tratamiento: nuevaFechaFin }
+    payload
   );
+  return data;
+};
+
+// POST /registros/{id}/reemplazar — Crea nueva prescripción con cambios, anula la original
+export const reemplazarRegistro = async (idRegistro, payload) => {
+  const { data } = await axiosClient.post(`/registros/${idRegistro}/reemplazar`, payload);
   return data;
 };

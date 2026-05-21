@@ -4,11 +4,20 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw, Pencil, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { obtenerRegistro, validarContinuidad } from "../../api/registros";
 import useAuthStore from "../../store/authStore";
+
+// Calcula la nueva fecha fin desde hoy usando la duración guardada
+function calcularNuevaFechaFin(registro) {
+  if (!registro.duracion || !registro.unidad_tiempo) return null;
+  const factor = { días: 1, semanas: 7, meses: 30 }[registro.unidad_tiempo] ?? 1;
+  const fecha = new Date();
+  fecha.setDate(fecha.getDate() + registro.duracion * factor);
+  return fecha.toLocaleDateString("es-MX", { dateStyle: "long" });
+}
 
 const ROLES_PUEDEN_VALIDAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 
@@ -54,11 +63,14 @@ export default function RegistroDetallePage() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  const tienePosologia = registro?.duracion && registro?.unidad_tiempo;
+
   const handleValidar = async () => {
-    if (!nuevaFecha) return;
+    // Si no tiene posología guardada, requiere fecha manual
+    if (!tienePosologia && !nuevaFecha) return;
     setGuardando(true);
     try {
-      await validarContinuidad(id, nuevaFecha);
+      await validarContinuidad(id, tienePosologia ? null : nuevaFecha);
       toast.success("Continuidad validada. Prescripción reactivada.");
       setModalValidar(false);
       setNuevaFecha("");
@@ -83,9 +95,7 @@ export default function RegistroDetallePage() {
 
   const estado = getEstadoRegistro(registro);
   const esVencida = estado.label === "Vencida";
-  const origenLabel = location.state?.from === "notificaciones"
-    ? "Regresar a notificaciones"
-    : "Regresar a la lista";
+  const desdeNotificaciones = location.state?.from === "notificaciones";
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -123,6 +133,18 @@ export default function RegistroDetallePage() {
             >
               <RefreshCw size={15} />
               Validar continuidad
+            </button>
+          )}
+          {ROLES_PUEDEN_VALIDAR.includes(rolNombre) && desdeNotificaciones && esVencida && (
+            <button
+              onClick={() => navigate(`/registros/${id}/editar`, {
+                state: { ...location.state, modo: "reemplazar" }
+              })}
+              className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
+                text-sm font-medium px-4 py-2 rounded-lg transition"
+            >
+              <Pencil size={15} />
+              Editar y validar
             </button>
           )}
         </div>
@@ -179,26 +201,52 @@ export default function RegistroDetallePage() {
       {/* Modal de validación */}
       {modalValidar && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4 space-y-4">
-            <h3 className="text-base font-semibold text-neutral-black">Validar continuidad</h3>
-            <p className="text-sm text-neutral-gray">
-              Indica la nueva fecha de fin de tratamiento. El registro se reactivará y el
-              contador de 30 días se reiniciará desde esa fecha.
-            </p>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg mx-4 space-y-4">
             <div>
-              <label className="block text-xs font-medium text-neutral-gray mb-1">
-                Nueva fecha de fin <span className="text-primary">*</span>
-              </label>
-              <input
-                type="date"
-                value={nuevaFecha}
-                onChange={(e) => setNuevaFecha(e.target.value)}
-                min={new Date().toISOString().slice(0, 10)}
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
+              <h3 className="text-base font-semibold text-neutral-black">Validar continuidad</h3>
+              <p className="text-sm font-medium text-neutral-black mt-1">
+                {registro.nombre_paciente ?? `Paciente #${registro.id_paciente}`}
+              </p>
+              <p className="text-sm text-neutral-gray mt-0.5">
+                {registro.medicamento?.descripcion ?? registro.clave_cnis}
+              </p>
             </div>
-            <div className="flex gap-3">
+
+            {tienePosologia ? (
+              <div className="bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3 space-y-1">
+                <p className="text-xs text-neutral-gray uppercase tracking-wide font-semibold">
+                  Duración del tratamiento
+                </p>
+                <p className="text-sm font-medium text-neutral-black">
+                  {registro.duracion} {registro.unidad_tiempo}
+                </p>
+                <p className="text-xs text-neutral-gray">
+                  Nueva fecha de fin estimada:{" "}
+                  <span className="font-semibold text-neutral-black">
+                    {calcularNuevaFechaFin(registro)}
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-neutral-gray mb-3">
+                  Este registro no tiene posología guardada. Indica manualmente la nueva fecha de fin.
+                </p>
+                <label className="block text-xs font-medium text-neutral-gray mb-1">
+                  Nueva fecha de fin <span className="text-primary">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={nuevaFecha}
+                  onChange={(e) => setNuevaFecha(e.target.value)}
+                  min={new Date().toISOString().slice(0, 10)}
+                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
               <button
                 onClick={() => { setModalValidar(false); setNuevaFecha(""); }}
                 className="flex-1 px-4 py-2 rounded-lg border border-neutral-gray/30
@@ -208,14 +256,14 @@ export default function RegistroDetallePage() {
               </button>
               <button
                 onClick={handleValidar}
-                disabled={!nuevaFecha || guardando}
+                disabled={(!tienePosologia && !nuevaFecha) || guardando}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg
                   bg-secondary hover:bg-secondary-dark text-white text-sm font-medium transition
                   disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {guardando
                   ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  : <RefreshCw size={14} />}
+                  : <CheckCircle size={14} />}
                 Confirmar
               </button>
             </div>

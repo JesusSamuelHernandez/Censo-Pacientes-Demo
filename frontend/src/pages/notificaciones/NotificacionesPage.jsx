@@ -127,10 +127,12 @@ function TabPrescripciones({ onTotal }) {
   useEffect(() => { cargar(); }, []);
 
   const handleValidar = async () => {
-    if (!modalValidar || !nuevaFecha) return;
+    if (!modalValidar) return;
+    const tienePosologia = modalValidar.duracion && modalValidar.unidad_tiempo;
+    if (!tienePosologia && !nuevaFecha) return;
     setGuardando(true);
     try {
-      await validarContinuidad(modalValidar.id_registro, nuevaFecha);
+      await validarContinuidad(modalValidar.id_registro, tienePosologia ? null : nuevaFecha);
       toast.success("Continuidad validada. Prescripción reactivada.");
       setModalValidar(null);
       setNuevaFecha("");
@@ -140,6 +142,15 @@ function TabPrescripciones({ onTotal }) {
     } finally {
       setGuardando(false);
     }
+  };
+
+  // Calcula la nueva fecha fin desde hoy usando la duración guardada
+  const calcularNuevaFechaFin = (duracion, unidad_tiempo) => {
+    if (!duracion || !unidad_tiempo) return null;
+    const factor = { días: 1, semanas: 7, meses: 30 }[unidad_tiempo] ?? 1;
+    const fecha = new Date();
+    fecha.setDate(fecha.getDate() + duracion * factor);
+    return fecha.toLocaleDateString("es-MX", { dateStyle: "long" });
   };
 
   return (
@@ -221,7 +232,7 @@ function TabPrescripciones({ onTotal }) {
                             <Eye size={15} />
                           </button>
                           <button
-                            onClick={() => { setModalValidar({ id_registro: n.id_registro, nombre: n.nombre_paciente, medicamento: n.descripcion_medicamento ?? n.clave_cnis }); setNuevaFecha(""); }}
+                            onClick={() => { setModalValidar({ id_registro: n.id_registro, nombre: n.nombre_paciente, medicamento: n.descripcion_medicamento ?? n.clave_cnis, duracion: n.duracion ?? null, unidad_tiempo: n.unidad_tiempo ?? null }); setNuevaFecha(""); }}
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium
                               bg-secondary/10 text-secondary hover:bg-secondary/20 transition"
                             title="Validar continuidad"
@@ -243,30 +254,48 @@ function TabPrescripciones({ onTotal }) {
       {/* Modal de validación rápida */}
       {modalValidar && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4 space-y-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg mx-4 space-y-4">
             <div>
               <h3 className="text-base font-semibold text-neutral-black">Validar continuidad</h3>
               <p className="text-sm font-medium text-neutral-black mt-1">{modalValidar.nombre}</p>
-              <p className="text-xs text-neutral-gray truncate">{modalValidar.medicamento}</p>
+              <p className="text-xs text-neutral-gray">{modalValidar.medicamento}</p>
             </div>
-            <p className="text-sm text-neutral-gray">
-              Indica la nueva fecha de fin de tratamiento. El registro se reactivará y el
-              contador de 30 días se reiniciará desde esa fecha.
-            </p>
-            <div>
-              <label className="block text-xs font-medium text-neutral-gray mb-1">
-                Nueva fecha de fin <span className="text-primary">*</span>
-              </label>
-              <input
-                type="date"
-                value={nuevaFecha}
-                onChange={(e) => setNuevaFecha(e.target.value)}
-                min={new Date().toISOString().slice(0, 10)}
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-            </div>
-            <div className="flex gap-3">
+
+            {modalValidar.duracion && modalValidar.unidad_tiempo ? (
+              <div className="bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3 space-y-1">
+                <p className="text-xs text-neutral-gray uppercase tracking-wide font-semibold">
+                  Duración del tratamiento
+                </p>
+                <p className="text-sm font-medium text-neutral-black">
+                  {modalValidar.duracion} {modalValidar.unidad_tiempo}
+                </p>
+                <p className="text-xs text-neutral-gray">
+                  Nueva fecha de fin estimada:{" "}
+                  <span className="font-semibold text-neutral-black">
+                    {calcularNuevaFechaFin(modalValidar.duracion, modalValidar.unidad_tiempo)}
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-neutral-gray mb-3">
+                  Este registro no tiene posología guardada. Indica manualmente la nueva fecha de fin.
+                </p>
+                <label className="block text-xs font-medium text-neutral-gray mb-1">
+                  Nueva fecha de fin <span className="text-primary">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={nuevaFecha}
+                  onChange={(e) => setNuevaFecha(e.target.value)}
+                  min={new Date().toISOString().slice(0, 10)}
+                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
               <button
                 onClick={() => { setModalValidar(null); setNuevaFecha(""); }}
                 className="flex-1 px-4 py-2 rounded-lg border border-neutral-gray/30
@@ -276,7 +305,7 @@ function TabPrescripciones({ onTotal }) {
               </button>
               <button
                 onClick={handleValidar}
-                disabled={!nuevaFecha || guardando}
+                disabled={(!modalValidar.duracion && !nuevaFecha) || guardando}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg
                   bg-secondary hover:bg-secondary-dark text-white text-sm font-medium transition
                   disabled:opacity-40 disabled:cursor-not-allowed"

@@ -89,6 +89,7 @@ class MedicamentoBase(BaseModel):
     grupo: str | None = Field(None, max_length=150)
     tipo_clave: str | None = Field(None, max_length=100)
     unidad: str | None = Field(None, max_length=100, description="Unidad singular del medicamento (ej. 'tableta', 'inyección', 'ml').")
+    unidad_de_medida: str | None = Field(None, max_length=50, description="Unidad de medida de la cantidad (ej. 'mg', 'ml', 'UI').")
 
 
 class MedicamentoCreate(MedicamentoBase):
@@ -100,6 +101,7 @@ class MedicamentoUpdate(BaseModel):
     grupo: str | None = Field(None, max_length=150)
     tipo_clave: str | None = Field(None, max_length=100)
     unidad: str | None = Field(None, max_length=100)
+    unidad_de_medida: str | None = Field(None, max_length=50)
     es_activo: bool | None = None
 
 
@@ -370,8 +372,9 @@ class RegistroBase(BaseModel):
         None,
         description="Auto-generado por el backend si se envían dosis/frecuencia/duracion/unidad_tiempo.",
     )
-    # Posología — el backend calcula prescripcion y total_medicamento a partir de estos 4 campos
+    # Posología — el backend calcula prescripcion y total_medicamento a partir de estos campos
     dosis: float | None = Field(None, gt=0, description="Cantidad de unidades por toma (ej. 2).")
+    cantidad: float | None = Field(None, gt=0, description="Cantidad de medicamento por unidad (ej. 10 para '10 mg').")
     frecuencia: int | None = Field(None, gt=0, description="Horas entre tomas (ej. 8, 12, 24).")
     unidad_tiempo: str | None = Field(None, description="'días', 'semanas' o 'meses'.")
     duracion: int | None = Field(None, gt=0, description="Número de unidades de tiempo (ej. 7).")
@@ -397,6 +400,7 @@ class RegistroUpdate(BaseModel):
     confirmado_por: str | None = Field(None, max_length=100)
     prescripcion: str | None = None
     dosis: float | None = Field(None, gt=0)
+    cantidad: float | None = Field(None, gt=0)
     frecuencia: int | None = Field(None, gt=0)
     unidad_tiempo: str | None = None
     duracion: int | None = Field(None, gt=0)
@@ -416,8 +420,11 @@ class RegistroResponse(RegistroBase):
     nombre_paciente: str | None = None
     curp_paciente: str | None = None
 
-    # Dato calculado por el backend
+    # Datos calculados por el backend
     total_medicamento: float | None = None
+
+    # Trazabilidad de reemplazos
+    id_registro_origen: int | None = None
 
     # Datos embebidos
     medicamento: MedicamentoResponse | None = None
@@ -466,6 +473,7 @@ class RegistroCompletoCreate(BaseModel):
     confirmado_por: str | None = Field(None, max_length=100)
     prescripcion: str | None = None
     dosis: float | None = Field(None, gt=0)
+    cantidad: float | None = Field(None, gt=0)
     frecuencia: int | None = Field(None, gt=0)
     unidad_tiempo: str | None = None
     duracion: int | None = Field(None, gt=0)
@@ -534,9 +542,9 @@ class NotificacionListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ValidarContinuidadRequest(BaseModel):
-    nueva_fecha_fin_tratamiento: date = Field(
-        ...,
-        description="Nueva fecha de fin de tratamiento. Reinicia el contador de 30 días.",
+    nueva_fecha_fin_tratamiento: date | None = Field(
+        None,
+        description="Requerida solo si el registro no tiene posología guardada (fallback legacy).",
     )
 
 
