@@ -1247,6 +1247,8 @@ def listar_notificaciones(
             peso=r.peso,
             talla=r.talla,
             prescripcion=r.prescripcion,
+            duracion=r.duracion,
+            unidad_tiempo=r.unidad_tiempo,
         ))
 
     return NotificacionListResponse(total=len(resultados), resultados=resultados)

@@ -530,6 +530,8 @@ class NotificacionResponse(BaseModel):
     peso: Decimal | None = None
     talla: Decimal | None = None
     prescripcion: str | None = None
+    duracion: int | None = None
+    unidad_tiempo: str | None = None
 
 
 class NotificacionListResponse(BaseModel):
