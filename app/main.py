@@ -26,6 +26,8 @@ Adherencia:
     Calculada en endpoint desde el registro activo más reciente del paciente:
     (date.today() - registro.fecha_inicio_tratamiento).days
 """
+import calendar
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -56,6 +58,9 @@ from app.schemas import (
     NotificacionResponse,
     NotificacionTransferenciaListResponse,
     NotificacionTransferenciaResponse,
+    RtmFilaResponse,
+    RtmMesItem,
+    RtmResponse,
     RegistroCompletoCreate,
     RegistroCompletoResponse,
     LoginRequest,
@@ -1477,6 +1482,116 @@ def reporte_estatal(
             for r in resultados
         ],
     }
+
+
+_MESES_ES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+}
+
+
+@app.get(
+    "/reportes/rtm",
+    response_model=RtmResponse,
+    tags=["Reportes"],
+    summary="Requerimiento Teórico Mensual por unidad. Solo SUPER_ADMIN.",
+)
+def reporte_rtm(
+    clues: str = Query(..., description="CLUES de la unidad a consultar."),
+    meses: int = Query(7, ge=1, le=24, description="Número de meses a proyectar (actual + siguientes)."),
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_super_admin),
+):
+    clues_norm = clues.strip().upper()
+
+    # 1. Construir la lista de meses (año, mes) a proyectar
+    hoy = date.today()
+    meses_list: list[tuple[int, int]] = []
+    y, m = hoy.year, hoy.month
+    for _ in range(meses):
+        meses_list.append((y, m))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+
+    # 2. Prescripciones activas con posología completa en la unidad solicitada
+    registros = (
+        db.query(Registro)
+        .options(joinedload(Registro.medicamento))
+        .filter(
+            Registro.clues == clues_norm,
+            Registro.es_activo == True,
+            Registro.dosis.isnot(None),
+            Registro.cantidad.isnot(None),
+            Registro.frecuencia.isnot(None),
+            Registro.fecha_primera_administracion.isnot(None),
+            Registro.fecha_fin_tratamiento.isnot(None),
+        )
+        .all()
+    )
+
+    # 3. Calcular aportes proporcionales por mes
+    # totales[clave_cnis][(year, month)] = cantidad total en unidad_de_medida
+    totales: dict[str, dict[tuple[int, int], float]] = defaultdict(lambda: defaultdict(float))
+
+    for r in registros:
+        consumo_diario = r.dosis * r.cantidad * (24 / r.frecuencia)
+        for (ay, am) in meses_list:
+            inicio_mes = date(ay, am, 1)
+            # Usamos el primer día del mes siguiente como límite exclusivo,
+            # consistente con fecha_fin_tratamiento (también exclusiva).
+            fin_mes_exclusivo = date(ay + 1, 1, 1) if am == 12 else date(ay, am + 1, 1)
+            overlap_inicio = max(inicio_mes, r.fecha_primera_administracion)
+            overlap_fin    = min(fin_mes_exclusivo, r.fecha_fin_tratamiento)
+            if overlap_inicio < overlap_fin:
+                dias = (overlap_fin - overlap_inicio).days
+                totales[r.clave_cnis][(ay, am)] += consumo_diario * dias
+
+    # 4. Información de medicamentos
+    claves_con_datos = set(totales.keys())
+    meds_info: dict[str, CatMedicamento] = {}
+    if claves_con_datos:
+        meds_info = {
+            med.clave_cnis: med
+            for med in db.query(CatMedicamento).filter(
+                CatMedicamento.clave_cnis.in_(claves_con_datos)
+            ).all()
+        }
+
+    # 5. Construir filas ordenadas por clave_cnis
+    cabeceras = [f"{_MESES_ES[am]} {ay}" for (ay, am) in meses_list]
+    filas = []
+    for clave in sorted(claves_con_datos):
+        med = meds_info.get(clave)
+        items = [
+            RtmMesItem(
+                anio=ay,
+                mes=am,
+                etiqueta=f"{_MESES_ES[am]} {ay}",
+                cantidad=round(totales[clave].get((ay, am), 0.0), 2),
+            )
+            for (ay, am) in meses_list
+        ]
+        filas.append(RtmFilaResponse(
+            clave_cnis=clave,
+            descripcion=med.descripcion if med else clave,
+            grupo=med.grupo if med else None,
+            unidad_de_medida=med.unidad_de_medida if med else None,
+            meses=items,
+        ))
+
+    # 6. Nombre de la unidad
+    unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == clues_norm).first()
+
+    return RtmResponse(
+        clues=clues_norm,
+        nombre_unidad=unidad.nombre_de_la_unidad if unidad else None,
+        generado_en=datetime.now(timezone.utc).isoformat(),
+        cabeceras=cabeceras,
+        filas=filas,
+    )
 
 
 # ===========================================================================

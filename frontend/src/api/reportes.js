@@ -17,3 +17,9 @@ export const getReporteEstatal = async () => {
   const { data } = await axiosClient.get("/reportes/estatal");
   return data;
 };
+
+// GET /reportes/rtm — Requerimiento Teórico Mensual por unidad (Solo SUPER_ADMIN)
+export const getRtm = async (clues) => {
+  const { data } = await axiosClient.get("/reportes/rtm", { params: { clues } });
+  return data; // { clues, nombre_unidad, generado_en, cabeceras, filas }
+};

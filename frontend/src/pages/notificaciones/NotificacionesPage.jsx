@@ -149,7 +149,8 @@ function TabPrescripciones({ onTotal }) {
     if (!duracion || !unidad_tiempo) return null;
     const factor = { días: 1, semanas: 7, meses: 30 }[unidad_tiempo] ?? 1;
     const fecha = new Date();
-    fecha.setDate(fecha.getDate() + duracion * factor);
+    // - 1 porque fecha_fin_tratamiento es exclusiva; mostramos el último día real
+    fecha.setDate(fecha.getDate() + duracion * factor - 1);
     return fecha.toLocaleDateString("es-MX", { dateStyle: "long" });
   };
 

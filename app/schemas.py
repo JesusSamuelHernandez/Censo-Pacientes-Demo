@@ -573,6 +573,33 @@ class NotificacionTransferenciaListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# ── 11. Requerimiento Teórico Mensual (RTM) ──────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class RtmMesItem(BaseModel):
+    anio: int
+    mes: int        # 1–12
+    etiqueta: str   # "Mayo 2026"
+    cantidad: float # total calculado en la unidad de medida del medicamento
+
+
+class RtmFilaResponse(BaseModel):
+    clave_cnis: str
+    descripcion: str
+    grupo: str | None
+    unidad_de_medida: str | None  # ml, mg, UI…
+    meses: list[RtmMesItem]       # n ítems en orden cronológico
+
+
+class RtmResponse(BaseModel):
+    clues: str
+    nombre_unidad: str | None
+    generado_en: str
+    cabeceras: list[str]           # ["Mayo 2026", "Junio 2026", …]
+    filas: list[RtmFilaResponse]   # una fila por medicamento con datos
+
+
+# ---------------------------------------------------------------------------
 # ── 9. Auth ─────────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 

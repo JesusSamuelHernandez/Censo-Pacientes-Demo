@@ -201,11 +201,13 @@ export default function RegistroFormPage() {
     const textoCantidad = (cant && unidadDeMedida) ? ` de ${cant} ${unidadDeMedida}` : "";
     const texto = `${d % 1 === 0 ? d : d} ${unidadTxt}${textoCantidad}, cada ${f} horas, por ${dur} ${ut}`;
 
-    // Calcular fecha fin estimada si hay fecha de primera administración
+    // Calcular fecha fin estimada (último día de tratamiento, inclusive)
+    // fecha_fin_tratamiento en BD es exclusiva (inicio + duracion),
+    // así que mostramos inicio + duracion - 1 como último día real.
     let fechaFinTexto = null;
     if (fechaPrimeraAdminVal) {
       const fechaBase = new Date(fechaPrimeraAdminVal + "T12:00:00");
-      fechaBase.setDate(fechaBase.getDate() + dur * factor);
+      fechaBase.setDate(fechaBase.getDate() + dur * factor - 1);
       fechaFinTexto = fechaBase.toLocaleDateString("es-MX", { dateStyle: "long" });
     }
 
