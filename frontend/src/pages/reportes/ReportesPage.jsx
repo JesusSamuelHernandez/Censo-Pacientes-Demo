@@ -10,6 +10,7 @@ import * as XLSX from "xlsx";
 import { getReporteDetallado, getReporteEstatal, getRtm } from "../../api/reportes";
 import { listarUnidades } from "../../api/catalogos";
 import useAuthStore from "../../store/authStore";
+import useRtmStore from "../../store/rtmStore";
 
 const ROLES_ESTATAL = ["SUPER_ADMIN", "ADMIN_ESTATAL"];
 
@@ -216,30 +217,28 @@ const ENTIDADES_RTM = [
 
 // ── Reporte RTM ───────────────────────────────────────────────────────────────
 function ReporteRTM() {
-  const [entidad, setEntidad] = useState("");
+  const { entidad, unidadSeleccionada, setEntidad, setUnidadSeleccionada, limpiarUnidad } = useRtmStore();
   const [busqueda, setBusqueda] = useState("");
   const [unidades, setUnidades] = useState([]);
   const [loadingUnidades, setLoadingUnidades] = useState(false);
-  const [unidadSeleccionada, setUnidadSeleccionada] = useState(null); // { clues, nombre_de_la_unidad }
   const [datos, setDatos] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const MES_ACTUAL_IDX = 0;
 
-  // Carga unidades cuando se selecciona entidad
+  // Carga la lista de unidades cuando cambia la entidad.
+  // Nunca limpia unidadSeleccionada aquí: esa responsabilidad está en el handler
+  // del <select>, de modo que la restauración del store no provoque limpiezas.
   useEffect(() => {
-    if (!entidad) { setUnidades([]); setUnidadSeleccionada(null); setDatos(null); return; }
+    if (!entidad) { setUnidades([]); return; }
     setLoadingUnidades(true);
-    setBusqueda("");
-    setUnidadSeleccionada(null);
-    setDatos(null);
     listarUnidades(entidad)
       .then(setUnidades)
       .catch(() => toast.error("Error al cargar unidades."))
       .finally(() => setLoadingUnidades(false));
   }, [entidad]);
 
-  // Genera el RTM al seleccionar una unidad
+  // Genera el RTM al seleccionar una unidad (también al restaurar del store al montar)
   useEffect(() => {
     if (!unidadSeleccionada) { setDatos(null); return; }
     setLoading(true);
@@ -281,7 +280,12 @@ function ReporteRTM() {
       <div className="bg-white rounded-xl border border-neutral-gray/20 px-4 py-3 flex flex-wrap items-center gap-3">
         <select
           value={entidad}
-          onChange={(e) => setEntidad(e.target.value)}
+          onChange={(e) => {
+            setBusqueda("");
+            limpiarUnidad();
+            setDatos(null);
+            setEntidad(e.target.value);
+          }}
           className="px-3 py-2 rounded-lg border border-neutral-gray/30 bg-neutral-light
             text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
         >
@@ -365,7 +369,7 @@ function ReporteRTM() {
               </button>
             )}
             <button
-              onClick={() => { setUnidadSeleccionada(null); setDatos(null); }}
+              onClick={() => { limpiarUnidad(); setDatos(null); }}
               className="px-3 py-2 rounded-lg border border-neutral-gray/30 text-sm text-neutral-gray
                 hover:bg-neutral-light transition"
             >
