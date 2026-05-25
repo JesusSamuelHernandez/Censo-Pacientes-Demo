@@ -12,7 +12,8 @@ export default defineConfig({
   
   preview: {
     allowedHosts: [
-      "censo-frontend-production-dab7.up.railway.app"
+      "censo-frontend-production-dab7.up.railway.app",
+      "censo-frontend-production-b6e8.up.railway.app"
     ]
   }
 })
