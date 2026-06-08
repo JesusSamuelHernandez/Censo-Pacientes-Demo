@@ -548,6 +548,8 @@ def listar_medicos(
     filtro = apply_rbac_filter(current_user)
     query = db.query(Medico)
 
+    query = query.filter(Medico.es_activo == True)
+
     if filtro.filtrar_por_clues:
         # RESPONSABLE_UNIDAD — solo su unidad, ignora el param opcional
         query = query.filter(Medico.clues_adscripcion == filtro.valor_clues)
@@ -578,17 +580,20 @@ def crear_medico(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    if current_user.es_admin_estatal:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El Administrador Estatal no puede registrar médicos.",
-        )
+    clues = payload.clues_adscripcion.strip().upper()
 
     if current_user.es_responsable_unidad:
-        if payload.clues_adscripcion != current_user.clues_unidad_asignada:
+        if clues != current_user.clues_unidad_asignada:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Solo puede registrar médicos de su propia unidad médica.",
+            )
+    elif current_user.es_admin_estatal:
+        unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == clues).first()
+        if not unidad or unidad.id_entidad != current_user.id_entidad:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puede registrar médicos en unidades de su estado.",
             )
 
     cedula_hash = hash_sha256(payload.cedula)
@@ -632,17 +637,32 @@ def obtener_medico(
     "/medicos/{id_medico}",
     response_model=MedicoResponse,
     tags=["Médicos"],
-    summary="Actualizar datos de un médico. Solo SUPER_ADMIN.",
+    summary="Actualizar datos o dar de baja un médico. Todos los roles con RBAC geográfico.",
 )
 def actualizar_medico(
     id_medico: int,
     payload: MedicoUpdate,
     db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_super_admin),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
     if not medico:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
+
+    # Validar acceso por rol
+    if current_user.es_responsable_unidad:
+        if medico.clues_adscripcion != current_user.clues_unidad_asignada:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puede modificar médicos de su propia unidad médica.",
+            )
+    elif current_user.es_admin_estatal:
+        unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == medico.clues_adscripcion).first()
+        if not unidad or unidad.id_entidad != current_user.id_entidad:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puede modificar médicos de unidades de su estado.",
+            )
 
     datos = payload.model_dump(exclude_none=True)
     if "nombre_medico" in datos:
@@ -2060,6 +2080,7 @@ def _medico_to_response(m: Medico) -> MedicoResponse:
         cedula=descifrar(m.cedula),
         email=m.email,
         clues_adscripcion=m.clues_adscripcion,
+        es_activo=m.es_activo,
     )
 
 

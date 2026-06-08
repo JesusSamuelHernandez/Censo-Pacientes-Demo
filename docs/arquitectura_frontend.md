@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-07
+> Última actualización: 2026-06-08
 
 ## 1. Stack Tecnológico
 
@@ -91,14 +91,21 @@ Estado de autenticación global. Persiste en `localStorage` (o memoria, según c
 
 ```js
 {
-  token: null,              // JWT string
-  rol: null,                // "SUPER_ADMIN" | "ADMIN_ESTATAL" | "RESPONSABLE_UNIDAD"
-  idUsuario: null,          // integer
-  debecambiarPassword: false,
-  setAuth: (token, rol, idUsuario, debeCambiar) => ...,
-  clearAuth: () => ...
+  token: null,                  // JWT string
+  rolNombre: null,              // "SUPER_ADMIN" | "ADMIN_ESTATAL" | "RESPONSABLE_UNIDAD"
+  idUsuario: null,              // integer
+  debeCambiarPassword: false,
+  email: null,                  // email del usuario autenticado
+  nombreUsuario: null,          // nombre completo del usuario
+  cluesUnidadAsignada: null,    // solo RESPONSABLE_UNIDAD
+  nombreUnidad: null,           // nombre de la unidad (solo RESPONSABLE_UNIDAD)
+  idEntidad: null,              // clave de estado (solo ADMIN_ESTATAL)
+  login: (data) => ...,         // guarda todos los campos al iniciar sesión
+  logout: () => ...
 }
 ```
+
+Todos los campos se persisten en `localStorage` (excepto los que se excluyen con `partialize`). El Sidebar usa `email`, `nombreUnidad`, `cluesUnidadAsignada` e `idEntidad` para mostrar información contextual según el rol.
 
 ---
 
@@ -142,11 +149,12 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `obtenerRegistrosDePaciente(curp, params)` → `GET /pacientes/{curp}/registros`
 
 ### 4.3 `medicos.js`
-- `listarMedicos(params)` → `GET /medicos`
+- `listarMedicos()` → `GET /medicos` (filtrado por RBAC en backend)
 - `obtenerMedico(id)` → `GET /medicos/{id}`
 - `crearMedico(data)` → `POST /medicos`
 - `actualizarMedico(id, data)` → `PATCH /medicos/{id}`
-- `eliminarMedico(id)` → `DELETE /medicos/{id}`
+- `darBajaMedico(id)` → `PATCH /medicos/{id}` con `{ es_activo: false }` (Soft Delete)
+- `eliminarMedico(id)` → `DELETE /medicos/{id}` (eliminación física, solo SUPER_ADMIN)
 
 ### 4.4 `registros.js`
 - `listarRegistros(params)` → `GET /registros`
@@ -159,6 +167,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `reemplazarRegistro(id, data)` → `POST /registros/{id}/reemplazar`
 
 ### 4.5 `catalogos.js`
+- `listarDiagnosticos(soloActivos)` → `GET /catalogos/diagnosticos`
 - `listarMedicamentos(params)` → `GET /catalogos/medicamentos`
 - `crearMedicamento(data)` → `POST /catalogos/medicamentos`
 - `actualizarMedicamento(clave, data)` → `PATCH /catalogos/medicamentos/{clave}`
@@ -211,9 +220,11 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 
 | Página | Ruta | Endpoints consumidos | Roles con acceso |
 |---|---|---|---|
-| Lista | `/medicos` | `GET /medicos` | Todos |
-| Registrar | `/medicos/nuevo` | `POST /medicos` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
-| Editar | `/medicos/:id/editar` | `PATCH /medicos/:id` | Solo SUPER_ADMIN |
+| Lista | `/medicos` | `GET /medicos` | Todos (RBAC geográfico en backend) |
+| Registrar | `/medicos/nuevo` | `POST /medicos` | Todos (RBAC geográfico en backend) |
+| Editar | `/medicos/:id/editar` | `PATCH /medicos/:id` | Todos (RBAC geográfico en backend) |
+
+**Dar de baja:** botón disponible en la tabla de lista para todos los roles. Llama a `darBajaMedico()` con confirmación. El médico desaparece del listado y del dropdown de prescripciones (`GET /medicos` filtra `es_activo=True`).
 
 ---
 
@@ -225,7 +236,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 | Registrar | `/registros/nuevo` | `POST /registros/completo` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 | Editar | `/registros/:id/editar` | `PATCH /registros/:id` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 
-**Formulario combinado (`RegistroFormPage`):** Busca primero el paciente por CURP (`GET /pacientes/buscar`). Si existe, usa sus datos. Si no existe, muestra campos para capturarlo. En ambos casos, los campos de posología están disponibles en el mismo formulario. Envía a `POST /registros/completo`.
+**Formulario combinado (`RegistroFormPage`):** Busca primero el paciente por CURP (`GET /pacientes/buscar`). Si existe, usa sus datos. Si no existe, muestra campos para capturarlo. Incluye dropdown de diagnóstico (`id_diagnostico`) cargado desde `GET /catalogos/diagnosticos`. En todos los campos de posología están disponibles en el mismo formulario. Envía a `POST /registros/completo`.
 
 ---
 

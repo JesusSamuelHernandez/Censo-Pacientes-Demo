@@ -351,6 +351,7 @@ class MedicoUpdate(BaseModel):
     cedula: str | None = Field(None, min_length=1, max_length=30)
     email: str | None = Field(None, max_length=255)
     clues_adscripcion: str | None = Field(None, max_length=20)
+    es_activo: bool | None = None
 
 
 class MedicoResponse(BaseModel):
@@ -363,6 +364,7 @@ class MedicoResponse(BaseModel):
     cedula: str
     email: str | None
     clues_adscripcion: str
+    es_activo: bool = True
 
     model_config = ConfigDict(from_attributes=True)
 

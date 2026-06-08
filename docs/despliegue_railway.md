@@ -81,6 +81,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | Script | Cuándo ejecutarlo |
 |--------|-------------------|
 | `migrar_diagnosticos.py` | Primera vez que se despliega la tabla `cat_diagnosticos` y la columna `registros.id_diagnostico` |
+| `migrar_medico_baja.py` | Primera vez que se despliega el Soft Delete de médicos (columna `medicos.es_activo`) |
 | `migrar_recalculo_fin.py` | Si se modifica la lógica de `fecha_fin_tratamiento` en registros existentes |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |

@@ -3,22 +3,18 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { UserPlus, Search, Eye, Pencil } from "lucide-react";
+import { UserPlus, Search, Pencil, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 
-import { listarMedicos } from "../../api/medicos";
-import useAuthStore from "../../store/authStore";
-
-const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
-const ROLES_PUEDEN_EDITAR = ["SUPER_ADMIN"];
+import { listarMedicos, darBajaMedico } from "../../api/medicos";
 
 export default function MedicosPage() {
   const navigate = useNavigate();
-  const { rolNombre } = useAuthStore();
 
   const [medicos, setMedicos] = useState([]);
   const [busqueda, setBusqueda] = useState("");
   const [loading, setLoading] = useState(true);
+  const [bajandoId, setBajandoId] = useState(null);
 
   useEffect(() => {
     listarMedicos()
@@ -26,6 +22,20 @@ export default function MedicosPage() {
       .catch(() => toast.error("Error al cargar la lista de médicos."))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleDarDeBaja = async (m) => {
+    if (!window.confirm(`¿Dar de baja al Dr. ${m.nombre_medico}?\nEsta acción se puede revertir contactando al administrador.`)) return;
+    setBajandoId(m.id_medico);
+    try {
+      await darBajaMedico(m.id_medico);
+      setMedicos((prev) => prev.filter((med) => med.id_medico !== m.id_medico));
+      toast.success(`${m.nombre_medico} dado de baja correctamente.`);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error al dar de baja al médico.");
+    } finally {
+      setBajandoId(null);
+    }
+  };
 
   const medicosFiltrados = medicos.filter((m) =>
     busqueda
@@ -43,16 +53,14 @@ export default function MedicosPage() {
           <h2 className="text-xl font-semibold text-neutral-black">Médicos</h2>
           <p className="text-sm text-neutral-gray mt-0.5">{medicos.length} médicos registrados</p>
         </div>
-        {ROLES_PUEDEN_CREAR.includes(rolNombre) && (
-          <button
-            onClick={() => navigate("/medicos/nuevo")}
-            className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
-              text-sm font-medium px-4 py-2 rounded-lg transition"
-          >
-            <UserPlus size={16} />
-            Registrar médico
-          </button>
-        )}
+        <button
+          onClick={() => navigate("/medicos/nuevo")}
+          className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
+            text-sm font-medium px-4 py-2 rounded-lg transition"
+        >
+          <UserPlus size={16} />
+          Registrar médico
+        </button>
       </div>
 
       {/* Búsqueda */}
@@ -107,15 +115,25 @@ export default function MedicosPage() {
                     <td className="px-4 py-3 text-neutral-gray font-mono text-xs">{m.clues_adscripcion}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        {ROLES_PUEDEN_EDITAR.includes(rolNombre) && (
-                          <button
-                            onClick={() => navigate(`/medicos/${m.id_medico}/editar`)}
-                            className="p-1.5 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
-                            title="Editar"
-                          >
-                            <Pencil size={15} />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => navigate(`/medicos/${m.id_medico}/editar`)}
+                          className="p-1.5 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
+                          title="Editar"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleDarDeBaja(m)}
+                          disabled={bajandoId === m.id_medico}
+                          className="p-1.5 rounded-lg text-neutral-gray hover:text-red-500 hover:bg-red-50 transition
+                            disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Dar de baja"
+                        >
+                          {bajandoId === m.id_medico
+                            ? <span className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin inline-block" />
+                            : <UserMinus size={15} />
+                          }
+                        </button>
                       </div>
                     </td>
                   </tr>

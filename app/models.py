@@ -245,6 +245,8 @@ class Medico(Base):
         index=True,
     )
 
+    es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
     unidad_adscripcion: Mapped["UnidadMedica"] = relationship(back_populates="medicos")
     registros: Mapped[list["Registro"]] = relationship(back_populates="medico")
 

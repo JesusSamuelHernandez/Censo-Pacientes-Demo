@@ -26,3 +26,9 @@ export const actualizarMedico = async (idMedico, payload) => {
   const { data } = await axiosClient.patch(`/medicos/${idMedico}`, payload);
   return data;
 };
+
+// Soft Delete — dar de baja
+export const darBajaMedico = async (idMedico) => {
+  const { data } = await axiosClient.patch(`/medicos/${idMedico}`, { es_activo: false });
+  return data;
+};

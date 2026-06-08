@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-07
+> Última actualización: 2026-06-08
 
 ## 1. Visión General
 
@@ -59,7 +59,7 @@ El modelo `Registro` amplía el concepto de "receta" con posología completa (do
 ```
 app/
 ├── database.py          → Conexión a PostgreSQL, pool de conexiones, get_db().
-├── models.py            → 7 tablas ORM: CatMedicamento, UnidadMedica (cat_unidades),
+├── models.py            → 8 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
 │                          Usuario, Paciente, Medico, Registro, NotificacionTransferencia.
 ├── schemas.py           → Validación de entrada/salida con Pydantic v2.
 ├── auth.py              → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
@@ -76,6 +76,21 @@ Cliente → main.py (endpoint) → auth.py (validar JWT + rol) → database.py (
 ---
 
 ## 5. Modelos ORM
+
+### 5.0 CatDiagnostico — `cat_diagnosticos`
+
+Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescripción** (`Registro`), no al paciente directamente. Un paciente con más de un medicamento puede tener más de un diagnóstico activo.
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `id_diagnostico` | Integer | PK, autoincrement | |
+| `nombre` | String(500) | NOT NULL, unique | Nombre completo del diagnóstico |
+| `codigo_cie10` | String(20) | nullable | Código CIE-10 (ej. "E75.2") |
+| `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
+
+**Relaciones:** `registros` (→ `Registro`, back_populates)
+
+---
 
 ### 5.1 CatMedicamento — `cat_medicamentos`
 
@@ -151,6 +166,7 @@ Cliente → main.py (endpoint) → auth.py (validar JWT + rol) → database.py (
 | `cedula` | LargeBinary | NOT NULL | Cédula cifrada con Fernet |
 | `email` | String(255) | nullable | Texto plano |
 | `clues_adscripcion` | String(20) | FK → cat_unidades, NOT NULL, index | |
+| `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
 
 **Relaciones:** `unidad_adscripcion`, `registros`
 
@@ -181,13 +197,14 @@ La PK es autoincremental. Reemplaza al modelo `Receta` desde Blueprint v6.
 | `frecuencia` | Integer | nullable | Horas entre tomas (ej. 8, 12, 24) |
 | `unidad_tiempo` | String(50) | nullable | "días", "semanas" o "meses" |
 | `duracion` | Integer | nullable | Número de unidades de tiempo |
+| `id_diagnostico` | Integer | FK → cat_diagnosticos (RESTRICT), nullable, index | Diagnóstico de esta prescripción |
 | `total_medicamento` | Float | nullable | Total calculado por `_aplicar_posologia()` |
 | `id_registro_origen` | Integer | FK → registros (SET NULL), nullable | Auto-referencia para trazabilidad de reemplazos |
 | `fecha_registro_sistema` | DateTime(timezone=True) | NOT NULL, server_default=now() | Timestamp automático BD |
 | `id_usuario_registro` | Integer | FK → usuarios (SET NULL), nullable | Auditoría |
 | `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
 
-**Relaciones:** `medico`, `paciente`, `medicamento`, `unidad`, `usuario_registro`
+**Relaciones:** `medico`, `paciente`, `medicamento`, `unidad`, `diagnostico`, `usuario_registro`
 
 ---
 
@@ -212,6 +229,17 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 ---
 
 ## 6. Schemas Pydantic (v2)
+
+### 6.0 CatDiagnostico
+
+| Schema | Campos |
+|---|---|
+| `DiagnosticoBase` | `nombre` (str, 1-500), `codigo_cie10` (opt, max 20) |
+| `DiagnosticoCreate` | Idéntico a Base |
+| `DiagnosticoUpdate` | Todos opcionales: `nombre`, `codigo_cie10`, `es_activo` |
+| `DiagnosticoResponse` | Base + `id_diagnostico` (int), `es_activo` (bool). `from_attributes=True` |
+
+---
 
 ### 6.1 CatMedicamento
 
@@ -254,7 +282,7 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 | `PacienteBase` | `nombre_completo` (str, 2-255), `diagnostico_actual` (opt, max 5000), `clues_unidad_adscripcion` (CluesStr, normalizado a mayúsculas) |
 | `PacienteCreate` | Base + `curp_paciente` (CurpStr, validado contra regex oficial) |
 | `PacienteUpdate` | Opcionales: `nombre_completo`, `diagnostico_actual`, `clues_unidad_adscripcion`, `es_activo` |
-| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado), `clues_unidad_adscripcion`, `es_activo`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]) |
+| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `es_activo`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas) |
 | `PacienteListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[PacienteResponse]) |
 | `BusquedaCurpResponse` | `existe`, `id_paciente`, `nombre_completo`, `clues_unidad_adscripcion`, `nombre_unidad`, `total_registros` |
 
@@ -266,8 +294,8 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 |---|---|
 | `MedicoBase` | `nombre_medico` (str, 2-255), `cedula` (str, 1-30), `email` (opt), `clues_adscripcion` (CluesStr) |
 | `MedicoCreate` | Idéntico a Base |
-| `MedicoUpdate` | Todos opcionales: `nombre_medico`, `cedula`, `email`, `clues_adscripcion` |
-| `MedicoResponse` | `id_medico`, `nombre_medico` (descifrado), `cedula` (descifrada), `email`, `clues_adscripcion` |
+| `MedicoUpdate` | Todos opcionales: `nombre_medico`, `cedula`, `email`, `clues_adscripcion`, `es_activo` (Soft Delete) |
+| `MedicoResponse` | `id_medico`, `nombre_medico` (descifrado), `cedula` (descifrada), `email`, `clues_adscripcion`, `es_activo` |
 
 ---
 
@@ -275,12 +303,12 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 
 | Schema | Campos destacados |
 |---|---|
-| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
+| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
 | `RegistroCreate` | Idéntico a Base |
-| `RegistroUpdate` | Todos opcionales, incluye `es_activo` (Soft Delete) |
-| `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido) |
+| `RegistroUpdate` | Todos opcionales, incluye `id_diagnostico` y `es_activo` (Soft Delete) |
+| `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido), `diagnostico` (DiagnosticoResponse embebido, nullable) |
 | `RegistroListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[RegistroResponse]) |
-| `RegistroCompletoCreate` | Un solo payload que crea/reutiliza paciente + prescripción: `curp_paciente` (req), `nombre_completo` (req si CURP no existe), `diagnostico_actual` (opt), `clues_unidad_adscripcion` (opt), más todos los campos de posología |
+| `RegistroCompletoCreate` | Un solo payload que crea/reutiliza paciente + prescripción: `curp_paciente` (req), `nombre_completo` (req si CURP no existe), `clues_unidad_adscripcion` (opt), `id_diagnostico` (opt), más todos los campos de posología |
 | `RegistroCompletoResponse` | Extiende `RegistroResponse` + `paciente_creado` (bool) |
 
 ---
@@ -319,7 +347,7 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 | Schema | Campos |
 |---|---|
 | `LoginRequest` | `email` (EmailStr), `password` (str, min 1) |
-| `TokenResponse` | `access_token`, `token_type` ("bearer"), `rol_nombre`, `id_usuario`, `debe_cambiar_password` |
+| `TokenResponse` | `access_token`, `token_type` ("bearer"), `rol_nombre`, `id_usuario`, `debe_cambiar_password`, `email`, `nombre_usuario`, `clues_unidad_asignada` (nullable), `nombre_unidad` (nullable), `id_entidad` (nullable) |
 | `CambiarPasswordRequest` | `password_actual` (str, min 1), `password_nueva` (str, min 8) |
 
 ---
@@ -363,10 +391,10 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
-| GET | `/medicos` | Todos | Catálogo completo. Param opcional: `clues_adscripcion`. |
-| POST | `/medicos` | SUPER_ADMIN, RESPONSABLE_UNIDAD (solo su unidad) | Crear médico. ADMIN_ESTATAL recibe 403. Nombre y cédula cifrados. |
+| GET | `/medicos` | Todos | Lista activos (`es_activo=True`) con filtro RBAC geográfico automático. Param opcional: `clues_adscripcion`. |
+| POST | `/medicos` | Todos con RBAC | Crear médico. RESPONSABLE_UNIDAD: solo su unidad. ADMIN_ESTATAL: unidades de su estado. SUPER_ADMIN: sin restricción. Nombre y cédula cifrados. |
 | GET | `/medicos/{id_medico}` | Todos | Perfil de un médico. |
-| PATCH | `/medicos/{id_medico}` | Solo SUPER_ADMIN | Actualizar datos. Re-cifra nombre/cédula si cambian. |
+| PATCH | `/medicos/{id_medico}` | Todos con RBAC | Actualizar datos o dar de baja (`es_activo=False`). RBAC geográfico: RESPONSABLE_UNIDAD solo su unidad, ADMIN_ESTATAL solo su estado. Re-cifra nombre/cédula si cambian. |
 | DELETE | `/medicos/{id_medico}` | Solo SUPER_ADMIN | Eliminación física (204 No Content). |
 
 ---
@@ -410,6 +438,9 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
+| GET | `/catalogos/diagnosticos` | Todos | Lista diagnósticos. Param: `solo_activos` (default True). |
+| POST | `/catalogos/diagnosticos` | Solo SUPER_ADMIN | Crear nuevo diagnóstico. Conflicto 409 si nombre duplicado. |
+| PATCH | `/catalogos/diagnosticos/{id_diagnostico}` | Solo SUPER_ADMIN | Actualizar o desactivar diagnóstico. |
 | GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Param: `solo_activos` (default True). |
 | POST | `/catalogos/medicamentos` | Solo SUPER_ADMIN | Crear nueva clave CNIS. Conflicto 409 si duplicada. |
 | PATCH | `/catalogos/medicamentos/{clave_cnis}` | Solo SUPER_ADMIN | Actualizar o desactivar medicamento. |
@@ -540,7 +571,7 @@ Railway inyecta `$PORT` automáticamente. `--host 0.0.0.0` es obligatorio en con
 
 | Convención | Descripción |
 |---|---|
-| **Soft Delete** | `es_activo = False` en `Paciente` y `Registro`. Nunca DELETE físico. |
+| **Soft Delete** | `es_activo = False` en `Paciente`, `Registro` y `Medico`. Nunca DELETE físico para estos modelos. |
 | **Fernet** | CURP, nombre completo, diagnóstico (Paciente), nombre y cédula (Medico) se almacenan como `LargeBinary` cifrado. |
 | **SHA-256** | `curp_hash` y `cedula_hash` permiten lookups eficientes sin descifrar. |
 | **fecha_fin exclusiva** | `fecha_fin_tratamiento` marca el primer día que ya NO es parte del tratamiento. El frontend resta 1 al mostrar "último día real". |
