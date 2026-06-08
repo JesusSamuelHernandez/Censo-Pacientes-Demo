@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { crearRegistroCompleto, actualizarRegistro, reemplazarRegistro, obtenerRegistro } from "../../api/registros";
 import { buscarPacientePorCurp } from "../../api/pacientes";
 import { listarMedicos } from "../../api/medicos";
-import { listarMedicamentos } from "../../api/catalogos";
+import { listarMedicamentos, listarDiagnosticos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
 
 // ---------------------------------------------------------------------------
@@ -47,12 +47,12 @@ const camposOpcionales = {
   frecuencia: z.string().optional().or(z.literal("")),
   unidad_tiempo: z.string().optional().or(z.literal("")),
   duracion: z.string().optional().or(z.literal("")),
+  id_diagnostico: z.string().optional().or(z.literal("")),
 };
 
 const schemaCrear = z.object({
   // Campos de paciente nuevo (validación adicional en onSubmit)
   nombre_completo: z.string().optional().or(z.literal("")),
-  diagnostico_actual: z.string().optional().or(z.literal("")),
   // Datos de prescripción obligatorios
   id_medico: z.number({ invalid_type_error: "Selecciona un médico." }).int().positive(),
   clave_cnis: z.string().min(1, "Selecciona un medicamento."),
@@ -137,6 +137,7 @@ export default function RegistroFormPage() {
 
   const [medicos, setMedicos] = useState([]);
   const [medicamentos, setMedicamentos] = useState([]);
+  const [diagnosticos, setDiagnosticos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [unidadMedicamentoEdicion, setUnidadMedicamentoEdicion] = useState(null);
   const [unidadDeMedidaEdicion, setUnidadDeMedidaEdicion] = useState(null);
@@ -240,8 +241,8 @@ export default function RegistroFormPage() {
 
   // Carga inicial de catálogos y datos de edición
   useEffect(() => {
-    Promise.all([listarMedicos(), listarMedicamentos()])
-      .then(([m, med]) => { setMedicos(m); setMedicamentos(med); })
+    Promise.all([listarMedicos(), listarMedicamentos(), listarDiagnosticos()])
+      .then(([m, med, diags]) => { setMedicos(m); setMedicamentos(med); setDiagnosticos(diags); })
       .catch(() => toast.error("Error al cargar datos del formulario."));
 
     if (esEdicion) {
@@ -253,6 +254,7 @@ export default function RegistroFormPage() {
           confirmado_por: r.confirmado_por ?? "",
           fecha_inicio_tratamiento: r.fecha_inicio_tratamiento ?? "",
           fecha_primera_administracion: r.fecha_primera_administracion ?? "",
+          id_diagnostico: r.id_diagnostico != null ? String(r.id_diagnostico) : "",
           dosis_administrada: r.dosis_administrada ?? "",
           peso: r.peso != null ? String(r.peso) : "",
           talla: r.talla != null ? String(r.talla) : "",
@@ -279,6 +281,7 @@ export default function RegistroFormPage() {
     if (payload.cantidad !== undefined) payload.cantidad = parseFloat(payload.cantidad);
     if (payload.frecuencia !== undefined) payload.frecuencia = parseInt(payload.frecuencia, 10);
     if (payload.duracion !== undefined) payload.duracion = parseInt(payload.duracion, 10);
+    if (payload.id_diagnostico !== undefined) payload.id_diagnostico = parseInt(payload.id_diagnostico, 10);
     return payload;
   };
 
@@ -475,16 +478,6 @@ export default function RegistroFormPage() {
                     {errors.nombre_completo && <p className="text-red-500 text-xs mt-1">{errors.nombre_completo.message}</p>}
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-black mb-1">
-                      Diagnóstico actual
-                      <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-                    </label>
-                    <textarea rows={2} placeholder="Diagnóstico médico del paciente..."
-                      className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-white
-                        text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition resize-none"
-                      {...register("diagnostico_actual")} />
-                  </div>
                 </div>
               )}
             </div>
@@ -553,6 +546,26 @@ export default function RegistroFormPage() {
                 {errors.clues && <p className="text-red-500 text-xs mt-1">{errors.clues.message}</p>}
               </div>
             )}
+
+            {/* Diagnóstico */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Diagnóstico
+                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+              </label>
+              <select
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("id_diagnostico")}
+              >
+                <option value="">— Selecciona un diagnóstico —</option>
+                {diagnosticos.map((d) => (
+                  <option key={d.id_diagnostico} value={String(d.id_diagnostico)}>
+                    {d.codigo_cie10 ? `${d.codigo_cie10} — ` : ""}{d.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Estatus del diagnóstico */}
             <div>

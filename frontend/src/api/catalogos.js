@@ -1,7 +1,16 @@
 /**
- * api/catalogos.js — Llamadas a catálogos (unidades y medicamentos).
+ * api/catalogos.js — Llamadas a catálogos (diagnósticos, unidades y medicamentos).
  */
 import axiosClient from "../lib/axiosClient";
+
+// ── Diagnósticos ─────────────────────────────────────────────────────────────
+
+export const listarDiagnosticos = async (soloActivos = true) => {
+  const { data } = await axiosClient.get("/catalogos/diagnosticos", {
+    params: { solo_activos: soloActivos },
+  });
+  return data;
+};
 
 // ── Medicamentos ──────────────────────────────────────────────────────────────
 

@@ -81,6 +81,32 @@ RolStr = Annotated[
 
 
 # ---------------------------------------------------------------------------
+# ── 0. CatDiagnostico ───────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class DiagnosticoBase(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=500)
+    codigo_cie10: str | None = Field(None, max_length=20)
+
+
+class DiagnosticoCreate(DiagnosticoBase):
+    pass
+
+
+class DiagnosticoUpdate(BaseModel):
+    nombre: str | None = Field(None, min_length=1, max_length=500)
+    codigo_cie10: str | None = Field(None, max_length=20)
+    es_activo: bool | None = None
+
+
+class DiagnosticoResponse(DiagnosticoBase):
+    id_diagnostico: int
+    es_activo: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
 # ── 1. CatMedicamento ───────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
@@ -285,6 +311,10 @@ class PacienteResponse(BaseModel):
         default_factory=list,
         description="Descripciones de los medicamentos de prescripciones activas.",
     )
+    diagnosticos_activos: list[str] = Field(
+        default_factory=list,
+        description="Nombres de diagnósticos de prescripciones activas.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -346,6 +376,7 @@ class RegistroBase(BaseModel):
     id_paciente: int = Field(..., description="ID interno del paciente (PK de la tabla pacientes).")
     clave_cnis: ClaveCnisStr
     clues: CluesStr
+    id_diagnostico: int | None = Field(None, description="ID del diagnóstico del catálogo.")
     fecha_inicio_tratamiento: date | None = Field(
         None, description="Inicio del esquema específico de esta prescripción."
     )
@@ -404,6 +435,7 @@ class RegistroUpdate(BaseModel):
     frecuencia: int | None = Field(None, gt=0)
     unidad_tiempo: str | None = None
     duracion: int | None = Field(None, gt=0)
+    id_diagnostico: int | None = None
     es_activo: bool | None = Field(
         None,
         description="False = anular registro por error de captura (Soft Delete).",
@@ -429,6 +461,7 @@ class RegistroResponse(RegistroBase):
     # Datos embebidos
     medicamento: MedicamentoResponse | None = None
     medico: MedicoResponse | None = None
+    diagnostico: DiagnosticoResponse | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -455,7 +488,6 @@ class RegistroCompletoCreate(BaseModel):
 
     # Datos del paciente — requeridos solo si el CURP no existe en BD
     nombre_completo: str | None = Field(None, max_length=255)
-    diagnostico_actual: str | None = Field(None, max_length=5000)
     # Si omitido, el backend usa la CLUES de la prescripción
     clues_unidad_adscripcion: str | None = Field(None, max_length=20)
 
@@ -477,6 +509,7 @@ class RegistroCompletoCreate(BaseModel):
     frecuencia: int | None = Field(None, gt=0)
     unidad_tiempo: str | None = None
     duracion: int | None = Field(None, gt=0)
+    id_diagnostico: int | None = None
 
     @field_validator("curp_paciente", mode="before")
     @classmethod

@@ -50,10 +50,13 @@ from app.auth import (
 )
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
-from app.models import Base, CatMedicamento, Medico, NotificacionTransferencia, Paciente, Registro, UnidadMedica, Usuario
+from app.models import Base, CatDiagnostico, CatMedicamento, Medico, NotificacionTransferencia, Paciente, Registro, UnidadMedica, Usuario
 from app.schemas import (
     BusquedaCurpResponse,
     CambiarPasswordRequest,
+    DiagnosticoCreate,
+    DiagnosticoResponse,
+    DiagnosticoUpdate,
     NotificacionListResponse,
     NotificacionResponse,
     NotificacionTransferenciaListResponse,
@@ -242,7 +245,8 @@ def listar_pacientes(
     for p in pacientes_pag:
         tiene = p.id_paciente in ids_con_activo
         meds = medicamentos_por_paciente.get(p.id_paciente, [])
-        datos = _paciente_to_response(p, tiene_prescripcion_activa=tiene, medicamentos_activos=meds)
+        diags = _get_diagnosticos_activos(p.id_paciente, db)
+        datos = _paciente_to_response(p, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
         datos.dias_adherencia = _calcular_adherencia(p.id_paciente, db)
         resultados.append(datos)
 
@@ -356,7 +360,8 @@ def obtener_paciente(
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds = _get_medicamentos_activos(paciente.id_paciente, db)
-    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds)
+    diags = _get_diagnosticos_activos(paciente.id_paciente, db)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -434,7 +439,8 @@ def actualizar_paciente(
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds = _get_medicamentos_activos(paciente.id_paciente, db)
-    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds)
+    diags = _get_diagnosticos_activos(paciente.id_paciente, db)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -505,6 +511,7 @@ def listar_registros_de_paciente(
             joinedload(Registro.paciente),
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
+            joinedload(Registro.diagnostico),
         )
         .filter(Registro.id_paciente == paciente.id_paciente)
     )
@@ -680,6 +687,7 @@ def listar_registros(
             joinedload(Registro.paciente),
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
+            joinedload(Registro.diagnostico),
         )
     )
 
@@ -788,6 +796,7 @@ def crear_registro(
         frecuencia=payload.frecuencia,
         unidad_tiempo=payload.unidad_tiempo,
         duracion=payload.duracion,
+        id_diagnostico=payload.id_diagnostico,
         id_usuario_registro=current_user.id_usuario,
         es_activo=True,
     )
@@ -798,7 +807,7 @@ def crear_registro(
 
     registro = (
         db.query(Registro)
-        .options(joinedload(Registro.medicamento), joinedload(Registro.medico))
+        .options(joinedload(Registro.medicamento), joinedload(Registro.medico), joinedload(Registro.diagnostico))
         .filter(Registro.id_registro == nuevo.id_registro)
         .first()
     )
@@ -849,7 +858,6 @@ def crear_registro_completo(
             curp_hash=curp_hash,
             curp_paciente=cifrar(payload.curp_paciente),
             nombre_completo=cifrar(payload.nombre_completo),
-            diagnostico_actual=cifrar(payload.diagnostico_actual) if payload.diagnostico_actual else None,
             clues_unidad_adscripcion=clues_paciente,
             es_activo=True,
             id_usuario_registro=current_user.id_usuario,
@@ -908,6 +916,7 @@ def crear_registro_completo(
         frecuencia=payload.frecuencia,
         unidad_tiempo=payload.unidad_tiempo,
         duracion=payload.duracion,
+        id_diagnostico=payload.id_diagnostico,
         id_usuario_registro=current_user.id_usuario,
         es_activo=True,
     )
@@ -928,6 +937,7 @@ def crear_registro_completo(
             joinedload(Registro.paciente),
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
+            joinedload(Registro.diagnostico),
         )
         .filter(Registro.id_registro == nuevo.id_registro)
         .first()
@@ -956,6 +966,7 @@ def obtener_registro(
             joinedload(Registro.paciente),
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
+            joinedload(Registro.diagnostico),
         )
         .filter(Registro.id_registro == id_registro)
         .first()
@@ -987,7 +998,7 @@ def actualizar_registro(
 
     registro = (
         db.query(Registro)
-        .options(joinedload(Registro.medicamento), joinedload(Registro.medico))
+        .options(joinedload(Registro.medicamento), joinedload(Registro.medico), joinedload(Registro.diagnostico))
         .filter(Registro.id_registro == id_registro)
         .first()
     )
@@ -1033,7 +1044,7 @@ def anular_registro(
 
     registro = (
         db.query(Registro)
-        .options(joinedload(Registro.medicamento), joinedload(Registro.medico))
+        .options(joinedload(Registro.medicamento), joinedload(Registro.medico), joinedload(Registro.diagnostico))
         .filter(Registro.id_registro == id_registro)
         .first()
     )
@@ -1075,7 +1086,7 @@ def validar_continuidad(
 
     registro = (
         db.query(Registro)
-        .options(joinedload(Registro.medicamento), joinedload(Registro.medico))
+        .options(joinedload(Registro.medicamento), joinedload(Registro.medico), joinedload(Registro.diagnostico))
         .filter(Registro.id_registro == id_registro)
         .first()
     )
@@ -1135,6 +1146,7 @@ def reemplazar_registro(
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
             joinedload(Registro.paciente),
+            joinedload(Registro.diagnostico),
         )
         .filter(Registro.id_registro == id_registro)
         .first()
@@ -1165,6 +1177,7 @@ def reemplazar_registro(
         "unidad_tiempo": original.unidad_tiempo,
         "duracion": original.duracion,
         "total_medicamento": original.total_medicamento,
+        "id_diagnostico": original.id_diagnostico,
         "id_usuario_registro": current_user.id_usuario,
         "id_registro_origen": original.id_registro,
         "es_activo": True,
@@ -1196,6 +1209,7 @@ def reemplazar_registro(
             joinedload(Registro.paciente),
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
+            joinedload(Registro.diagnostico),
         )
         .filter(Registro.id_registro == nuevo.id_registro)
         .first()
@@ -1388,6 +1402,7 @@ def reporte_resumen_detallado(
             joinedload(Registro.paciente),
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
+            joinedload(Registro.diagnostico),
         )
     )
 
@@ -1609,6 +1624,73 @@ def reporte_rtm(
         cabeceras=cabeceras,
         filas=filas,
     )
+
+
+# ===========================================================================
+# CATÁLOGOS — Diagnósticos
+# ===========================================================================
+
+@app.get(
+    "/catalogos/diagnosticos",
+    response_model=list[DiagnosticoResponse],
+    tags=["Catálogos"],
+    summary="Lista del catálogo de diagnósticos.",
+)
+def listar_diagnosticos(
+    solo_activos: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    query = db.query(CatDiagnostico)
+    if solo_activos:
+        query = query.filter(CatDiagnostico.es_activo == True)
+    return query.order_by(CatDiagnostico.nombre).all()
+
+
+@app.post(
+    "/catalogos/diagnosticos",
+    response_model=DiagnosticoResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Catálogos"],
+    summary="Crear nuevo diagnóstico en el catálogo. Solo SUPER_ADMIN.",
+)
+def crear_diagnostico(
+    payload: DiagnosticoCreate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_super_admin),
+):
+    if db.query(CatDiagnostico).filter(CatDiagnostico.nombre == payload.nombre).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Ya existe un diagnóstico con el nombre '{payload.nombre}'.",
+        )
+    nuevo = CatDiagnostico(**payload.model_dump())
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+    return nuevo
+
+
+@app.patch(
+    "/catalogos/diagnosticos/{id_diagnostico}",
+    response_model=DiagnosticoResponse,
+    tags=["Catálogos"],
+    summary="Actualizar o desactivar un diagnóstico. Solo SUPER_ADMIN.",
+)
+def actualizar_diagnostico(
+    id_diagnostico: int,
+    payload: DiagnosticoUpdate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_super_admin),
+):
+    diag = db.query(CatDiagnostico).filter(CatDiagnostico.id_diagnostico == id_diagnostico).first()
+    if not diag:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Diagnóstico no encontrado.")
+    for campo, valor in payload.model_dump(exclude_none=True).items():
+        setattr(diag, campo, valor)
+    db.commit()
+    db.refresh(diag)
+    return diag
 
 
 # ===========================================================================
@@ -1902,6 +1984,7 @@ def _paciente_to_response(
     p: Paciente,
     tiene_prescripcion_activa: bool = False,
     medicamentos_activos: list[str] | None = None,
+    diagnosticos_activos: list[str] | None = None,
 ) -> PacienteResponse:
     """Descifra los campos LargeBinary y construye el schema de respuesta."""
     return PacienteResponse(
@@ -1916,6 +1999,7 @@ def _paciente_to_response(
         dias_adherencia=None,
         tiene_prescripcion_activa=tiene_prescripcion_activa,
         medicamentos_activos=medicamentos_activos or [],
+        diagnosticos_activos=diagnosticos_activos or [],
     )
 
 
@@ -1929,6 +2013,18 @@ def _get_medicamentos_activos(id_paciente: int, db: Session) -> list[str]:
         .all()
     )
     return [(desc[:60] + "..." if desc and len(desc) > 60 else desc or clave) for desc, clave in rows]
+
+
+def _get_diagnosticos_activos(id_paciente: int, db: Session) -> list[str]:
+    """Retorna los nombres de diagnósticos de prescripciones activas del paciente."""
+    rows = (
+        db.query(CatDiagnostico.nombre)
+        .join(Registro, Registro.id_diagnostico == CatDiagnostico.id_diagnostico)
+        .filter(Registro.id_paciente == id_paciente, Registro.es_activo == True)
+        .distinct()
+        .all()
+    )
+    return [nombre for (nombre,) in rows]
 
 
 def _tiene_prescripcion_activa(id_paciente: int, db: Session) -> bool:
@@ -2044,8 +2140,10 @@ def _registro_to_response(r: Registro) -> RegistroResponse:
         id_usuario_registro=r.id_usuario_registro,
         nombre_paciente=descifrar(r.paciente.nombre_completo) if r.paciente else None,
         curp_paciente=descifrar(r.paciente.curp_paciente) if r.paciente else None,
+        id_diagnostico=r.id_diagnostico,
         medicamento=MedicamentoResponse.model_validate(r.medicamento) if r.medicamento else None,
         medico=_medico_to_response(r.medico) if r.medico else None,
+        diagnostico=DiagnosticoResponse.model_validate(r.diagnostico) if r.diagnostico else None,
     )
 
 

@@ -144,7 +144,11 @@ export default function PacienteDetallePage() {
             : "Sin prescripción activa"
         } />
         <div className="col-span-2">
-          <Campo label="Diagnóstico actual" valor={paciente.diagnostico_actual ?? "—"} />
+          <Campo label="Diagnóstico(s)" valor={
+            paciente.diagnosticos_activos?.length
+              ? paciente.diagnosticos_activos.join(" · ")
+              : "—"
+          } />
         </div>
       </div>
 
@@ -348,12 +352,17 @@ function ModalDetallePrescripcion({ registro: r, onClose }) {
           </section>
 
           {/* Datos clínicos */}
-          {(r.estatus_diagnostico || r.confirmado_por || r.peso || r.talla || r.dosis_administrada) && (
+          {(r.diagnostico || r.estatus_diagnostico || r.confirmado_por || r.peso || r.talla || r.dosis_administrada) && (
             <section className="space-y-3">
               <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide">
                 Datos clínicos
               </p>
               <div className="grid grid-cols-2 gap-4">
+                {r.diagnostico && (
+                  <div className="col-span-2">
+                    <Campo label="Diagnóstico" valor={r.diagnostico.nombre} />
+                  </div>
+                )}
                 <Campo label="Estatus del diagnóstico" valor={r.estatus_diagnostico} />
                 <Campo label="Confirmado por" valor={r.confirmado_por} />
                 <Campo label="Peso" valor={r.peso != null ? `${r.peso} kg` : null} />

@@ -3,6 +3,7 @@ models.py — Definición de tablas ORM (SQLAlchemy) para la App Medicamentos de
 
 Tablas:
     - CatMedicamentos   : Catálogo maestro de medicamentos (clave CNIS).
+    - CatDiagnostico    : Catálogo de diagnósticos (CIE-10 u otro estándar).
     - UnidadMedica      : Establecimientos de salud (CLUES como PK).
     - Usuario           : Cuentas de la plataforma con roles RBAC.
     - Paciente          : Padrón de pacientes en tratamiento.
@@ -46,6 +47,28 @@ class Rol:
     RESPONSABLE_UNIDAD  = "RESPONSABLE_UNIDAD"
 
     TODOS = {SUPER_ADMIN, ADMIN_ESTATAL, RESPONSABLE_UNIDAD}
+
+
+# ---------------------------------------------------------------------------
+# 0. Catálogo de Diagnósticos
+# ---------------------------------------------------------------------------
+class CatDiagnostico(Base):
+    """
+    Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada
+    prescripción (Registro), no al paciente directamente.
+    Solo el SUPER_ADMIN puede crear/editar entradas.
+    """
+    __tablename__ = "cat_diagnosticos"
+
+    id_diagnostico: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    nombre: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
+    codigo_cie10: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    registros: Mapped[list["Registro"]] = relationship(back_populates="diagnostico")
+
+    def __repr__(self) -> str:
+        return f"<CatDiagnostico id={self.id_diagnostico!r} nombre={self.nombre!r}>"
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +317,13 @@ class Registro(Base):
     duracion: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_medicamento: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    id_diagnostico: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("cat_diagnosticos.id_diagnostico", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     # Trazabilidad de reemplazos (cuando se edita desde Notificaciones)
     id_registro_origen: Mapped[int | None] = mapped_column(
         Integer,
@@ -319,6 +349,7 @@ class Registro(Base):
     paciente: Mapped["Paciente"] = relationship(back_populates="registros")
     medicamento: Mapped["CatMedicamento"] = relationship(back_populates="registros")
     unidad: Mapped["UnidadMedica"] = relationship(back_populates="registros")
+    diagnostico: Mapped["CatDiagnostico | None"] = relationship(back_populates="registros")
     usuario_registro: Mapped["Usuario | None"] = relationship(
         back_populates="registros_registrados",
         foreign_keys=[id_usuario_registro],
