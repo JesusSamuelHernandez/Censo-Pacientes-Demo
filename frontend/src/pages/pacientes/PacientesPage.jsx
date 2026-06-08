@@ -3,7 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { UserPlus, Search, ChevronLeft, ChevronRight, Eye, UserX } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Eye, UserX } from "lucide-react";
 import { toast } from "sonner";
 
 import { listarPacientes, darBajaPaciente } from "../../api/pacientes";
@@ -90,16 +90,6 @@ export default function PacientesPage() {
             {total} {soloActivos ? "paciente(s) con prescripción activa" : "paciente(s) registrado(s)"}
           </p>
         </div>
-        {ROLES_PUEDEN_CREAR.includes(rolNombre) && (
-          <button
-            onClick={() => navigate("/pacientes/nuevo")}
-            className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
-              text-sm font-medium px-4 py-2 rounded-lg transition"
-          >
-            <UserPlus size={16} />
-            Registrar paciente
-          </button>
-        )}
       </div>
 
       {/* Filtros */}

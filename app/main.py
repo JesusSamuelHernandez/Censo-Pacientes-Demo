@@ -466,6 +466,12 @@ def dar_baja_paciente(
 
     paciente.es_activo = False
     paciente.id_usuario_registro = current_user.id_usuario
+
+    db.query(Registro).filter(
+        Registro.id_paciente == paciente.id_paciente,
+        Registro.es_activo == True,
+    ).update({"es_activo": False})
+
     db.commit()
     db.refresh(paciente)
 
@@ -730,14 +736,15 @@ def crear_registro(
 
     paciente = db.query(Paciente).filter(
         Paciente.id_paciente == payload.id_paciente,
-        Paciente.es_activo == True,
     ).first()
     if not paciente:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Paciente no encontrado o dado de baja.",
+            detail="Paciente no encontrado.",
         )
     _verificar_acceso_paciente(paciente, current_user, db)
+    if not paciente.es_activo:
+        paciente.es_activo = True
 
     if not db.query(Medico).filter(Medico.id_medico == payload.id_medico).first():
         raise HTTPException(
@@ -852,6 +859,8 @@ def crear_registro_completo(
         paciente_creado = True
     else:
         _verificar_acceso_paciente(paciente, current_user, db)
+        if not paciente.es_activo:
+            paciente.es_activo = True
 
     # 2. Validar CLUES de la prescripción
     if current_user.es_responsable_unidad:
