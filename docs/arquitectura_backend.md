@@ -1,107 +1,56 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
+> Última actualización: 2026-06-07
+
 ## 1. Visión General
 
-El sistema es una **API REST** que centraliza el censo de pacientes que reciben medicamentos de alto costo en unidades médicas del sector salud. El backend es el núcleo del sistema: gestiona los datos, aplica las reglas de seguridad y expone la información a cualquier cliente (web, móvil, reportes).
+El sistema es una **API REST** que centraliza el censo de pacientes que reciben medicamentos de alto costo en unidades médicas del sector salud (IMSS Bienestar). El backend gestiona los datos, aplica las reglas de seguridad y expone la información a cualquier cliente (web, móvil, reportes).
 
 ---
 
-## 2. Stack Tecnológico — El "¿Por qué?"
+## 2. Stack Tecnológico
 
-### Python 3.13
-**¿Por qué?**
-- Lenguaje dominante en sistemas de salud y análisis de datos (Big Data, Machine Learning).
-- Ecosistema maduro para desarrollo web y procesamiento de datos.
-- El equipo ya tiene conocimiento en Python.
-- Preparamos el terreno para análisis estadísticos futuros sobre los datos de adherencia.
+| Componente | Tecnología | Versión |
+|---|---|---|
+| Lenguaje | Python | 3.13 |
+| Framework API | FastAPI | Latest (con Swagger automático en `/docs`) |
+| ORM | SQLAlchemy | 2.0.36 |
+| Base de Datos | PostgreSQL | 15 (Docker en dev, Railway en prod) |
+| Validación de datos | Pydantic | v2 |
+| Autenticación | python-jose (JWT HS256) | — |
+| Hash de contraseñas | bcrypt (uso directo, sin passlib) | — |
+| Cifrado de datos sensibles | cryptography (Fernet) | — |
+| Servidor | Uvicorn | — |
+| Entorno | venv (`.venv/`) | — |
 
----
-
-### FastAPI
-**¿Por qué FastAPI y no Django o Flask?**
-
-| Criterio | Flask | Django | **FastAPI** |
-|----------|-------|--------|-------------|
-| Velocidad de desarrollo | Media | Media | **Alta** |
-| Documentación automática | No | No | **Sí (Swagger)** |
-| Validación de datos | Manual | Parcial | **Automática (Pydantic)** |
-| Rendimiento | Medio | Medio | **Alto (asíncrono)** |
-| Tipado estático | No | No | **Sí** |
-
-**Decisión clave:** FastAPI genera automáticamente la documentación interactiva (Swagger UI en `/docs`), lo que nos permitió probar y validar todos los endpoints sin escribir una sola línea de código de prueba adicional. Para un equipo pequeño, esto acelera el desarrollo significativamente.
-
----
-
-### PostgreSQL 15
-**¿Por qué PostgreSQL y no MySQL o SQLite?**
-- **Integridad referencial robusta** — Las llaves foráneas (FK) entre tablas (paciente → unidad, receta → paciente → médico) son críticas en un sistema de salud. PostgreSQL las aplica de forma estricta.
-- **Soporte de tipos avanzados** — Timestamps con zona horaria (`TIMESTAMPTZ`), esencial para registros de auditoría confiables.
-- **Escalabilidad** — Preparado para crecer de cientos a millones de registros sin cambiar de motor.
-- **Estándar institucional** — PostgreSQL es el motor de base de datos más adoptado en sistemas gubernamentales y de salud en México.
-- **SQLite** fue descartado porque no es apto para producción con múltiples usuarios simultáneos.
-
----
-
-### SQLAlchemy 2.0 (ORM)
-**¿Por qué un ORM y no SQL directo?**
-- **Seguridad** — Previene inyección SQL automáticamente al parametrizar todas las consultas.
-- **Productividad** — Las tablas se definen como clases Python (`models.py`), no como scripts SQL separados. Un solo archivo describe toda la estructura de la BD.
-- **Mantenibilidad** — Si cambia una columna, se cambia en un solo lugar (el modelo), no en decenas de queries SQL dispersas.
-- **Versión 2.0** — Usamos la sintaxis moderna con `Mapped` y `mapped_column`, que tiene tipado estático completo y detecta errores antes de ejecutar.
-
----
-
-### JWT (JSON Web Tokens) con python-jose
-**¿Por qué JWT y no sesiones tradicionales?**
-- **Sin estado (stateless)** — El servidor no guarda sesiones en memoria. Cada token se valida de forma independiente. Esto permite escalar el sistema horizontalmente (múltiples servidores) sin sincronizar sesiones.
-- **RBAC en el token** — El rol del usuario (`SUPER_ADMIN`, `ADMIN_ESTATAL`, `RESPONSABLE_UNIDAD`) y su contexto geográfico (CLUES, entidad) viajan dentro del token. El backend no consulta la BD para saber qué puede ver el usuario — ya lo sabe desde el token.
-- **Estándar de la industria** — Compatible con cualquier cliente futuro (app móvil, otro sistema).
-
----
-
-### bcrypt (hash de contraseñas)
-**¿Por qué bcrypt?**
-- Es el algoritmo estándar de la industria para almacenar contraseñas de forma segura.
-- Incorpora un "salt" aleatorio automáticamente — dos usuarios con la misma contraseña generan hashes diferentes.
-- Resistente a ataques de fuerza bruta por su diseño computacionalmente costoso.
-- **Nunca** se almacena la contraseña en texto plano — solo el hash.
-
----
-
-### Docker (contenedor PostgreSQL)
-**¿Por qué Docker para la base de datos?**
-- **Entorno reproducible** — Cualquier desarrollador levanta la misma BD con un solo comando (`docker compose up`), sin instalar PostgreSQL manualmente.
-- **Aislamiento** — La BD corre en su propio contenedor, sin interferir con el sistema operativo.
-- **Preparación para producción** — El mismo `docker-compose.yml` puede adaptarse para despliegue en servidor.
+**Nota sobre bcrypt:** Se usa `bcrypt.hashpw()` / `bcrypt.checkpw()` directamente, sin passlib, para evitar el error `AttributeError: module 'bcrypt' has no attribute '__about__'` de versiones recientes.
 
 ---
 
 ## 3. Decisiones de Diseño Clave
 
 ### Soft Delete (es_activo)
-**¿Por qué no DELETE físico?**
-Los datos de pacientes y recetas son registros médicos. En el sector salud, **ningún dato se elimina** — se da de baja lógicamente (`es_activo = False`). Esto garantiza:
-- Trazabilidad histórica completa.
-- Auditoría ante cualquier revisión legal o administrativa.
-- Posibilidad de recuperar registros dados de baja por error.
+Los datos de pacientes y registros son registros médicos. Ningún dato se elimina físicamente: se da de baja lógicamente (`es_activo = False`). Esto garantiza trazabilidad histórica, auditoría y posibilidad de recuperar datos.
 
 ### RBAC con filtro geográfico automático
-**¿Por qué centralizar el filtro en `apply_rbac_filter()`?**
-La regla del Blueprint es clara: *"Toda consulta de datos debe pasar por un filtro de pertenencia"*. En lugar de repetir la lógica en cada endpoint, se centraliza en una sola función. Esto garantiza que:
-- Ningún endpoint puede "olvidar" aplicar el filtro.
-- Si la lógica de RBAC cambia, se modifica en un solo lugar.
+La función `apply_rbac_filter()` centraliza toda la lógica de restricción de visibilidad. Ningún endpoint puede "olvidar" aplicarla. El filtro de prescripciones sigue al **paciente** (por su unidad de adscripción actual), no a la unidad donde se generó la prescripción.
 
 ### Adherencia calculada en runtime
-**¿Por qué no guardar `dias_adherencia` en la BD?**
-La adherencia es `(fecha_actual - receta.fecha_inicio_tratamiento).days`, usando la receta activa más reciente del paciente. Si se guardara en la BD, habría que actualizarla diariamente para todos los pacientes. Al calcularla en el momento de la consulta, el dato siempre es exacto sin ningún proceso de actualización.
+La adherencia es `(date.today() - registro.fecha_inicio_tratamiento).days` usando el registro activo más reciente del paciente. Al calcularla en consulta, el dato siempre es exacto sin procesos de actualización.
 
-### Recetas vs. Suministros (Blueprint v5)
-**¿Por qué reemplazar `suministros` con `medicos` + `recetas`?**
-La tabla `suministros` original era un registro simple de dosis sin contexto clínico. En v5 se separó en dos entidades:
-- **`medicos`** — Catálogo de profesionales médicos adscritos a unidades. Permite trazabilidad de quién prescribe.
-- **`recetas`** — Registro de prescripción que vincula médico + paciente + medicamento + unidad + fechas de tratamiento. Esto refleja el flujo real del sector salud (una receta genera la dispensación) y permite calcular la adherencia por esquema de tratamiento específico, no por el historial global del paciente.
+### Cifrado Fernet para datos sensibles
+CURP, nombre completo, diagnóstico, nombre del médico y cédula se almacenan cifrados con Fernet (clave simétrica). El campo `curp_hash` (SHA-256) permite búsquedas sin descifrar. El campo cifrado se almacena como `LargeBinary` en PostgreSQL.
 
-Adicionalmente, `fecha_inicio_tratamiento` se movió de `pacientes` a `recetas` porque un paciente puede tener múltiples esquemas de tratamiento a lo largo del tiempo, cada uno con su propia fecha de inicio.
+### fecha_fin_tratamiento como fecha exclusiva
+Cuando hay posología completa, `fecha_fin_tratamiento` se auto-calcula como:
+`fecha_primera_administracion + duracion * factor`
+siendo `factor` = 1 (días), 7 (semanas) o 30 (meses). La fecha es **exclusiva** (el tratamiento termina el día anterior). Nunca se pide al usuario que la ingrese manualmente si existe posología.
+
+### Marcado lazy de registros vencidos
+No hay scheduler externo. La función `marcar_registros_vencidos()` se llama al inicio de los endpoints de lectura relevantes y ejecuta un `UPDATE` masivo con SQLAlchemy core para eficiencia. Condición: `fecha_fin_tratamiento + 30 días <= hoy`.
+
+### Registro reemplaza a Receta (Blueprint v6)
+El modelo `Registro` amplía el concepto de "receta" con posología completa (dosis, frecuencia, duración), cálculo automático de `fecha_fin_tratamiento`, trazabilidad de reemplazos (`id_registro_origen`) y validación de continuidad.
 
 ---
 
@@ -109,12 +58,13 @@ Adicionalmente, `fecha_inicio_tratamiento` se movió de `pacientes` a `recetas` 
 
 ```
 app/
-├── database.py   → Conexión a PostgreSQL, pool de conexiones, sesión por request.
-├── models.py     → Las 6 tablas ORM: CatMedicamento, UnidadMedica (cat_unidades),
-│                   Usuario, Paciente, Medico, Receta.
-├── schemas.py    → Validación de entrada/salida con Pydantic (CURP, CLUES, roles).
-├── auth.py       → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
-└── main.py       → Todos los endpoints de la API (7 módulos del Blueprint).
+├── database.py          → Conexión a PostgreSQL, pool de conexiones, get_db().
+├── models.py            → 7 tablas ORM: CatMedicamento, UnidadMedica (cat_unidades),
+│                          Usuario, Paciente, Medico, Registro, NotificacionTransferencia.
+├── schemas.py           → Validación de entrada/salida con Pydantic v2.
+├── auth.py              → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
+├── crypto.py            → cifrar(), descifrar(), descifrar_o_none(), hash_sha256() con Fernet.
+└── main.py              → Todos los endpoints de la API (versión 3.0.0).
 ```
 
 **Flujo de una petición:**
@@ -122,3 +72,478 @@ app/
 Cliente → main.py (endpoint) → auth.py (validar JWT + rol) → database.py (sesión BD)
        → models.py (query ORM) → schemas.py (serializar respuesta) → Cliente
 ```
+
+---
+
+## 5. Modelos ORM
+
+### 5.1 CatMedicamento — `cat_medicamentos`
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `clave_cnis` | String(50) | PK | Clave oficial CNIS |
+| `descripcion` | Text | NOT NULL | |
+| `grupo` | String(150) | nullable | |
+| `tipo_clave` | String(100) | nullable | |
+| `unidad` | String(100) | nullable | Unidad singular del medicamento (ej. "tableta") |
+| `unidad_de_medida` | String(50) | nullable | Unidad de medida de la cantidad (ej. "mg", "ml") |
+| `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
+
+**Relaciones:** `registros` (→ `Registro`, back_populates)
+
+---
+
+### 5.2 UnidadMedica — `cat_unidades`
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `clues` | String(20) | PK | Clave Única de Establecimiento de Salud |
+| `nombre_de_la_unidad` | String(255) | NOT NULL | |
+| `id_entidad` | String(100) | NOT NULL, index | Identificador de la entidad federativa |
+| `categoria_gerencial` | String(150) | nullable | |
+
+**Relaciones:** `usuarios`, `pacientes`, `medicos`, `registros`
+
+---
+
+### 5.3 Usuario — `usuarios`
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `id_usuario` | Integer | PK, autoincrement | |
+| `nombre_usuario` | String(150) | NOT NULL | |
+| `email` | String(255) | unique, NOT NULL, index | |
+| `hashed_password` | String(255) | NOT NULL | bcrypt hash |
+| `rol_nombre` | String(30) | NOT NULL | SUPER_ADMIN / ADMIN_ESTATAL / RESPONSABLE_UNIDAD |
+| `clues_unidad_asignada` | String(20) | FK → cat_unidades, nullable | Solo RESPONSABLE_UNIDAD |
+| `id_entidad` | String(100) | nullable | Solo ADMIN_ESTATAL |
+| `debe_cambiar_password` | Boolean | NOT NULL, default=True | Forzar cambio en primer login |
+
+**Relaciones:** `unidad_asignada`, `pacientes_registrados`, `registros_registrados`
+
+---
+
+### 5.4 Paciente — `pacientes`
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `id_paciente` | Integer | PK, autoincrement | |
+| `curp_hash` | String(64) | unique, NOT NULL, index | SHA-256 de la CURP para búsquedas |
+| `curp_paciente` | LargeBinary | NOT NULL | CURP cifrada con Fernet |
+| `nombre_completo` | LargeBinary | NOT NULL | Nombre cifrado con Fernet |
+| `diagnostico_actual` | LargeBinary | nullable | Diagnóstico cifrado con Fernet |
+| `clues_unidad_adscripcion` | String(20) | FK → cat_unidades, NOT NULL, index | |
+| `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
+| `id_usuario_registro` | Integer | FK → usuarios (SET NULL), nullable | Auditoría |
+| `fecha_registro` | DateTime(timezone=True) | NOT NULL, server_default=now() | Timestamp automático BD |
+
+**Relaciones:** `unidad_adscripcion`, `usuario_registro`, `registros` (cascade all, delete-orphan)
+
+---
+
+### 5.5 Medico — `medicos`
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `id_medico` | Integer | PK, autoincrement | |
+| `cedula_hash` | String(64) | unique, NOT NULL, index | SHA-256 de cédula para búsquedas |
+| `nombre_medico` | LargeBinary | NOT NULL | Nombre cifrado con Fernet |
+| `cedula` | LargeBinary | NOT NULL | Cédula cifrada con Fernet |
+| `email` | String(255) | nullable | Texto plano |
+| `clues_adscripcion` | String(20) | FK → cat_unidades, NOT NULL, index | |
+
+**Relaciones:** `unidad_adscripcion`, `registros`
+
+---
+
+### 5.6 Registro — `registros`
+
+La PK es autoincremental. Reemplaza al modelo `Receta` desde Blueprint v6.
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `id_registro` | Integer | PK, autoincrement | |
+| `id_medico` | Integer | FK → medicos (RESTRICT), NOT NULL, index | |
+| `id_paciente` | Integer | FK → pacientes (CASCADE), NOT NULL, index | |
+| `clave_cnis` | String(50) | FK → cat_medicamentos (RESTRICT), NOT NULL, index | |
+| `clues` | String(20) | FK → cat_unidades (RESTRICT), NOT NULL, index | Unidad donde se generó la prescripción |
+| `fecha_inicio_tratamiento` | Date | nullable | |
+| `fecha_primera_administracion` | Date | nullable | Fecha real de la primera dosis |
+| `fecha_fin_tratamiento` | Date | nullable | Auto-calculada desde posología (fecha **exclusiva**) |
+| `dosis_administrada` | String(100) | nullable | Texto libre, ej. "200 mg" |
+| `peso` | Numeric(5,2) | nullable | Peso en kg |
+| `talla` | Numeric(5,2) | nullable | Talla en cm |
+| `estatus_diagnostico` | String(50) | nullable | "confirmado" / "por confirmar" |
+| `confirmado_por` | String(100) | nullable | Área que confirmó el diagnóstico |
+| `prescripcion` | Text | nullable | Auto-generado por `_aplicar_posologia()` |
+| `dosis` | Float | nullable | Unidades por toma (posología) |
+| `cantidad` | Float | nullable | Cantidad de medicamento por unidad |
+| `frecuencia` | Integer | nullable | Horas entre tomas (ej. 8, 12, 24) |
+| `unidad_tiempo` | String(50) | nullable | "días", "semanas" o "meses" |
+| `duracion` | Integer | nullable | Número de unidades de tiempo |
+| `total_medicamento` | Float | nullable | Total calculado por `_aplicar_posologia()` |
+| `id_registro_origen` | Integer | FK → registros (SET NULL), nullable | Auto-referencia para trazabilidad de reemplazos |
+| `fecha_registro_sistema` | DateTime(timezone=True) | NOT NULL, server_default=now() | Timestamp automático BD |
+| `id_usuario_registro` | Integer | FK → usuarios (SET NULL), nullable | Auditoría |
+| `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
+
+**Relaciones:** `medico`, `paciente`, `medicamento`, `unidad`, `usuario_registro`
+
+---
+
+### 5.7 NotificacionTransferencia — `notificaciones_transferencia`
+
+Generada automáticamente cuando un paciente cambia de unidad de adscripción.
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `id` | Integer | PK, autoincrement | |
+| `id_paciente` | Integer | FK → pacientes (CASCADE), NOT NULL, index | |
+| `clues_unidad_origen` | String(20) | FK → cat_unidades (RESTRICT), NOT NULL, index | Unidad que pierde al paciente |
+| `clues_unidad_destino` | String(20) | FK → cat_unidades (RESTRICT), NOT NULL | Unidad que recibe al paciente |
+| `id_usuario_traslado` | Integer | FK → usuarios (SET NULL), nullable | Usuario que realizó el traslado |
+| `fecha_traslado` | DateTime(timezone=True) | NOT NULL, server_default=now() | |
+| `leida` | Boolean | NOT NULL, default=False | False = pendiente de aceptar |
+| `id_usuario_leida` | Integer | FK → usuarios (SET NULL), nullable | Usuario que marcó como leída |
+| `fecha_leida` | DateTime(timezone=True) | nullable | |
+
+**Relaciones:** `paciente`, `unidad_origen`, `unidad_destino`, `usuario_traslado`, `usuario_leida`
+
+---
+
+## 6. Schemas Pydantic (v2)
+
+### 6.1 CatMedicamento
+
+| Schema | Campos |
+|---|---|
+| `MedicamentoBase` | `descripcion` (str, 1-2000), `grupo` (opt), `tipo_clave` (opt), `unidad` (opt, max 100), `unidad_de_medida` (opt, max 50) |
+| `MedicamentoCreate` | Base + `clave_cnis` (ClaveCnisStr) |
+| `MedicamentoUpdate` | Todos opcionales: `descripcion`, `grupo`, `tipo_clave`, `unidad`, `unidad_de_medida`, `es_activo` |
+| `MedicamentoResponse` | Base + `clave_cnis` (str), `es_activo` (bool). `from_attributes=True` |
+
+---
+
+### 6.2 UnidadMedica
+
+| Schema | Campos |
+|---|---|
+| `UnidadMedicaBase` | `nombre_de_la_unidad` (str, 1-255), `id_entidad` (str, 1-100), `categoria_gerencial` (opt) |
+| `UnidadMedicaCreate` | Base + `clues` (CluesStr) |
+| `UnidadMedicaUpdate` | Todos opcionales: `nombre_de_la_unidad`, `id_entidad`, `categoria_gerencial` |
+| `UnidadMedicaResponse` | Base + `clues` (str). `from_attributes=True` |
+
+---
+
+### 6.3 Usuario
+
+| Schema | Campos destacados |
+|---|---|
+| `UsuarioBase` | `nombre_usuario`, `email` (EmailStr), `rol_nombre` (validado), `clues_unidad_asignada` (req. si RESPONSABLE_UNIDAD), `id_entidad` (req. si ADMIN_ESTATAL). Validadores: `rol_debe_ser_valido`, `validar_contexto_por_rol` |
+| `UsuarioCreate` | Extiende `UsuarioBase`. La contraseña la genera el backend. |
+| `UsuarioUpdate` | Opcionales: `nombre_usuario`, `rol_nombre`, `clues_unidad_asignada`, `id_entidad`, `password` (min 8) |
+| `UsuarioResponse` | `id_usuario`, `nombre_usuario`, `email`, `rol_nombre`, `clues_unidad_asignada`, `id_entidad`, `debe_cambiar_password` |
+| `UsuarioCreateResponse` | Extiende `UsuarioResponse` + `password_temporal` (solo en POST /usuarios) |
+
+---
+
+### 6.4 Paciente
+
+| Schema | Campos destacados |
+|---|---|
+| `PacienteBase` | `nombre_completo` (str, 2-255), `diagnostico_actual` (opt, max 5000), `clues_unidad_adscripcion` (CluesStr, normalizado a mayúsculas) |
+| `PacienteCreate` | Base + `curp_paciente` (CurpStr, validado contra regex oficial) |
+| `PacienteUpdate` | Opcionales: `nombre_completo`, `diagnostico_actual`, `clues_unidad_adscripcion`, `es_activo` |
+| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado), `clues_unidad_adscripcion`, `es_activo`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]) |
+| `PacienteListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[PacienteResponse]) |
+| `BusquedaCurpResponse` | `existe`, `id_paciente`, `nombre_completo`, `clues_unidad_adscripcion`, `nombre_unidad`, `total_registros` |
+
+---
+
+### 6.5 Medico
+
+| Schema | Campos destacados |
+|---|---|
+| `MedicoBase` | `nombre_medico` (str, 2-255), `cedula` (str, 1-30), `email` (opt), `clues_adscripcion` (CluesStr) |
+| `MedicoCreate` | Idéntico a Base |
+| `MedicoUpdate` | Todos opcionales: `nombre_medico`, `cedula`, `email`, `clues_adscripcion` |
+| `MedicoResponse` | `id_medico`, `nombre_medico` (descifrado), `cedula` (descifrada), `email`, `clues_adscripcion` |
+
+---
+
+### 6.6 Registro
+
+| Schema | Campos destacados |
+|---|---|
+| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
+| `RegistroCreate` | Idéntico a Base |
+| `RegistroUpdate` | Todos opcionales, incluye `es_activo` (Soft Delete) |
+| `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido) |
+| `RegistroListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[RegistroResponse]) |
+| `RegistroCompletoCreate` | Un solo payload que crea/reutiliza paciente + prescripción: `curp_paciente` (req), `nombre_completo` (req si CURP no existe), `diagnostico_actual` (opt), `clues_unidad_adscripcion` (opt), más todos los campos de posología |
+| `RegistroCompletoResponse` | Extiende `RegistroResponse` + `paciente_creado` (bool) |
+
+---
+
+### 6.7 Notificaciones de Continuidad
+
+| Schema | Campos |
+|---|---|
+| `NotificacionResponse` | `id_registro`, `id_paciente`, `nombre_paciente`, `clave_cnis`, `descripcion_medicamento`, `clues`, `fecha_fin_tratamiento`, `fecha_limite` (fin + 30 días), `dias_restantes` (negativo = vencida), `es_activo`, `fecha_inicio_tratamiento`, `dosis_administrada`, `peso`, `talla`, `prescripcion`, `duracion`, `unidad_tiempo` |
+| `NotificacionListResponse` | `total`, `resultados` (list[NotificacionResponse]) |
+| `ValidarContinuidadRequest` | `nueva_fecha_fin_tratamiento` (opt Date) — requerida solo si el registro no tiene posología guardada |
+
+---
+
+### 6.8 Notificaciones de Transferencia
+
+| Schema | Campos |
+|---|---|
+| `NotificacionTransferenciaResponse` | `id`, `id_paciente`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `clues_unidad_origen`, `nombre_unidad_origen`, `clues_unidad_destino`, `nombre_unidad_destino`, `nombre_usuario_traslado`, `fecha_traslado` |
+| `NotificacionTransferenciaListResponse` | `total`, `resultados` |
+
+---
+
+### 6.9 Requerimiento Teórico Mensual (RTM)
+
+| Schema | Campos |
+|---|---|
+| `RtmMesItem` | `anio` (int), `mes` (int 1-12), `etiqueta` (str, ej. "Mayo 2026"), `cantidad` (float) |
+| `RtmFilaResponse` | `clave_cnis`, `descripcion`, `grupo`, `unidad_de_medida`, `meses` (list[RtmMesItem]) |
+| `RtmResponse` | `clues`, `nombre_unidad`, `generado_en`, `cabeceras` (list[str]), `filas` (list[RtmFilaResponse]) |
+
+---
+
+### 6.10 Autenticación
+
+| Schema | Campos |
+|---|---|
+| `LoginRequest` | `email` (EmailStr), `password` (str, min 1) |
+| `TokenResponse` | `access_token`, `token_type` ("bearer"), `rol_nombre`, `id_usuario`, `debe_cambiar_password` |
+| `CambiarPasswordRequest` | `password_actual` (str, min 1), `password_nueva` (str, min 8) |
+
+---
+
+### Tipos anotados reutilizables
+
+| Tipo | Restricción |
+|---|---|
+| `CurpStr` | str, exactly 18 chars, regex oficial SEP/RENAPO |
+| `CluesStr` | str, 1-20 chars, patrón `^[A-Z0-9]+$` |
+| `ClaveCnisStr` | str, 1-50 chars |
+| `RolStr` | str, validado contra `Rol.TODOS` |
+
+---
+
+## 7. Endpoints
+
+### 7.1 Autenticación (`/auth`)
+
+| Método | Ruta | Rol requerido | Descripción |
+|---|---|---|---|
+| POST | `/auth/login` | Público | Login. Recibe `OAuth2PasswordRequestForm` (form-data). Devuelve JWT + rol + `debe_cambiar_password`. |
+
+---
+
+### 7.2 Pacientes (`/pacientes`)
+
+| Método | Ruta | Rol requerido | Descripción |
+|---|---|---|---|
+| GET | `/pacientes` | Todos | Lista paginada con filtro RBAC automático. Params: `solo_activos`, `pagina`, `por_pagina`, `clave_cnis`. Llama `marcar_registros_vencidos()`. |
+| POST | `/pacientes` | Todos | Crear nuevo paciente. CURP cifrada + hash. Conflicto 409 si CURP duplicada. |
+| GET | `/pacientes/buscar` | Todos | Búsqueda nacional por CURP. Sin filtro RBAC. |
+| GET | `/pacientes/{curp_paciente}` | Todos | Detalle completo. Lectura nacional sin restricción RBAC. |
+| PATCH | `/pacientes/{curp_paciente}` | Todos (con restricciones por rol) | Actualización parcial. Si cambia `clues_unidad_adscripcion`, genera `NotificacionTransferencia` automáticamente. |
+| DELETE | `/pacientes/{curp_paciente}` | Todos (con acceso) | Soft Delete (`es_activo = False`). |
+| GET | `/pacientes/{curp_paciente}/registros` | Todos | Todas las prescripciones del paciente, sin filtro de unidad. Param: `solo_activos`. |
+
+---
+
+### 7.3 Médicos (`/medicos`)
+
+| Método | Ruta | Rol requerido | Descripción |
+|---|---|---|---|
+| GET | `/medicos` | Todos | Catálogo completo. Param opcional: `clues_adscripcion`. |
+| POST | `/medicos` | SUPER_ADMIN, RESPONSABLE_UNIDAD (solo su unidad) | Crear médico. ADMIN_ESTATAL recibe 403. Nombre y cédula cifrados. |
+| GET | `/medicos/{id_medico}` | Todos | Perfil de un médico. |
+| PATCH | `/medicos/{id_medico}` | Solo SUPER_ADMIN | Actualizar datos. Re-cifra nombre/cédula si cambian. |
+| DELETE | `/medicos/{id_medico}` | Solo SUPER_ADMIN | Eliminación física (204 No Content). |
+
+---
+
+### 7.4 Registros (`/registros`)
+
+| Método | Ruta | Rol requerido | Descripción |
+|---|---|---|---|
+| GET | `/registros` | Todos | Lista paginada. Filtro RBAC por **unidad actual del paciente** (no por unidad de la prescripción). Llama `marcar_registros_vencidos()`. |
+| POST | `/registros` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Crear prescripción. Llama `_aplicar_posologia()` si hay campos de posología. |
+| POST | `/registros/completo` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Crea (o reutiliza) paciente + prescripción en una llamada. |
+| GET | `/registros/{id_registro}` | Todos | Detalle con validación RBAC. |
+| PATCH | `/registros/{id_registro}` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Actualización parcial. Recalcula posología si se modifican campos de posología. ADMIN_ESTATAL recibe 403. |
+| DELETE | `/registros/{id_registro}` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Soft Delete (`es_activo = False`). ADMIN_ESTATAL recibe 403. |
+| PATCH | `/registros/{id_registro}/validar-continuidad` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Reactiva el registro y recalcula `fecha_fin_tratamiento`. Con posología: calcula desde hoy. Sin posología (legacy): requiere `nueva_fecha_fin_tratamiento` en el body. ADMIN_ESTATAL recibe 403. |
+| POST | `/registros/{id_registro}/reemplazar` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Crea nuevo registro activo copiando el original con los cambios del payload; anula el original. Guarda `id_registro_origen` para trazabilidad. ADMIN_ESTATAL recibe 403. |
+
+---
+
+### 7.5 Notificaciones (`/notificaciones`)
+
+| Método | Ruta | Rol requerido | Descripción |
+|---|---|---|---|
+| GET | `/notificaciones` | Todos | Registros con `fecha_fin_tratamiento + 30 días <= hoy + 7 días` (ventana de 7 días de alerta). Filtro RBAC aplicado. Llama `marcar_registros_vencidos()`. |
+| GET | `/notificaciones/transferencias` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Traslados con `leida=False`. RESPONSABLE_UNIDAD solo ve traslados de su unidad origen. ADMIN_ESTATAL recibe 403. |
+| PATCH | `/notificaciones/transferencias/{id_notificacion}/leer` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Marca la notificación como leída. Guarda `id_usuario_leida` y `fecha_leida`. Retorna `{"ok": True}`. |
+
+---
+
+### 7.6 Reportes (`/reportes`)
+
+| Método | Ruta | Rol requerido | Descripción |
+|---|---|---|---|
+| GET | `/reportes/resumen-detallado` | Todos | Datos crudos para Excel/PDF. Params: `fecha_inicio`, `fecha_fin`, `solo_activos`. Filtro RBAC por unidad actual del paciente. |
+| GET | `/reportes/estatal` | ADMIN_ESTATAL, SUPER_ADMIN | Agrupados por unidad: total pacientes activos + total registros activos. Scope por entidad para ADMIN_ESTATAL. |
+| GET | `/reportes/rtm` | Solo SUPER_ADMIN | Requerimiento Teórico Mensual. Params: `clues` (req), `meses` (1-24, default 7). Calcula consumo mensual proporcional por medicamento usando overlap de fechas con límites exclusivos. Solo prescripciones con posología completa. |
+
+---
+
+### 7.7 Catálogos (`/catalogos`)
+
+| Método | Ruta | Rol requerido | Descripción |
+|---|---|---|---|
+| GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Param: `solo_activos` (default True). |
+| POST | `/catalogos/medicamentos` | Solo SUPER_ADMIN | Crear nueva clave CNIS. Conflicto 409 si duplicada. |
+| PATCH | `/catalogos/medicamentos/{clave_cnis}` | Solo SUPER_ADMIN | Actualizar o desactivar medicamento. |
+| GET | `/catalogos/unidades` | Todos | Lista de unidades. Param: `id_entidad`. |
+| POST | `/catalogos/unidades` | Solo SUPER_ADMIN | Crear nueva unidad. Conflicto 409 si CLUES duplicada. |
+| PATCH | `/catalogos/unidades/{clues}` | Solo SUPER_ADMIN | Actualizar datos de una unidad. |
+
+---
+
+### 7.8 Usuarios (`/usuarios`)
+
+| Método | Ruta | Rol requerido | Descripción |
+|---|---|---|---|
+| GET | `/usuarios` | Solo SUPER_ADMIN | Lista completa de usuarios. |
+| POST | `/usuarios` | Solo SUPER_ADMIN | Crear usuario. Genera `password_temporal` aleatoria (12 chars alfanuméricos). La devuelve una sola vez en la respuesta. |
+| POST | `/usuarios/me/cambiar-password` | Todos (sin require_password_cambiado) | Cambiar contraseña propia. Verifica contraseña actual. Pone `debe_cambiar_password = False`. |
+| PATCH | `/usuarios/{id_usuario}` | Solo SUPER_ADMIN | Actualizar datos. Si incluye `password`, la hashea con bcrypt. |
+| DELETE | `/usuarios/{id_usuario}` | Solo SUPER_ADMIN | Eliminación física. No puede eliminar la propia cuenta. |
+
+---
+
+## 8. Sistema RBAC
+
+### Clase `Rol` (constants centralizadas en models.py)
+```python
+class Rol:
+    SUPER_ADMIN         = "SUPER_ADMIN"
+    ADMIN_ESTATAL       = "ADMIN_ESTATAL"
+    RESPONSABLE_UNIDAD  = "RESPONSABLE_UNIDAD"
+    TODOS = {SUPER_ADMIN, ADMIN_ESTATAL, RESPONSABLE_UNIDAD}
+```
+
+### `apply_rbac_filter(usuario: UsuarioActivo)` — Función central (auth.py)
+
+| Rol | Filtro aplicado |
+|---|---|
+| `SUPER_ADMIN` | Sin filtro (ve todo) |
+| `ADMIN_ESTATAL` | `UnidadMedica.id_entidad == usuario.id_entidad` |
+| `RESPONSABLE_UNIDAD` | `Paciente.clues_unidad_adscripcion == usuario.clues_unidad_asignada` |
+
+**Regla de registros (prescripciones):** El filtro RBAC de registros usa la **unidad actual del paciente** (`Paciente.clues_unidad_adscripcion`), no la unidad donde se generó la prescripción (`Registro.clues`). Esto implementa la regla "la prescripción sigue al paciente".
+
+### Dependencias de FastAPI (auth.py)
+
+| Dependencia | Descripción |
+|---|---|
+| `require_cualquier_rol` | Cualquier usuario autenticado con JWT válido |
+| `require_password_cambiado` | Igual que anterior + `debe_cambiar_password = False` |
+| `require_super_admin` | Solo SUPER_ADMIN |
+| `require_admin_estatal_o_superior` | SUPER_ADMIN o ADMIN_ESTATAL |
+
+### Helpers de verificación de acceso (main.py)
+
+- `_verificar_acceso_paciente(paciente, usuario, db)`: Valida que el usuario puede operar sobre un paciente concreto.
+- `_verificar_acceso_registro(registro, usuario, db)`: Valida acceso a un registro concreto usando la unidad del paciente, no la del registro.
+
+---
+
+## 9. Helpers Internos (main.py)
+
+### `_aplicar_posologia(registro, unidad_medicamento, unidad_de_medida)`
+Si todos los campos `dosis`, `frecuencia`, `duracion`, `unidad_tiempo` están presentes:
+1. Genera el texto de `prescripcion` vía `_calcular_prescripcion_y_total()`.
+2. Calcula `total_medicamento`.
+3. Auto-calcula `fecha_fin_tratamiento = fecha_primera_administracion + duracion * factor` (fecha exclusiva).
+
+### `_calcular_prescripcion_y_total(dosis, frecuencia, duracion, unidad_tiempo, unidad, cantidad, unidad_de_medida)`
+- `factor` = `{"días": 1, "semanas": 7, "meses": 30}[unidad_tiempo]`
+- `total = dosis * (24 / frecuencia) * duracion * factor`
+- Texto: `"{dosis} {unidad_txt} de {cantidad} {unidad_de_medida}, cada {frecuencia} horas, por {duracion} {unidad_tiempo}"`
+
+### `_pluralizar_unidad(unidad, cantidad)`
+Pluraliza el nombre de la unidad del medicamento:
+- `cantidad == 1` → devuelve singular.
+- Unidades invariables (`ml`, `mg`, `mcg`, `g`, `ui`, `dosis`) → sin cambio.
+- Termina en `-ón` → reemplaza por `-ones`.
+- Termina en vocal → agrega `-s`.
+- Caso general → agrega `-es`.
+
+### `marcar_registros_vencidos(db)`
+`UPDATE registros SET es_activo=False WHERE es_activo=True AND fecha_fin_tratamiento IS NOT NULL AND fecha_fin_tratamiento <= (hoy - 30 días)`. Patrón **lazy marking** sin scheduler externo.
+
+### `_calcular_adherencia(id_paciente, db)`
+Retorna `(date.today() - registro.fecha_inicio_tratamiento).days` del registro activo más reciente. Retorna `None` si no hay ninguno.
+
+### RTM — cálculo de overlap mensual
+```python
+# Ambos límites son exclusivos para consistencia con fecha_fin_tratamiento
+fin_mes_exclusivo = date(ay+1, 1, 1) if am == 12 else date(ay, am+1, 1)
+overlap_inicio = max(inicio_mes, r.fecha_primera_administracion)
+overlap_fin    = min(fin_mes_exclusivo, r.fecha_fin_tratamiento)
+if overlap_inicio < overlap_fin:
+    dias = (overlap_fin - overlap_inicio).days  # sin +1
+    consumo_diario = r.dosis * (24 / r.frecuencia) * (r.cantidad or 1)
+    totales[r.clave_cnis][(ay, am)] += consumo_diario * dias
+```
+
+---
+
+## 10. Variables de Entorno Requeridas
+
+```env
+DATABASE_URL=postgresql://usuario:password@host:puerto/nombre_db
+JWT_SECRET_KEY=<mínimo 32 caracteres aleatorios>
+JWT_ALGORITHM=HS256
+JWT_EXPIRE_HOURS=8
+FERNET_KEY=<clave Fernet base64 generada con Fernet.generate_key()>
+```
+
+En Railway (producción), `DATABASE_URL` apunta al servicio PostgreSQL interno:
+`postgresql://postgres:<password>@<servicio>.railway.internal:5432/railway`
+
+---
+
+## 11. Despliegue en Railway
+
+El backend se despliega usando el `Dockerfile` raíz del repositorio:
+
+```dockerfile
+CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+```
+
+Railway inyecta `$PORT` automáticamente. `--host 0.0.0.0` es obligatorio en contenedor. Las variables de entorno (`DATABASE_URL`, `JWT_SECRET_KEY`, `FERNET_KEY`, etc.) se configuran en el panel de Railway como "Service Variables" (disponibles en runtime).
+
+---
+
+## 12. Convenciones Importantes
+
+| Convención | Descripción |
+|---|---|
+| **Soft Delete** | `es_activo = False` en `Paciente` y `Registro`. Nunca DELETE físico. |
+| **Fernet** | CURP, nombre completo, diagnóstico (Paciente), nombre y cédula (Medico) se almacenan como `LargeBinary` cifrado. |
+| **SHA-256** | `curp_hash` y `cedula_hash` permiten lookups eficientes sin descifrar. |
+| **fecha_fin exclusiva** | `fecha_fin_tratamiento` marca el primer día que ya NO es parte del tratamiento. El frontend resta 1 al mostrar "último día real". |
+| **Timestamps** | `server_default=func.now()` para que la BD estampe la hora (no el código Python). |
+| **Paginación** | `pagina` (1-based), `por_pagina` (default 20, max 500). Offset = `(pagina - 1) * por_pagina`. |
+| **Normalización** | `.strip().upper()` en validators Pydantic para CLUES y CURP antes de cualquier consulta. |

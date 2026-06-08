@@ -1,19 +1,22 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
+> Última actualización: 2026-06-07
+
 ## 1. Stack Tecnológico
 
-| Capa | Tecnología | Justificación |
+| Capa | Tecnología | Notas |
 |---|---|---|
-| Framework UI | **React 18** | Componentes reutilizables, ecosistema amplio, compatible con Vite |
-| Build tool | **Vite** | Arranque instantáneo, HMR, reemplaza Create React App |
-| Estilos | **Tailwind CSS** | Utility-first, no requiere archivos CSS separados, muy rápido para prototipos |
-| Componentes UI | **shadcn/ui** | Componentes accesibles sobre Tailwind, sin dependencia de librería externa |
-| Routing | **React Router v6** | Estándar de facto para SPA en React |
-| Estado global | **Zustand** | Ligero, sin boilerplate, ideal para estado de sesión/auth |
-| Peticiones HTTP | **Axios** | Interceptores para adjuntar JWT automáticamente en cada request |
+| Framework UI | **React 18** | Componentes reutilizables, Strict Mode activo en dev |
+| Build tool | **Vite** | HMR instantáneo, `preview` para prod local |
+| Estilos | **Tailwind CSS** | Utility-first, sin archivos CSS separados |
+| Componentes UI | **shadcn/ui** | Copia componentes al proyecto (no dependencia externa) |
+| Routing | **React Router v6** | SPA con `<BrowserRouter>` |
+| Estado global | **Zustand** | 2 stores: `authStore` (auth) + `rtmStore` (RTM) |
+| Peticiones HTTP | **Axios** | Interceptor adjunta JWT en cada request |
 | Tablas | **TanStack Table v8** | Paginación, ordenamiento y filtros del lado cliente |
-| Formularios | **React Hook Form + Zod** | Validación tipada, sincronizada con los esquemas del backend |
-| Notificaciones | **Sonner** | Toasts minimalistas para feedback de operaciones |
+| Formularios | **React Hook Form + Zod** | Validación sincronizada con esquemas del backend |
+| Notificaciones | **Sonner** | Toasts para feedback de operaciones |
+| Excel | **xlsx (SheetJS)** | Exportación a `.xlsx` en el cliente sin endpoint adicional |
 
 ---
 
@@ -23,25 +26,25 @@
 frontend/
 ├── public/
 ├── src/
-│   ├── api/                  # Funciones de llamada a cada endpoint
+│   ├── api/                       # Funciones de llamada a cada endpoint
 │   │   ├── auth.js
 │   │   ├── pacientes.js
 │   │   ├── medicos.js
-│   │   ├── recetas.js
+│   │   ├── registros.js           # Prescripciones (antes recetas.js)
 │   │   ├── catalogos.js
 │   │   ├── usuarios.js
-│   │   └── reportes.js
-│   ├── components/           # Componentes reutilizables
+│   │   └── reportes.js            # resumen-detallado, estatal y RTM
+│   ├── components/
 │   │   ├── layout/
-│   │   │   ├── Sidebar.jsx
+│   │   │   ├── Sidebar.jsx        # Menú dinámico según rol
 │   │   │   ├── Topbar.jsx
-│   │   │   └── ProtectedRoute.jsx
-│   │   ├── ui/               # Componentes base (shadcn/ui)
+│   │   │   └── ProtectedRoute.jsx # Verifica rol antes de renderizar
+│   │   ├── ui/                    # Componentes base (shadcn/ui)
 │   │   └── shared/
 │   │       ├── DataTable.jsx
 │   │       ├── ConfirmDialog.jsx
 │   │       └── LoadingSpinner.jsx
-│   ├── pages/                # Una carpeta por módulo
+│   ├── pages/
 │   │   ├── auth/
 │   │   │   ├── LoginPage.jsx
 │   │   │   └── CambiarPasswordPage.jsx
@@ -52,12 +55,11 @@ frontend/
 │   │   ├── medicos/
 │   │   │   ├── MedicosPage.jsx
 │   │   │   └── MedicoFormPage.jsx
-│   │   ├── recetas/
-│   │   │   ├── RecetasPage.jsx
-│   │   │   └── RecetaFormPage.jsx
+│   │   ├── registros/             # Antes "recetas/"
+│   │   │   ├── RegistrosPage.jsx
+│   │   │   └── RegistroFormPage.jsx  # Formulario combinado (paciente + prescripción)
 │   │   ├── reportes/
-│   │   │   ├── ReporteDetalladoPage.jsx
-│   │   │   └── ReporteEstatalPage.jsx
+│   │   │   └── ReportesPage.jsx   # Contiene subcomponentes: RTM, Detallado, Estatal
 │   │   ├── catalogos/
 │   │   │   ├── MedicamentosPage.jsx
 │   │   │   └── UnidadesPage.jsx
@@ -65,80 +67,189 @@ frontend/
 │   │       ├── UsuariosPage.jsx
 │   │       └── UsuarioFormPage.jsx
 │   ├── store/
-│   │   └── authStore.js      # Estado global: token, rol, id_usuario
-│   ├── hooks/
-│   │   └── useAuth.js        # Hook de acceso al store de auth
+│   │   ├── authStore.js           # Token, rol, id_usuario, debe_cambiar_password
+│   │   └── rtmStore.js            # Selección de entidad/unidad para RTM (session-only)
 │   ├── lib/
-│   │   └── axiosClient.js    # Instancia Axios con interceptor JWT
-│   ├── App.jsx               # Definición de rutas
+│   │   └── axiosClient.js         # Instancia Axios con interceptor JWT + manejo 401
+│   ├── App.jsx                    # Definición de rutas
 │   └── main.jsx
-├── .env
+├── .env                           # VITE_API_BASE_URL=http://localhost:8000
+├── .env.production                # VITE_API_BASE_URL=https://censo-backend-production-06f3.up.railway.app
+├── Dockerfile.prod                # Build multi-stage para producción (Railway)
+├── nginx.conf                     # Sirve la SPA y hace proxy inverso a la API
 ├── index.html
 └── package.json
 ```
 
 ---
 
-## 3. Páginas y su Relación con los Endpoints
+## 3. Stores de Zustand
 
-### 3.1 Autenticación
+### 3.1 authStore — `src/store/authStore.js`
+
+Estado de autenticación global. Persiste en `localStorage` (o memoria, según configuración).
+
+```js
+{
+  token: null,              // JWT string
+  rol: null,                // "SUPER_ADMIN" | "ADMIN_ESTATAL" | "RESPONSABLE_UNIDAD"
+  idUsuario: null,          // integer
+  debecambiarPassword: false,
+  setAuth: (token, rol, idUsuario, debeCambiar) => ...,
+  clearAuth: () => ...
+}
+```
+
+---
+
+### 3.2 rtmStore — `src/store/rtmStore.js`
+
+Estado de la selección activa en el módulo RTM. **Session-only** (sin `persist` middleware) — se limpia al cerrar el navegador.
+
+```js
+import { create } from "zustand";
+
+const useRtmStore = create((set) => ({
+  entidad: "",
+  unidadSeleccionada: null,
+  setEntidad: (entidad) => set({ entidad }),
+  setUnidadSeleccionada: (unidad) => set({ unidadSeleccionada: unidad }),
+  limpiarUnidad: () => set({ unidadSeleccionada: null }),
+}));
+
+export default useRtmStore;
+```
+
+**Propósito:** Al navegar fuera del módulo RTM y regresar, la selección de estado (entidad) y unidad (CLUES) se mantiene y los datos se vuelven a cargar automáticamente. La unidad se limpia **solo** en los event handlers (cambio de entidad, botón "Cambiar unidad") — nunca dentro de un `useEffect`, para evitar problemas con React Strict Mode.
+
+---
+
+## 4. Módulos API
+
+Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend usando `axiosClient`.
+
+### 4.1 `auth.js`
+- `login(email, password)` → `POST /auth/login`
+- `cambiarPassword(passwordActual, passwordNueva)` → `POST /usuarios/me/cambiar-password`
+
+### 4.2 `pacientes.js`
+- `listarPacientes(params)` → `GET /pacientes`
+- `obtenerPaciente(curp)` → `GET /pacientes/{curp}`
+- `buscarPorCurp(curp)` → `GET /pacientes/buscar?curp=`
+- `crearPaciente(data)` → `POST /pacientes`
+- `actualizarPaciente(curp, data)` → `PATCH /pacientes/{curp}`
+- `desactivarPaciente(curp)` → `DELETE /pacientes/{curp}`
+- `obtenerRegistrosDePaciente(curp, params)` → `GET /pacientes/{curp}/registros`
+
+### 4.3 `medicos.js`
+- `listarMedicos(params)` → `GET /medicos`
+- `obtenerMedico(id)` → `GET /medicos/{id}`
+- `crearMedico(data)` → `POST /medicos`
+- `actualizarMedico(id, data)` → `PATCH /medicos/{id}`
+- `eliminarMedico(id)` → `DELETE /medicos/{id}`
+
+### 4.4 `registros.js`
+- `listarRegistros(params)` → `GET /registros`
+- `obtenerRegistro(id)` → `GET /registros/{id}`
+- `crearRegistro(data)` → `POST /registros`
+- `crearRegistroCompleto(data)` → `POST /registros/completo`
+- `actualizarRegistro(id, data)` → `PATCH /registros/{id}`
+- `desactivarRegistro(id)` → `DELETE /registros/{id}`
+- `validarContinuidad(id, data)` → `PATCH /registros/{id}/validar-continuidad`
+- `reemplazarRegistro(id, data)` → `POST /registros/{id}/reemplazar`
+
+### 4.5 `catalogos.js`
+- `listarMedicamentos(params)` → `GET /catalogos/medicamentos`
+- `crearMedicamento(data)` → `POST /catalogos/medicamentos`
+- `actualizarMedicamento(clave, data)` → `PATCH /catalogos/medicamentos/{clave}`
+- `listarUnidades(idEntidad)` → `GET /catalogos/unidades?id_entidad=`
+- `crearUnidad(data)` → `POST /catalogos/unidades`
+- `actualizarUnidad(clues, data)` → `PATCH /catalogos/unidades/{clues}`
+
+### 4.6 `reportes.js`
+- `obtenerResumenDetallado(params)` → `GET /reportes/resumen-detallado`
+- `obtenerReporteEstatal(params)` → `GET /reportes/estatal`
+- `obtenerRtm(clues, meses)` → `GET /reportes/rtm?clues=&meses=`
+- `listarNotificaciones(params)` → `GET /notificaciones`
+- `listarTransferencias()` → `GET /notificaciones/transferencias`
+- `marcarTransferenciaLeida(id)` → `PATCH /notificaciones/transferencias/{id}/leer`
+- `listarEntidades()` → `GET /catalogos/unidades` (extrae entidades únicas del catálogo)
+
+### 4.7 `usuarios.js`
+- `listarUsuarios()` → `GET /usuarios`
+- `crearUsuario(data)` → `POST /usuarios`
+- `actualizarUsuario(id, data)` → `PATCH /usuarios/{id}`
+- `eliminarUsuario(id)` → `DELETE /usuarios/{id}`
+
+---
+
+## 5. Páginas y su Relación con los Endpoints
+
+### 5.1 Autenticación
 
 | Página | Ruta | Endpoints consumidos |
 |---|---|---|
 | Login | `/login` | `POST /auth/login` |
 | Cambiar contraseña | `/cambiar-password` | `POST /usuarios/me/cambiar-password` |
 
-**Flujo:** Al hacer login, el backend devuelve `{ access_token, rol_nombre, debe_cambiar_password }`. Si `debe_cambiar_password = true`, la app redirige automáticamente a `/cambiar-password` y bloquea el resto de rutas hasta completarlo.
+**Flujo:** Al hacer login, si `debe_cambiar_password = true`, la app redirige automáticamente a `/cambiar-password` y bloquea el resto de rutas hasta completarlo.
 
 ---
 
-### 3.2 Pacientes
+### 5.2 Pacientes
 
 | Página | Ruta | Endpoints consumidos | Roles con acceso |
 |---|---|---|---|
-| Lista de pacientes | `/pacientes` | `GET /pacientes` | Todos |
-| Detalle de paciente | `/pacientes/:id` | `GET /pacientes/:curp` + `GET /recetas` | Todos |
-| Registrar paciente | `/pacientes/nuevo` | `POST /pacientes` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
-| Editar paciente | `/pacientes/:id/editar` | `PATCH /pacientes/:curp` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
-
-**Nota RBAC:** `GET /pacientes` ya aplica el filtro en el backend. El frontend no necesita filtrar — solo mostrar lo que devuelve la API.
+| Lista | `/pacientes` | `GET /pacientes` | Todos |
+| Detalle | `/pacientes/:curp` | `GET /pacientes/{curp}` + `GET /pacientes/{curp}/registros` | Todos |
+| Registrar | `/pacientes/nuevo` | `POST /pacientes` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
+| Editar | `/pacientes/:curp/editar` | `PATCH /pacientes/{curp}` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 
 ---
 
-### 3.3 Médicos
+### 5.3 Médicos
 
 | Página | Ruta | Endpoints consumidos | Roles con acceso |
 |---|---|---|---|
-| Lista de médicos | `/medicos` | `GET /medicos` | Todos |
-| Registrar médico | `/medicos/nuevo` | `POST /medicos` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
-| Editar médico | `/medicos/:id/editar` | `PATCH /medicos/:id` | Solo SUPER_ADMIN |
+| Lista | `/medicos` | `GET /medicos` | Todos |
+| Registrar | `/medicos/nuevo` | `POST /medicos` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
+| Editar | `/medicos/:id/editar` | `PATCH /medicos/:id` | Solo SUPER_ADMIN |
 
 ---
 
-### 3.4 Recetas
+### 5.4 Registros (Prescripciones)
 
 | Página | Ruta | Endpoints consumidos | Roles con acceso |
 |---|---|---|---|
-| Lista de recetas | `/recetas` | `GET /recetas` | Todos |
-| Registrar receta | `/recetas/nueva` | `POST /recetas` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
-| Editar receta | `/recetas/:id/editar` | `PATCH /recetas/:id` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
+| Lista | `/registros` | `GET /registros` | Todos |
+| Registrar | `/registros/nuevo` | `POST /registros/completo` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
+| Editar | `/registros/:id/editar` | `PATCH /registros/:id` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 
-**Formulario de receta requiere:** seleccionar paciente (`GET /pacientes`), médico (`GET /medicos`) y medicamento (`GET /catalogos/medicamentos`).
-
----
-
-### 3.5 Reportes
-
-| Página | Ruta | Endpoints consumidos | Roles con acceso |
-|---|---|---|---|
-| Reporte detallado | `/reportes/detallado` | `GET /reportes/resumen-detallado` | Todos |
-| Reporte estatal | `/reportes/estatal` | `GET /reportes/estatal` | ADMIN_ESTATAL, SUPER_ADMIN |
-
-**Funcionalidad clave:** botón "Exportar a Excel" usando la librería `xlsx` del lado cliente — el frontend convierte el JSON de la API en un archivo `.xlsx` descargable sin necesidad de un endpoint adicional.
+**Formulario combinado (`RegistroFormPage`):** Busca primero el paciente por CURP (`GET /pacientes/buscar`). Si existe, usa sus datos. Si no existe, muestra campos para capturarlo. En ambos casos, los campos de posología están disponibles en el mismo formulario. Envía a `POST /registros/completo`.
 
 ---
 
-### 3.6 Catálogos *(Solo SUPER_ADMIN)*
+### 5.5 Reportes
+
+`ReportesPage.jsx` contiene tres subcomponentes seleccionables mediante pestañas:
+
+| Subcomponente | Endpoints consumidos | Roles con acceso |
+|---|---|---|
+| Reporte Detallado | `GET /reportes/resumen-detallado` | Todos |
+| Reporte Estatal | `GET /reportes/estatal` | ADMIN_ESTATAL, SUPER_ADMIN |
+| RTM (Requerimiento Teórico Mensual) | `GET /reportes/rtm` | Solo SUPER_ADMIN |
+
+**Funcionalidad RTM:**
+- Selección de entidad → carga unidades → selección de unidad (CLUES).
+- La selección persiste en `rtmStore` durante la sesión.
+- Al regresar al módulo, se auto-recupera la selección y se vuelve a cargar el RTM.
+- Muestra tabla de medicamentos × meses con cantidades calculadas.
+
+**Exportar a Excel:** Botón disponible en Reporte Detallado. Usa SheetJS en el cliente para convertir el JSON de la API a `.xlsx` descargable.
+
+---
+
+### 5.6 Catálogos *(Solo SUPER_ADMIN)*
 
 | Página | Ruta | Endpoints consumidos |
 |---|---|---|
@@ -147,88 +258,77 @@ frontend/
 
 ---
 
-### 3.7 Usuarios *(Solo SUPER_ADMIN)*
+### 5.7 Usuarios *(Solo SUPER_ADMIN)*
 
 | Página | Ruta | Endpoints consumidos |
 |---|---|---|
-| Lista de usuarios | `/usuarios` | `GET /usuarios` |
-| Crear usuario | `/usuarios/nuevo` | `POST /usuarios` |
-| Editar usuario | `/usuarios/:id/editar` | `PATCH /usuarios/:id` |
+| Lista | `/usuarios` | `GET /usuarios` |
+| Crear | `/usuarios/nuevo` | `POST /usuarios` |
+| Editar | `/usuarios/:id/editar` | `PATCH /usuarios/:id` |
 
-**Flujo de creación:** al crear un usuario, el backend devuelve `password_temporal`. El frontend debe mostrarla en un modal con advertencia de "copia esta contraseña, no se volverá a mostrar".
+**Flujo de creación:** El backend devuelve `password_temporal`. El frontend la muestra en un modal con advertencia "copia esta contraseña, no se volverá a mostrar".
 
 ---
 
-## 4. Navegación por Rol
+## 6. Navegación por Rol
 
-El Sidebar se renderiza dinámicamente según el rol almacenado en Zustand:
+El Sidebar se renderiza dinámicamente según el rol en `authStore`:
 
 ```
-SUPER_ADMIN        → Pacientes | Médicos | Recetas | Reportes | Catálogos | Usuarios
-ADMIN_ESTATAL      → Pacientes | Médicos | Recetas | Reportes (ambos)
-RESPONSABLE_UNIDAD → Pacientes | Médicos | Recetas | Reportes (solo detallado)
+SUPER_ADMIN        → Pacientes | Médicos | Registros | Reportes (todos) | Catálogos | Usuarios
+ADMIN_ESTATAL      → Pacientes | Médicos | Registros | Reportes (Detallado + Estatal)
+RESPONSABLE_UNIDAD → Pacientes | Médicos | Registros | Reportes (solo Detallado)
 ```
 
-Las rutas restringidas usan un componente `ProtectedRoute` que verifica el rol antes de renderizar la página. Si el rol no tiene acceso, redirige a `/no-autorizado`.
+`ProtectedRoute` verifica el rol antes de renderizar. Si el rol no tiene acceso, redirige a `/no-autorizado`.
 
 ---
 
-## 5. Manejo del JWT
+## 7. Manejo del JWT
 
-El archivo `src/lib/axiosClient.js` configura un interceptor que:
-1. Lee el token de Zustand (o `localStorage` como fallback).
-2. Lo adjunta automáticamente como `Authorization: Bearer <token>` en cada request.
-3. Si recibe un `401`, limpia el store y redirige a `/login`.
+`src/lib/axiosClient.js` configura un interceptor que:
+1. Lee el token desde `authStore`.
+2. Lo adjunta como `Authorization: Bearer <token>` en cada request.
+3. Si recibe un `401`, ejecuta `clearAuth()` y redirige a `/login`.
 
-Esto significa que ninguna página necesita manejar el token manualmente.
-
----
-
-## 6. Plan de Implementación por Fases
-
-### Fase 1 — Base del proyecto
-- [ ] Crear proyecto con `npm create vite@latest frontend -- --template react`
-- [ ] Instalar dependencias (Tailwind, shadcn/ui, React Router, Zustand, Axios)
-- [ ] Configurar `axiosClient.js` con interceptor JWT
-- [ ] Implementar `LoginPage` y flujo de autenticación
-- [ ] Implementar `CambiarPasswordPage` con redirección automática
-- [ ] Crear layout base: `Sidebar` + `Topbar` + `ProtectedRoute`
-
-### Fase 2 — Módulos principales
-- [ ] Módulo Pacientes (lista + detalle + formulario)
-- [ ] Módulo Médicos (lista + formulario)
-- [ ] Módulo Recetas (lista + formulario con selects encadenados)
-
-### Fase 3 — Reportes
-- [ ] Reporte detallado con tabla paginada
-- [ ] Reporte estatal con agrupación por unidad
-- [ ] Botón de exportación a Excel (librería `xlsx`)
-
-### Fase 4 — Administración *(Solo SUPER_ADMIN)*
-- [ ] Catálogo de medicamentos
-- [ ] Catálogo de unidades médicas
-- [ ] Gestión de usuarios con modal de contraseña temporal
+Ninguna página necesita manejar el token manualmente.
 
 ---
 
-## 7. Variables de Entorno del Frontend
+## 8. Variables de Entorno
 
 ```env
-# frontend/.env
+# frontend/.env (desarrollo local)
 VITE_API_BASE_URL=http://localhost:8000
+
+# frontend/.env.production (Railway)
+VITE_API_BASE_URL=https://censo-backend-production-06f3.up.railway.app
 ```
 
-En producción se cambia a la URL del servidor donde esté corriendo uvicorn.
+**Importante:** Las variables `VITE_*` se inyectan en el bundle durante el build (`npm run build`). NO están disponibles en runtime. Por eso la URL del backend debe estar en `.env.production` (archivo commitado), no en Railway Service Variables.
 
 ---
 
-## 8. Decisiones de Diseño
+## 9. Despliegue en Railway
 
-| Decisión | Alternativas consideradas | Razón de la elección |
-|---|---|---|
-| **Vite** sobre CRA | Create React App, Next.js | CRA está deprecado; Next.js agrega complejidad SSR innecesaria para una SPA con auth |
-| **Zustand** sobre Redux | Redux Toolkit, Context API | Redux es excesivo para el estado simple de esta app; Context causa re-renders excesivos |
-| **Axios** sobre fetch | fetch nativo | Los interceptores de Axios simplifican el manejo global del JWT y errores 401 |
-| **TanStack Table** sobre AG Grid | AG Grid, React Table v7 | AG Grid es de pago para features avanzados; TanStack Table v8 es gratuito y moderno |
-| **shadcn/ui** sobre Material UI | MUI, Ant Design, Chakra UI | shadcn/ui copia los componentes al proyecto (no es dependencia), total control del código |
-| **Exportar Excel en cliente** sobre endpoint | Endpoint `/reportes/export` | Evita agregar openpyxl al backend; el frontend ya tiene el JSON, solo lo transforma |
+El frontend usa `frontend/Dockerfile.prod`:
+- **Stage 1:** Node — `npm install` + `npm run build` → genera `dist/`.
+- **Stage 2:** Nginx — copia `dist/` y sirve con `nginx.conf`.
+- `nginx.conf` sirve `index.html` para todas las rutas (SPA fallback) y hace proxy inverso de `/api/` al backend si es necesario.
+
+Configuración Railway:
+- **Root Directory:** `/frontend` (cambia el contexto de build a la carpeta frontend).
+- **Dockerfile Path:** `/Dockerfile.prod` (relativo al Root Directory).
+- **Service Variables:** No son necesarias para el frontend (la URL del backend va en `.env.production`).
+
+---
+
+## 10. Convenciones Importantes
+
+| Convención | Descripción |
+|---|---|
+| **Stores session-only** | `rtmStore` no usa `persist` — la selección se pierde al cerrar el navegador, lo que es correcto (datos sensibles no deben quedar en localStorage). |
+| **Strict Mode** | React Strict Mode ejecuta efectos dos veces en desarrollo. Evitar lógica de "primera vez" en `useEffect` — moverla a event handlers. |
+| **Módulo "registros"** | El módulo se llama `registros` (no `recetas`) desde Blueprint v6. Los archivos y rutas usan este nombre. |
+| **fecha_fin exclusiva** | Al mostrar "último día de tratamiento" al usuario, restar 1 día al valor que devuelve la API (que es exclusivo). |
+| **Exportación Excel** | Se hace en el cliente con SheetJS. No hay endpoint de exportación en el backend. |
