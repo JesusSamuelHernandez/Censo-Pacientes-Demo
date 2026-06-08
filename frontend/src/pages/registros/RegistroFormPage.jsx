@@ -17,6 +17,7 @@ import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos, listarDiagnosticos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
 import RegistrarMedicoModal from "../../components/shared/RegistrarMedicoModal";
+import useAuthStore from "../../store/authStore";
 
 // ---------------------------------------------------------------------------
 // Constantes
@@ -141,6 +142,8 @@ export default function RegistroFormPage() {
   const location = useLocation();
   const modoReemplazar = location.state?.modo === "reemplazar";
 
+  const { rolNombre, cluesUnidadAsignada, nombreUnidad } = useAuthStore();
+
   const [medicos, setMedicos] = useState([]);
   const [medicamentos, setMedicamentos] = useState([]);
   const [diagnosticos, setDiagnosticos] = useState([]);
@@ -244,6 +247,13 @@ export default function RegistroFormPage() {
   useEffect(() => {
     if (location.state?.curpPreCargado) {
       setCurpBusqueda(location.state.curpPreCargado);
+    }
+  }, []);
+
+  // Para RESPONSABLE_UNIDAD en creación: pre-establecer su unidad
+  useEffect(() => {
+    if (!esEdicion && rolNombre === "RESPONSABLE_UNIDAD" && cluesUnidadAsignada) {
+      setValue("clues", cluesUnidadAsignada, { shouldValidate: false });
     }
   }, []);
 
@@ -563,11 +573,19 @@ export default function RegistroFormPage() {
                 <label className="block text-sm font-medium text-neutral-black mb-1">
                   Unidad donde se genera la prescripción <span className="text-primary">*</span>
                 </label>
-                <UnidadCombobox
-                  value={cluesSeleccionada}
-                  onChange={(clues) => setValue("clues", clues, { shouldValidate: true })}
-                  error={errors.clues}
-                />
+                {rolNombre === "RESPONSABLE_UNIDAD" ? (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-neutral-gray/20
+                    bg-neutral-gray/10 text-sm text-neutral-black cursor-not-allowed">
+                    <span className="font-mono text-xs text-neutral-gray">{cluesUnidadAsignada}</span>
+                    <span>{nombreUnidad ?? "—"}</span>
+                  </div>
+                ) : (
+                  <UnidadCombobox
+                    value={cluesSeleccionada}
+                    onChange={(clues) => setValue("clues", clues, { shouldValidate: true })}
+                    error={errors.clues}
+                  />
+                )}
                 {errors.clues && <p className="text-red-500 text-xs mt-1">{errors.clues.message}</p>}
               </div>
             )}
