@@ -538,16 +538,31 @@ def listar_registros_de_paciente(
     "/medicos",
     response_model=list[MedicoResponse],
     tags=["Médicos"],
-    summary="Catálogo de médicos. Lectura para todos los roles.",
+    summary="Catálogo de médicos filtrado por rol (RBAC).",
 )
 def listar_medicos(
-    clues_adscripcion: str | None = Query(None, description="Filtrar por unidad médica."),
+    clues_adscripcion: str | None = Query(None, description="Filtrar por unidad médica (solo SUPER_ADMIN puede usarlo libremente)."),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
+    filtro = apply_rbac_filter(current_user)
     query = db.query(Medico)
-    if clues_adscripcion:
-        query = query.filter(Medico.clues_adscripcion == clues_adscripcion.upper())
+
+    if filtro.filtrar_por_clues:
+        # RESPONSABLE_UNIDAD — solo su unidad, ignora el param opcional
+        query = query.filter(Medico.clues_adscripcion == filtro.valor_clues)
+    elif filtro.filtrar_por_entidad:
+        # ADMIN_ESTATAL — médicos de su estado, con sub-filtro por CLUES opcional
+        query = query.join(UnidadMedica, UnidadMedica.clues == Medico.clues_adscripcion).filter(
+            UnidadMedica.id_entidad == filtro.valor_entidad
+        )
+        if clues_adscripcion:
+            query = query.filter(Medico.clues_adscripcion == clues_adscripcion.upper())
+    else:
+        # SUPER_ADMIN — sin restricción, sub-filtro opcional disponible
+        if clues_adscripcion:
+            query = query.filter(Medico.clues_adscripcion == clues_adscripcion.upper())
+
     return [_medico_to_response(m) for m in query.all()]
 
 
