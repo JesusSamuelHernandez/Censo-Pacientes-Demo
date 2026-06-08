@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { crearMedico, actualizarMedico, obtenerMedico } from "../../api/medicos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
+import useAuthStore from "../../store/authStore";
 
 const schemaCrear = z.object({
   nombre_medico: z.string().min(2, "El nombre es requerido.").max(255),
@@ -27,11 +28,15 @@ const schemaEditar = z.object({
   clues_adscripcion: z.string().min(1).optional(),
 });
 
+const ROLES = { RESPONSABLE_UNIDAD: "RESPONSABLE_UNIDAD", ADMIN_ESTATAL: "ADMIN_ESTATAL" };
+
 export default function MedicoFormPage() {
   const { id } = useParams();
   const esEdicion = Boolean(id);
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+
+  const { rolNombre, cluesUnidadAsignada, nombreUnidad, idEntidad } = useAuthStore();
 
   const {
     register,
@@ -45,6 +50,13 @@ export default function MedicoFormPage() {
   });
 
   const cluesSeleccionada = watch("clues_adscripcion");
+
+  // Para RESPONSABLE_UNIDAD en creación: pre-establecer su propia unidad
+  useEffect(() => {
+    if (!esEdicion && rolNombre === ROLES.RESPONSABLE_UNIDAD && cluesUnidadAsignada) {
+      setValue("clues_adscripcion", cluesUnidadAsignada, { shouldValidate: false });
+    }
+  }, []);
 
   useEffect(() => {
     if (esEdicion) {
@@ -164,11 +176,23 @@ export default function MedicoFormPage() {
             <label className="block text-sm font-medium text-neutral-black mb-1">
               Unidad de adscripción <span className="text-primary">*</span>
             </label>
-            <UnidadCombobox
-              value={cluesSeleccionada}
-              onChange={(clues) => setValue("clues_adscripcion", clues, { shouldValidate: true })}
-              error={errors.clues_adscripcion}
-            />
+
+            {rolNombre === ROLES.RESPONSABLE_UNIDAD ? (
+              // Campo bloqueado: el médico solo puede pertenecer a la unidad del responsable
+              <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-neutral-gray/20
+                bg-neutral-gray/10 text-sm text-neutral-black cursor-not-allowed">
+                <span className="font-mono text-xs text-neutral-gray">{cluesUnidadAsignada}</span>
+                <span>{nombreUnidad ?? "—"}</span>
+              </div>
+            ) : (
+              <UnidadCombobox
+                value={cluesSeleccionada}
+                onChange={(clues) => setValue("clues_adscripcion", clues, { shouldValidate: true })}
+                error={errors.clues_adscripcion}
+                idEntidad={rolNombre === ROLES.ADMIN_ESTATAL ? idEntidad : null}
+              />
+            )}
+
             {errors.clues_adscripcion && (
               <p className="text-red-500 text-xs mt-1">{errors.clues_adscripcion.message}</p>
             )}

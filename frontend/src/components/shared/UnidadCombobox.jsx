@@ -7,19 +7,19 @@ import { useEffect, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { listarUnidades } from "../../api/catalogos";
 
-export default function UnidadCombobox({ value, onChange, error }) {
+export default function UnidadCombobox({ value, onChange, error, idEntidad = null }) {
   const [unidades, setUnidades] = useState([]);
   const [query, setQuery] = useState("");
   const [abierto, setAbierto] = useState(false);
   const [cargando, setCargando] = useState(true);
   const ref = useRef(null);
 
-  // Cargar todas las unidades una sola vez
+  // Cargar unidades filtradas por entidad si se especifica (ADMIN_ESTATAL)
   useEffect(() => {
-    listarUnidades()
+    listarUnidades(idEntidad)
       .then(setUnidades)
       .finally(() => setCargando(false));
-  }, []);
+  }, [idEntidad]);
 
   // Inicializar el texto del campo si ya hay un valor (modo edición)
   useEffect(() => {
