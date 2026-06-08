@@ -154,6 +154,14 @@ def login(
         rol_nombre=usuario.rol_nombre,
         id_usuario=usuario.id_usuario,
         debe_cambiar_password=usuario.debe_cambiar_password,
+        email=usuario.email,
+        nombre_usuario=usuario.nombre_usuario,
+        clues_unidad_asignada=usuario.clues_unidad_asignada,
+        nombre_unidad=(
+            usuario.unidad_asignada.nombre_de_la_unidad
+            if usuario.unidad_asignada else None
+        ),
+        id_entidad=usuario.id_entidad,
     )
 
 

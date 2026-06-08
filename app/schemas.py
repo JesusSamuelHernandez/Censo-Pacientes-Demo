@@ -614,6 +614,11 @@ class TokenResponse(BaseModel):
     rol_nombre: str
     id_usuario: int
     debe_cambiar_password: bool
+    email: str
+    nombre_usuario: str
+    clues_unidad_asignada: str | None = None
+    nombre_unidad: str | None = None
+    id_entidad: str | None = None
 
 
 # ---------------------------------------------------------------------------

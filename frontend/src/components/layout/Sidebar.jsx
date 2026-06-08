@@ -84,7 +84,7 @@ const rolLabel = {
 };
 
 export default function Sidebar() {
-  const { rolNombre, logout } = useAuthStore();
+  const { rolNombre, logout, email, nombreUnidad, cluesUnidadAsignada, idEntidad } = useAuthStore();
   const navigate = useNavigate();
   const [notifCount, setNotifCount] = useState(0);
 
@@ -121,10 +121,33 @@ export default function Sidebar() {
         </p>
       </div>
 
-      {/* Rol del usuario */}
-      <div className="px-6 py-4 border-b border-white/10">
-        <p className="text-white/40 text-xs uppercase tracking-widest mb-1">Rol</p>
-        <p className="text-white/80 text-xs font-medium">{rolLabel[rolNombre] || rolNombre}</p>
+      {/* Info del usuario */}
+      <div className="px-6 py-4 border-b border-white/10 space-y-3">
+        {/* Email */}
+        <div>
+          <p className="text-white/40 text-xs uppercase tracking-widest mb-0.5">Sesión</p>
+          <p className="text-white/70 text-xs break-all leading-tight">{email}</p>
+        </div>
+        {/* Rol */}
+        <div>
+          <p className="text-white/40 text-xs uppercase tracking-widest mb-0.5">Rol</p>
+          <p className="text-white/80 text-xs font-medium">{rolLabel[rolNombre] || rolNombre}</p>
+        </div>
+        {/* Unidad — solo RESPONSABLE_UNIDAD */}
+        {rolNombre === ROLES.RESPONSABLE_UNIDAD && nombreUnidad && (
+          <div>
+            <p className="text-white/40 text-xs uppercase tracking-widest mb-0.5">Unidad</p>
+            <p className="text-white/80 text-xs font-medium leading-tight">{nombreUnidad}</p>
+            <p className="text-white/40 text-xs mt-0.5">{cluesUnidadAsignada}</p>
+          </div>
+        )}
+        {/* Estado — solo ADMIN_ESTATAL */}
+        {rolNombre === ROLES.ADMIN_ESTATAL && idEntidad && (
+          <div>
+            <p className="text-white/40 text-xs uppercase tracking-widest mb-0.5">Estado</p>
+            <p className="text-white/80 text-xs font-medium">{idEntidad}</p>
+          </div>
+        )}
       </div>
 
       {/* Navegación */}
