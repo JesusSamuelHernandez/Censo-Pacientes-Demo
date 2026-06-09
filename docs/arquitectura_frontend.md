@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-08
+> Última actualización: 2026-06-09
 
 ## 1. Stack Tecnológico
 
@@ -43,7 +43,9 @@ frontend/
 │   │   └── shared/
 │   │       ├── DataTable.jsx
 │   │       ├── ConfirmDialog.jsx
-│   │       └── LoadingSpinner.jsx
+│   │       ├── LoadingSpinner.jsx
+│   │       ├── UnidadCombobox.jsx     # Combobox de búsqueda de unidades; onChange(clues, nombre)
+│   │       └── RegistrarMedicoModal.jsx # Modal para registrar médico sin salir del form de prescripción
 │   ├── pages/
 │   │   ├── auth/
 │   │   │   ├── LoginPage.jsx
@@ -168,7 +170,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 
 ### 4.5 `catalogos.js`
 - `listarDiagnosticos(soloActivos)` → `GET /catalogos/diagnosticos`
-- `listarMedicamentos(params)` → `GET /catalogos/medicamentos`
+- `listarMedicamentos(clues = null, soloActivos = true)` → `GET /catalogos/medicamentos[?clues=]` — si `clues` está presente, filtra solo los medicamentos asignados a esa unidad (vía `unidad_medicamentos`)
 - `crearMedicamento(data)` → `POST /catalogos/medicamentos`
 - `actualizarMedicamento(clave, data)` → `PATCH /catalogos/medicamentos/{clave}`
 - `listarUnidades(idEntidad)` → `GET /catalogos/unidades?id_entidad=`
@@ -236,7 +238,20 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 | Registrar | `/registros/nuevo` | `POST /registros/completo` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 | Editar | `/registros/:id/editar` | `PATCH /registros/:id` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 
-**Formulario combinado (`RegistroFormPage`):** Busca primero el paciente por CURP (`GET /pacientes/buscar`). Si existe, usa sus datos. Si no existe, muestra campos para capturarlo. Incluye dropdown de diagnóstico (`id_diagnostico`) cargado desde `GET /catalogos/diagnosticos`. En todos los campos de posología están disponibles en el mismo formulario. Envía a `POST /registros/completo`.
+**Formulario combinado (`RegistroFormPage`):** Busca primero el paciente por CURP (`GET /pacientes/buscar`). Si existe, usa sus datos. Si no existe, muestra campos para capturarlo.
+
+Comportamiento por rol:
+- **RESPONSABLE_UNIDAD:** La unidad de la prescripción (`clues`) se bloquea y pre-llena automáticamente con su unidad asignada. El dropdown de medicamentos carga solo los asignados a esa unidad (vía `?clues=`).
+- **SUPER_ADMIN:** Puede seleccionar cualquier unidad con `UnidadCombobox`; al cambiar de unidad se recargan los medicamentos disponibles y se limpia `clave_cnis`.
+- **ADMIN_ESTATAL:** Sin acceso a registrar (403 en backend).
+
+**Médico inline:** Si el médico buscado no existe, el botón "+ Registrar médico" abre `RegistrarMedicoModal`. Al crearlo, se auto-selecciona en el formulario sin perder el estado del form.
+
+**Descripción completa del medicamento:** Al seleccionar un medicamento del dropdown, se muestra su descripción completa en un cuadro de texto de solo lectura debajo del select.
+
+**Todos los campos son requeridos**, incluida la posología completa (dosis, cantidad, frecuencia, unidad de tiempo, duración, peso, talla, etc.). El campo `estatus_diagnostico` siempre se envía como `"confirmado"` — no aparece en la UI.
+
+**Flujo Vista previa:** El botón "Vista previa" (ojo) valida todos los campos antes de mostrar un resumen de la prescripción (Paciente, Prescripción, Posología). El usuario confirma o regresa a editar. El form permanece montado pero oculto con CSS (`hidden`) para preservar el estado de `react-hook-form`. Solo en modo edición se muestra directamente "Guardar cambios". Envía a `POST /registros/completo`.
 
 ---
 

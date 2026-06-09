@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-08
+> Última actualización: 2026-06-09
 
 ## 1. Visión General
 
@@ -59,8 +59,9 @@ El modelo `Registro` amplía el concepto de "receta" con posología completa (do
 ```
 app/
 ├── database.py          → Conexión a PostgreSQL, pool de conexiones, get_db().
-├── models.py            → 8 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
-│                          Usuario, Paciente, Medico, Registro, NotificacionTransferencia.
+├── models.py            → 9 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
+│                          Usuario, Paciente, Medico, Registro, NotificacionTransferencia,
+│                          UnidadMedicamento (unidad_medicamentos — relación N:M unidad↔medicamento).
 ├── schemas.py           → Validación de entrada/salida con Pydantic v2.
 ├── auth.py              → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
 ├── crypto.py            → cifrar(), descifrar(), descifrar_o_none(), hash_sha256() con Fernet.
@@ -88,7 +89,7 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | `codigo_cie10` | String(20) | nullable | Código CIE-10 (ej. "E75.2") |
 | `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
 
-**Relaciones:** `registros` (→ `Registro`, back_populates)
+**Relaciones:** `registros` (→ `Registro`, back_populates), `unidades` (N:M vía `UnidadMedicamento`)
 
 ---
 
@@ -117,7 +118,7 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | `id_entidad` | String(100) | NOT NULL, index | Identificador de la entidad federativa |
 | `categoria_gerencial` | String(150) | nullable | |
 
-**Relaciones:** `usuarios`, `pacientes`, `medicos`, `registros`
+**Relaciones:** `usuarios`, `pacientes`, `medicos`, `registros`, `medicamentos` (N:M vía `UnidadMedicamento`)
 
 ---
 
@@ -225,6 +226,23 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 | `fecha_leida` | DateTime(timezone=True) | nullable | |
 
 **Relaciones:** `paciente`, `unidad_origen`, `unidad_destino`, `usuario_traslado`, `usuario_leida`
+
+---
+
+### 5.8 UnidadMedicamento — `unidad_medicamentos`
+
+Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las unidades tienen disponibles todos los medicamentos; esta tabla define exactamente qué medicamentos puede prescribir cada unidad.
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `clues` | String(20) | PK, FK → cat_unidades (CASCADE) | Clave de la unidad médica |
+| `clave_cnis` | String(50) | PK, FK → cat_medicamentos (CASCADE) | Clave CNIS del medicamento |
+
+**PK compuesta:** `(clues, clave_cnis)` — sin ID surrogate. `CASCADE` en ambas FK garantiza limpieza automática si se elimina una unidad o un medicamento del catálogo.
+
+**Uso:** `GET /catalogos/medicamentos?clues=XXXXX` hace JOIN con esta tabla para devolver solo los medicamentos asignados a esa unidad. Sin el parámetro, devuelve todo el catálogo (comportamiento original, retrocompatible).
+
+**Carga:** Script `scripts/cargar_unidad_medicamentos.py` lee `scripts/data/unidad_medicamentos.xlsx` (columnas: `clues`, `clave_cnis`). Idempotente — omite duplicados.
 
 ---
 
@@ -441,7 +459,7 @@ Generada automáticamente cuando un paciente cambia de unidad de adscripción.
 | GET | `/catalogos/diagnosticos` | Todos | Lista diagnósticos. Param: `solo_activos` (default True). |
 | POST | `/catalogos/diagnosticos` | Solo SUPER_ADMIN | Crear nuevo diagnóstico. Conflicto 409 si nombre duplicado. |
 | PATCH | `/catalogos/diagnosticos/{id_diagnostico}` | Solo SUPER_ADMIN | Actualizar o desactivar diagnóstico. |
-| GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Param: `solo_activos` (default True). |
+| GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Params: `solo_activos` (default True), `clues` (opcional — filtra solo medicamentos asignados a esa unidad vía JOIN con `unidad_medicamentos`). |
 | POST | `/catalogos/medicamentos` | Solo SUPER_ADMIN | Crear nueva clave CNIS. Conflicto 409 si duplicada. |
 | PATCH | `/catalogos/medicamentos/{clave_cnis}` | Solo SUPER_ADMIN | Actualizar o desactivar medicamento. |
 | GET | `/catalogos/unidades` | Todos | Lista de unidades. Param: `id_entidad`. |
