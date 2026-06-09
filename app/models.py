@@ -2,13 +2,14 @@
 models.py — Definición de tablas ORM (SQLAlchemy) para la App Medicamentos de Alto Costo.
 
 Tablas:
-    - CatMedicamentos   : Catálogo maestro de medicamentos (clave CNIS).
-    - CatDiagnostico    : Catálogo de diagnósticos (CIE-10 u otro estándar).
-    - UnidadMedica      : Establecimientos de salud (CLUES como PK).
-    - Usuario           : Cuentas de la plataforma con roles RBAC.
-    - Paciente          : Padrón de pacientes en tratamiento.
-    - Medico            : Profesionales médicos adscritos a unidades.
-    - Registro          : Censo de prescripción de medicamentos por paciente (Blueprint v6).
+    - CatMedicamentos        : Catálogo maestro de medicamentos (clave CNIS).
+    - CatDiagnostico         : Catálogo de diagnósticos (CIE-10 u otro estándar).
+    - UnidadMedica           : Establecimientos de salud (CLUES como PK).
+    - UnidadMedicamento      : Relación N:M — medicamentos disponibles por unidad.
+    - Usuario                : Cuentas de la plataforma con roles RBAC.
+    - Paciente               : Padrón de pacientes en tratamiento.
+    - Medico                 : Profesionales médicos adscritos a unidades.
+    - Registro               : Censo de prescripción de medicamentos por paciente (Blueprint v6).
 
 Convenciones:
     - Soft Delete        : columna es_activo (Boolean) en Paciente y Registro.
@@ -117,6 +118,34 @@ class UnidadMedica(Base):
 
     def __repr__(self) -> str:
         return f"<UnidadMedica clues={self.clues!r} nombre={self.nombre_de_la_unidad!r}>"
+
+
+# ---------------------------------------------------------------------------
+# 2b. Medicamentos disponibles por unidad (N:M)
+# ---------------------------------------------------------------------------
+class UnidadMedicamento(Base):
+    """
+    Tabla de relación entre unidades médicas y medicamentos disponibles.
+    Solo los medicamentos presentes aquí para la CLUES del usuario serán
+    mostrados en el formulario de registro de prescripción.
+
+    PK compuesta (clues, clave_cnis) — no se necesita surrogate ID.
+    """
+    __tablename__ = "unidad_medicamentos"
+
+    clues: Mapped[str] = mapped_column(
+        String(20),
+        ForeignKey("cat_unidades.clues", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    clave_cnis: Mapped[str] = mapped_column(
+        String(50),
+        ForeignKey("cat_medicamentos.clave_cnis", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<UnidadMedicamento clues={self.clues!r} cnis={self.clave_cnis!r}>"
 
 
 # ---------------------------------------------------------------------------

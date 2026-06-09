@@ -282,10 +282,28 @@ export default function RegistroFormPage() {
     }
   }, []);
 
+  // Carga de medicamentos cuando cambia la unidad seleccionada (solo en creación)
+  const prevCluesRef = useRef(null);
+  useEffect(() => {
+    if (esEdicion || !cluesSeleccionada) {
+      if (!esEdicion) setMedicamentos([]);
+      return;
+    }
+    // Si la unidad cambió (no es la primera carga), limpiar el medicamento elegido
+    if (prevCluesRef.current !== null && prevCluesRef.current !== cluesSeleccionada) {
+      setValue("clave_cnis", "", { shouldValidate: false });
+    }
+    prevCluesRef.current = cluesSeleccionada;
+
+    listarMedicamentos(cluesSeleccionada)
+      .then(setMedicamentos)
+      .catch(() => toast.error("Error al cargar medicamentos de la unidad."));
+  }, [cluesSeleccionada]);
+
   // Carga inicial de catálogos y datos de edición
   useEffect(() => {
-    Promise.all([listarMedicos(), listarMedicamentos(), listarDiagnosticos()])
-      .then(([m, med, diags]) => { setMedicos(m); setMedicamentos(med); setDiagnosticos(diags); })
+    Promise.all([listarMedicos(), listarDiagnosticos()])
+      .then(([m, diags]) => { setMedicos(m); setDiagnosticos(diags); })
       .catch(() => toast.error("Error al cargar datos del formulario."));
 
     if (esEdicion) {
@@ -587,29 +605,6 @@ export default function RegistroFormPage() {
               </div>
             )}
 
-            {/* Medicamento */}
-            {!esEdicion && (
-              <div>
-                <label className="block text-sm font-medium text-neutral-black mb-1">
-                  Medicamento (clave CNIS) <span className="text-primary">*</span>
-                </label>
-                <select
-                  className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
-                    focus:ring-2 focus:ring-primary/20 focus:border-primary
-                    ${errors.clave_cnis ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
-                  {...register("clave_cnis")}
-                >
-                  <option value="">— Selecciona un medicamento —</option>
-                  {medicamentos.map((m) => (
-                    <option key={m.clave_cnis} value={m.clave_cnis}>
-                      {m.clave_cnis} — {m.descripcion.slice(0, 70)}
-                    </option>
-                  ))}
-                </select>
-                {errors.clave_cnis && <p className="text-red-500 text-xs mt-1">{errors.clave_cnis.message}</p>}
-              </div>
-            )}
-
             {/* Unidad */}
             {!esEdicion && (
               <div>
@@ -633,6 +628,43 @@ export default function RegistroFormPage() {
                   />
                 )}
                 {errors.clues && <p className="text-red-500 text-xs mt-1">{errors.clues.message}</p>}
+              </div>
+            )}
+
+            {/* Medicamento — se carga según la unidad seleccionada */}
+            {!esEdicion && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Medicamento (clave CNIS) <span className="text-primary">*</span>
+                </label>
+                <select
+                  disabled={!cluesSeleccionada}
+                  className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                    focus:ring-2 focus:ring-primary/20 focus:border-primary
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    ${errors.clave_cnis ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
+                  {...register("clave_cnis")}
+                >
+                  <option value="">
+                    {!cluesSeleccionada
+                      ? "— Selecciona primero una unidad —"
+                      : medicamentos.length === 0
+                        ? "— Sin medicamentos asignados a esta unidad —"
+                        : "— Selecciona un medicamento —"}
+                  </option>
+                  {medicamentos.map((m) => (
+                    <option key={m.clave_cnis} value={m.clave_cnis}>
+                      {m.clave_cnis} — {m.descripcion.slice(0, 70)}
+                    </option>
+                  ))}
+                </select>
+                {errors.clave_cnis && <p className="text-red-500 text-xs mt-1">{errors.clave_cnis.message}</p>}
+                {medSeleccionado && (
+                  <div className="mt-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/15 text-xs text-neutral-black leading-relaxed">
+                    <span className="font-mono text-neutral-gray mr-1">{medSeleccionado.clave_cnis}</span>
+                    {medSeleccionado.descripcion}
+                  </div>
+                )}
               </div>
             )}
 

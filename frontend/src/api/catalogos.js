@@ -14,10 +14,10 @@ export const listarDiagnosticos = async (soloActivos = true) => {
 
 // ── Medicamentos ──────────────────────────────────────────────────────────────
 
-export const listarMedicamentos = async (soloActivos = true) => {
-  const { data } = await axiosClient.get("/catalogos/medicamentos", {
-    params: { solo_activos: soloActivos },
-  });
+export const listarMedicamentos = async (clues = null, soloActivos = true) => {
+  const params = { solo_activos: soloActivos };
+  if (clues) params.clues = clues;
+  const { data } = await axiosClient.get("/catalogos/medicamentos", { params });
   return data;
 };
 

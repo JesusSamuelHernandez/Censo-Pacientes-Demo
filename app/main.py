@@ -50,7 +50,7 @@ from app.auth import (
 )
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
-from app.models import Base, CatDiagnostico, CatMedicamento, Medico, NotificacionTransferencia, Paciente, Registro, UnidadMedica, Usuario
+from app.models import Base, CatDiagnostico, CatMedicamento, Medico, NotificacionTransferencia, Paciente, Registro, UnidadMedica, UnidadMedicamento, Usuario
 from app.schemas import (
     BusquedaCurpResponse,
     CambiarPasswordRequest,
@@ -1740,12 +1740,18 @@ def actualizar_diagnostico(
 )
 def listar_medicamentos(
     solo_activos: bool = Query(True),
+    clues: str | None = Query(None, description="Si se indica, devuelve solo medicamentos asignados a esa unidad."),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     query = db.query(CatMedicamento)
     if solo_activos:
         query = query.filter(CatMedicamento.es_activo == True)
+    if clues:
+        query = query.join(
+            UnidadMedicamento,
+            UnidadMedicamento.clave_cnis == CatMedicamento.clave_cnis,
+        ).filter(UnidadMedicamento.clues == clues)
     return query.order_by(CatMedicamento.clave_cnis).all()
 
 
