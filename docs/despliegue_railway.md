@@ -59,6 +59,10 @@ Correr solo los scripts que correspondan a los cambios de este deploy:
 # Migración estructural (nueva tabla / columna)
 python scripts/migrar_diagnosticos.py
 
+# Migración campos nuevos: fecha_nacimiento, fuente_financiamiento,
+# tablas expedientes_paciente, ordenes_suministro, ordenes_remision
+python scripts/migrar_campos_nuevos.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
 ```
@@ -84,6 +88,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_medico_baja.py` | Primera vez que se despliega el Soft Delete de médicos (columna `medicos.es_activo`) |
 | `migrar_unidad_medicamentos.py` | Primera vez que se despliega la tabla `unidad_medicamentos` (medicamentos por unidad) |
 | `migrar_recalculo_fin.py` | Si se modifica la lógica de `fecha_fin_tratamiento` en registros existentes |
+| `migrar_campos_nuevos.py` | Primera vez que se despliegan: `pacientes.fecha_nacimiento`, `registros.fuente_financiamiento`, tablas `expedientes_paciente`, `ordenes_suministro`, `ordenes_remision` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |
@@ -131,4 +136,9 @@ Verificar que los servicios de Railway tengan estas variables configuradas:
 2. Hacer login con el usuario SUPER_ADMIN.
 3. Verificar que el módulo de Pacientes Activos carga sin errores.
 4. Registrar una prescripción de prueba y verificar que el dropdown de diagnósticos aparece.
-5. Revisar los logs del backend en Railway si hay errores 500.
+5. Verificar los campos nuevos del deploy de campos adicionales (junio 2026):
+   - Al registrar un paciente, el campo **Fecha de nacimiento** aparece y se guarda.
+   - Al buscar un paciente existente por CURP, el card muestra su fecha de nacimiento (si la tiene).
+   - Al crear una prescripción, aparecen los campos **Fuente de financiamiento** y **Número de expediente**.
+   - Las secciones **Órdenes de suministro** y **Órdenes de remisión** permiten agregar y eliminar entradas.
+6. Revisar los logs del backend en Railway si hay errores 500.

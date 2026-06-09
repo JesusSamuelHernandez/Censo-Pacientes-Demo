@@ -50,3 +50,18 @@ export const listarRegistrosDePaciente = async (curp, soloActivos = false) => {
   });
   return data; // RegistroListResponse
 };
+
+// GET /pacientes/{curp}/expedientes — Lista todos los expedientes del paciente por unidad
+export const listarExpedientesPaciente = async (curp) => {
+  const { data } = await axiosClient.get(`/pacientes/${curp}/expedientes`);
+  return data; // list[ExpedienteResponse]
+};
+
+// POST /pacientes/{curp}/expedientes — Upsert: crea o actualiza expediente en una unidad
+export const guardarExpediente = async (curp, clues, numeroExpediente) => {
+  const { data } = await axiosClient.post(`/pacientes/${curp}/expedientes`, {
+    clues,
+    numero_expediente: numeroExpediente,
+  });
+  return data; // ExpedienteResponse
+};

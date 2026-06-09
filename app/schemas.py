@@ -253,6 +253,7 @@ class PacienteBase(BaseModel):
     nombre_completo: str = Field(..., min_length=2, max_length=255)
     diagnostico_actual: str | None = Field(None, max_length=5000)
     clues_unidad_adscripcion: CluesStr
+    fecha_nacimiento: date | None = Field(None, description="Fecha de nacimiento del paciente.")
 
     @field_validator("clues_unidad_adscripcion", mode="before")
     @classmethod
@@ -279,6 +280,7 @@ class PacienteUpdate(BaseModel):
     nombre_completo: str | None = Field(None, min_length=2, max_length=255)
     diagnostico_actual: str | None = Field(None, max_length=5000)
     clues_unidad_adscripcion: str | None = Field(None, max_length=20)
+    fecha_nacimiento: date | None = None
     es_activo: bool | None = Field(
         None,
         description="False = dar de baja al paciente (Soft Delete).",
@@ -296,6 +298,7 @@ class PacienteResponse(BaseModel):
     nombre_completo: str
     diagnostico_actual: str | None
     clues_unidad_adscripcion: str
+    fecha_nacimiento: date | None = None
     es_activo: bool
     fecha_registro: datetime
     id_usuario_registro: int | None
@@ -370,6 +373,50 @@ class MedicoResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# ── 5b. Expediente del Paciente por Unidad ──────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class ExpedienteCreate(BaseModel):
+    clues: CluesStr
+    numero_expediente: str = Field(..., min_length=1, max_length=100)
+
+    @field_validator("clues", mode="before")
+    @classmethod
+    def normalizar_clues(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class ExpedienteUpdate(BaseModel):
+    numero_expediente: str = Field(..., min_length=1, max_length=100)
+
+
+class ExpedienteResponse(BaseModel):
+    id_paciente: int
+    clues: str
+    numero_expediente: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
+# ── 5c. Órdenes de Suministro / Remisión ────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class OrdenCreate(BaseModel):
+    numero_orden: str = Field(..., min_length=1, max_length=100)
+    fecha: date | None = None
+
+
+class OrdenResponse(BaseModel):
+    id: int
+    id_registro: int
+    numero_orden: str
+    fecha: date | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
 # ── 6. Registro (anteriormente Receta — Blueprint v6) ───────────────────────
 # ---------------------------------------------------------------------------
 
@@ -411,6 +458,7 @@ class RegistroBase(BaseModel):
     frecuencia: int | None = Field(None, gt=0, description="Horas entre tomas (ej. 8, 12, 24).")
     unidad_tiempo: str | None = Field(None, description="'días', 'semanas' o 'meses'.")
     duracion: int | None = Field(None, gt=0, description="Número de unidades de tiempo (ej. 7).")
+    fuente_financiamiento: str | None = Field(None, max_length=100, description="Ej. 'Federal', 'Estatal', 'IMSS Bienestar'.")
 
     @field_validator("clues", mode="before")
     @classmethod
@@ -438,6 +486,7 @@ class RegistroUpdate(BaseModel):
     unidad_tiempo: str | None = None
     duracion: int | None = Field(None, gt=0)
     id_diagnostico: int | None = None
+    fuente_financiamiento: str | None = Field(None, max_length=100)
     es_activo: bool | None = Field(
         None,
         description="False = anular registro por error de captura (Soft Delete).",
@@ -464,6 +513,8 @@ class RegistroResponse(RegistroBase):
     medicamento: MedicamentoResponse | None = None
     medico: MedicoResponse | None = None
     diagnostico: DiagnosticoResponse | None = None
+    ordenes_suministro: list[OrdenResponse] = Field(default_factory=list)
+    ordenes_remision: list[OrdenResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -490,6 +541,7 @@ class RegistroCompletoCreate(BaseModel):
 
     # Datos del paciente — requeridos solo si el CURP no existe en BD
     nombre_completo: str | None = Field(None, max_length=255)
+    fecha_nacimiento: date | None = Field(None, description="Fecha de nacimiento del paciente nuevo.")
     # Si omitido, el backend usa la CLUES de la prescripción
     clues_unidad_adscripcion: str | None = Field(None, max_length=20)
 
@@ -512,6 +564,12 @@ class RegistroCompletoCreate(BaseModel):
     unidad_tiempo: str | None = None
     duracion: int | None = Field(None, gt=0)
     id_diagnostico: int | None = None
+    fuente_financiamiento: str | None = Field(None, max_length=100)
+    # Expediente: si se provee, crea/actualiza el expediente del paciente en la unidad de la prescripción
+    numero_expediente: str | None = Field(None, max_length=100, description="Número de expediente en la unidad de la prescripción.")
+    # Órdenes iniciales — se crean junto con el registro
+    ordenes_suministro: list[OrdenCreate] = Field(default_factory=list)
+    ordenes_remision: list[OrdenCreate] = Field(default_factory=list)
 
     @field_validator("curp_paciente", mode="before")
     @classmethod
@@ -539,6 +597,7 @@ class BusquedaCurpResponse(BaseModel):
     existe: bool
     id_paciente: int | None = None
     nombre_completo: str | None = None
+    fecha_nacimiento: date | None = None
     clues_unidad_adscripcion: str | None = None
     nombre_unidad: str | None = None
     total_registros: int | None = None

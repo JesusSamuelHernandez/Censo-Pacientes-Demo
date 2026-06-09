@@ -23,12 +23,14 @@ const schemaCrear = z.object({
   nombre_completo: z.string().min(2, "El nombre es requerido.").max(255),
   diagnostico_actual: z.string().max(5000).optional().or(z.literal("")),
   clues_unidad_adscripcion: z.string().min(1, "Selecciona una unidad médica."),
+  fecha_nacimiento: z.string().optional().or(z.literal("")),
 });
 
 const schemaEditar = z.object({
   nombre_completo: z.string().min(2, "El nombre es requerido.").max(255).optional(),
   diagnostico_actual: z.string().max(5000).optional().or(z.literal("")),
   clues_unidad_adscripcion: z.string().min(1).optional(),
+  fecha_nacimiento: z.string().optional().or(z.literal("")),
 });
 
 export default function PacienteFormPage() {
@@ -58,6 +60,7 @@ export default function PacienteFormPage() {
           nombre_completo: p.nombre_completo,
           diagnostico_actual: p.diagnostico_actual ?? "",
           clues_unidad_adscripcion: p.clues_unidad_adscripcion,
+          fecha_nacimiento: p.fecha_nacimiento ?? "",
         }))
         .catch(() => toast.error("Error al cargar el paciente."));
     }
@@ -78,6 +81,7 @@ export default function PacienteFormPage() {
           ...values,
           curp_paciente: values.curp_paciente.trim().toUpperCase(),
           diagnostico_actual: values.diagnostico_actual || undefined,
+          fecha_nacimiento: values.fecha_nacimiento || undefined,
         };
         await crearPaciente(payload);
         toast.success("Paciente registrado correctamente.");
@@ -152,6 +156,24 @@ export default function PacienteFormPage() {
             />
             {errors.nombre_completo && (
               <p className="text-red-500 text-xs mt-1">{errors.nombre_completo.message}</p>
+            )}
+          </div>
+
+          {/* Fecha de nacimiento */}
+          <div>
+            <label className="block text-sm font-medium text-neutral-black mb-1">
+              Fecha de nacimiento
+              <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+            </label>
+            <input
+              type="date"
+              className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                focus:ring-2 focus:ring-primary/20 focus:border-primary
+                ${errors.fecha_nacimiento ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
+              {...register("fecha_nacimiento")}
+            />
+            {errors.fecha_nacimiento && (
+              <p className="text-red-500 text-xs mt-1">{errors.fecha_nacimiento.message}</p>
             )}
           </div>
 

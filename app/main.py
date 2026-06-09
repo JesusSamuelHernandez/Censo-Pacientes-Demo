@@ -50,17 +50,22 @@ from app.auth import (
 )
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
-from app.models import Base, CatDiagnostico, CatMedicamento, Medico, NotificacionTransferencia, Paciente, Registro, UnidadMedica, UnidadMedicamento, Usuario
+from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, OrdenRemision, OrdenSuministro, Paciente, Registro, UnidadMedica, UnidadMedicamento, Usuario
 from app.schemas import (
     BusquedaCurpResponse,
     CambiarPasswordRequest,
     DiagnosticoCreate,
     DiagnosticoResponse,
     DiagnosticoUpdate,
+    ExpedienteCreate,
+    ExpedienteResponse,
+    ExpedienteUpdate,
     NotificacionListResponse,
     NotificacionResponse,
     NotificacionTransferenciaListResponse,
     NotificacionTransferenciaResponse,
+    OrdenCreate,
+    OrdenResponse,
     RtmFilaResponse,
     RtmMesItem,
     RtmResponse,
@@ -287,6 +292,7 @@ def crear_paciente(
         nombre_completo=cifrar(payload.nombre_completo),
         diagnostico_actual=cifrar(payload.diagnostico_actual) if payload.diagnostico_actual else None,
         clues_unidad_adscripcion=payload.clues_unidad_adscripcion,
+        fecha_nacimiento=payload.fecha_nacimiento,
         es_activo=True,
         id_usuario_registro=current_user.id_usuario,
     )
@@ -330,6 +336,7 @@ def buscar_paciente_por_curp(
         existe=True,
         id_paciente=paciente.id_paciente,
         nombre_completo=descifrar(paciente.nombre_completo),
+        fecha_nacimiento=paciente.fecha_nacimiento,
         clues_unidad_adscripcion=paciente.clues_unidad_adscripcion,
         nombre_unidad=unidad.nombre_de_la_unidad if unidad else None,
         total_registros=total_registros,
@@ -484,6 +491,209 @@ def dar_baja_paciente(
     respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=False)
     respuesta.dias_adherencia = None
     return respuesta
+
+
+@app.get(
+    "/pacientes/{curp_paciente}/expedientes",
+    response_model=list[ExpedienteResponse],
+    tags=["Pacientes"],
+    summary="Lista los expedientes del paciente en cada unidad donde ha sido atendido.",
+)
+def listar_expedientes_paciente(
+    curp_paciente: str,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    paciente = db.query(Paciente).filter(
+        Paciente.curp_hash == hash_sha256(curp_paciente)
+    ).first()
+    if not paciente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    expedientes = db.query(ExpedientePaciente).filter(
+        ExpedientePaciente.id_paciente == paciente.id_paciente
+    ).all()
+    return [ExpedienteResponse.model_validate(e) for e in expedientes]
+
+
+@app.post(
+    "/pacientes/{curp_paciente}/expedientes",
+    response_model=ExpedienteResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Pacientes"],
+    summary="Crea o actualiza el expediente del paciente en una unidad específica (upsert).",
+)
+def upsert_expediente_paciente(
+    curp_paciente: str,
+    payload: ExpedienteCreate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    paciente = db.query(Paciente).filter(
+        Paciente.curp_hash == hash_sha256(curp_paciente)
+    ).first()
+    if not paciente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+
+    if current_user.es_responsable_unidad and payload.clues != current_user.clues_unidad_asignada:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo puede gestionar expedientes de su propia unidad.",
+        )
+
+    expediente = db.query(ExpedientePaciente).filter(
+        ExpedientePaciente.id_paciente == paciente.id_paciente,
+        ExpedientePaciente.clues == payload.clues,
+    ).first()
+
+    if expediente:
+        expediente.numero_expediente = payload.numero_expediente
+    else:
+        if not db.query(UnidadMedica).filter(UnidadMedica.clues == payload.clues).first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unidad '{payload.clues}' no encontrada.")
+        expediente = ExpedientePaciente(
+            id_paciente=paciente.id_paciente,
+            clues=payload.clues,
+            numero_expediente=payload.numero_expediente,
+        )
+        db.add(expediente)
+
+    db.commit()
+    db.refresh(expediente)
+    return ExpedienteResponse.model_validate(expediente)
+
+
+# ---------------------------------------------------------------------------
+# Endpoints de Órdenes de Suministro y Remisión
+# ---------------------------------------------------------------------------
+
+def _get_registro_con_acceso(id_registro: int, current_user: UsuarioActivo, db: Session) -> Registro:
+    """Obtiene un registro validando existencia y acceso RBAC."""
+    registro = db.query(Registro).filter(Registro.id_registro == id_registro).first()
+    if not registro:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Registro no encontrado.")
+    if current_user.es_responsable_unidad and registro.clues != current_user.clues_unidad_asignada:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene acceso a este registro.")
+    return registro
+
+
+@app.get(
+    "/registros/{id_registro}/ordenes-suministro",
+    response_model=list[OrdenResponse],
+    tags=["Registros"],
+    summary="Lista las órdenes de suministro de una prescripción.",
+)
+def listar_ordenes_suministro(
+    id_registro: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    _get_registro_con_acceso(id_registro, current_user, db)
+    ordenes = db.query(OrdenSuministro).filter(OrdenSuministro.id_registro == id_registro).all()
+    return [OrdenResponse.model_validate(o) for o in ordenes]
+
+
+@app.post(
+    "/registros/{id_registro}/ordenes-suministro",
+    response_model=OrdenResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Registros"],
+    summary="Agrega una orden de suministro a una prescripción.",
+)
+def crear_orden_suministro(
+    id_registro: int,
+    payload: OrdenCreate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    _get_registro_con_acceso(id_registro, current_user, db)
+    orden = OrdenSuministro(id_registro=id_registro, **payload.model_dump())
+    db.add(orden)
+    db.commit()
+    db.refresh(orden)
+    return OrdenResponse.model_validate(orden)
+
+
+@app.delete(
+    "/registros/{id_registro}/ordenes-suministro/{id_orden}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Registros"],
+    summary="Elimina una orden de suministro.",
+)
+def eliminar_orden_suministro(
+    id_registro: int,
+    id_orden: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    _get_registro_con_acceso(id_registro, current_user, db)
+    orden = db.query(OrdenSuministro).filter(
+        OrdenSuministro.id == id_orden,
+        OrdenSuministro.id_registro == id_registro,
+    ).first()
+    if not orden:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Orden no encontrada.")
+    db.delete(orden)
+    db.commit()
+
+
+@app.get(
+    "/registros/{id_registro}/ordenes-remision",
+    response_model=list[OrdenResponse],
+    tags=["Registros"],
+    summary="Lista las órdenes de remisión de una prescripción.",
+)
+def listar_ordenes_remision(
+    id_registro: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    _get_registro_con_acceso(id_registro, current_user, db)
+    ordenes = db.query(OrdenRemision).filter(OrdenRemision.id_registro == id_registro).all()
+    return [OrdenResponse.model_validate(o) for o in ordenes]
+
+
+@app.post(
+    "/registros/{id_registro}/ordenes-remision",
+    response_model=OrdenResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Registros"],
+    summary="Agrega una orden de remisión a una prescripción.",
+)
+def crear_orden_remision(
+    id_registro: int,
+    payload: OrdenCreate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    _get_registro_con_acceso(id_registro, current_user, db)
+    orden = OrdenRemision(id_registro=id_registro, **payload.model_dump())
+    db.add(orden)
+    db.commit()
+    db.refresh(orden)
+    return OrdenResponse.model_validate(orden)
+
+
+@app.delete(
+    "/registros/{id_registro}/ordenes-remision/{id_orden}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Registros"],
+    summary="Elimina una orden de remisión.",
+)
+def eliminar_orden_remision(
+    id_registro: int,
+    id_orden: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    _get_registro_con_acceso(id_registro, current_user, db)
+    orden = db.query(OrdenRemision).filter(
+        OrdenRemision.id == id_orden,
+        OrdenRemision.id_registro == id_registro,
+    ).first()
+    if not orden:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Orden no encontrada.")
+    db.delete(orden)
+    db.commit()
 
 
 @app.get(
@@ -893,6 +1103,7 @@ def crear_registro_completo(
             curp_hash=curp_hash,
             curp_paciente=cifrar(payload.curp_paciente),
             nombre_completo=cifrar(payload.nombre_completo),
+            fecha_nacimiento=payload.fecha_nacimiento,
             clues_unidad_adscripcion=clues_paciente,
             es_activo=True,
             id_usuario_registro=current_user.id_usuario,
@@ -952,6 +1163,7 @@ def crear_registro_completo(
         unidad_tiempo=payload.unidad_tiempo,
         duracion=payload.duracion,
         id_diagnostico=payload.id_diagnostico,
+        fuente_financiamiento=payload.fuente_financiamiento,
         id_usuario_registro=current_user.id_usuario,
         es_activo=True,
     )
@@ -963,6 +1175,29 @@ def crear_registro_completo(
             )
     _aplicar_posologia(nuevo, medicamento.unidad, medicamento.unidad_de_medida)
     db.add(nuevo)
+    db.flush()  # obtiene id_registro sin commit para crear las órdenes en la misma transacción
+
+    # 6. Expediente: upsert en expedientes_paciente
+    if payload.numero_expediente:
+        expediente = db.query(ExpedientePaciente).filter(
+            ExpedientePaciente.id_paciente == paciente.id_paciente,
+            ExpedientePaciente.clues == payload.clues,
+        ).first()
+        if expediente:
+            expediente.numero_expediente = payload.numero_expediente
+        else:
+            db.add(ExpedientePaciente(
+                id_paciente=paciente.id_paciente,
+                clues=payload.clues,
+                numero_expediente=payload.numero_expediente,
+            ))
+
+    # 7. Órdenes iniciales
+    for orden in payload.ordenes_suministro:
+        db.add(OrdenSuministro(id_registro=nuevo.id_registro, **orden.model_dump()))
+    for orden in payload.ordenes_remision:
+        db.add(OrdenRemision(id_registro=nuevo.id_registro, **orden.model_dump()))
+
     db.commit()
     db.refresh(nuevo)
 
@@ -973,6 +1208,8 @@ def crear_registro_completo(
             joinedload(Registro.medicamento),
             joinedload(Registro.medico),
             joinedload(Registro.diagnostico),
+            joinedload(Registro.ordenes_suministro),
+            joinedload(Registro.ordenes_remision),
         )
         .filter(Registro.id_registro == nuevo.id_registro)
         .first()
@@ -1213,6 +1450,7 @@ def reemplazar_registro(
         "duracion": original.duracion,
         "total_medicamento": original.total_medicamento,
         "id_diagnostico": original.id_diagnostico,
+        "fuente_financiamiento": original.fuente_financiamiento,
         "id_usuario_registro": current_user.id_usuario,
         "id_registro_origen": original.id_registro,
         "es_activo": True,
@@ -2034,6 +2272,7 @@ def _paciente_to_response(
         nombre_completo=descifrar(p.nombre_completo),
         diagnostico_actual=descifrar_o_none(p.diagnostico_actual),
         clues_unidad_adscripcion=p.clues_unidad_adscripcion,
+        fecha_nacimiento=p.fecha_nacimiento,
         es_activo=p.es_activo,
         fecha_registro=p.fecha_registro,
         id_usuario_registro=p.id_usuario_registro,
@@ -2177,6 +2416,7 @@ def _registro_to_response(r: Registro) -> RegistroResponse:
         duracion=r.duracion,
         total_medicamento=r.total_medicamento,
         id_registro_origen=r.id_registro_origen,
+        fuente_financiamiento=r.fuente_financiamiento,
         es_activo=r.es_activo,
         fecha_registro_sistema=r.fecha_registro_sistema,
         id_usuario_registro=r.id_usuario_registro,
@@ -2186,6 +2426,8 @@ def _registro_to_response(r: Registro) -> RegistroResponse:
         medicamento=MedicamentoResponse.model_validate(r.medicamento) if r.medicamento else None,
         medico=_medico_to_response(r.medico) if r.medico else None,
         diagnostico=DiagnosticoResponse.model_validate(r.diagnostico) if r.diagnostico else None,
+        ordenes_suministro=[OrdenResponse.model_validate(o) for o in r.ordenes_suministro],
+        ordenes_remision=[OrdenResponse.model_validate(o) for o in r.ordenes_remision],
     )
 
 

@@ -8,10 +8,10 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink, UserPlus, Eye, ChevronLeft, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink, UserPlus, Eye, ChevronLeft, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { crearRegistroCompleto, actualizarRegistro, reemplazarRegistro, obtenerRegistro } from "../../api/registros";
+import { crearRegistroCompleto, actualizarRegistro, reemplazarRegistro, obtenerRegistro, listarOrdenesSuministro, listarOrdenesRemision, crearOrdenSuministro, crearOrdenRemision, eliminarOrdenSuministro, eliminarOrdenRemision } from "../../api/registros";
 import { buscarPacientePorCurp } from "../../api/pacientes";
 import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos, listarDiagnosticos } from "../../api/catalogos";
@@ -39,6 +39,8 @@ const camposFormulario = {
   // Sin UI — hardcodeados o no visibles en el form
   estatus_diagnostico: z.string().optional().or(z.literal("")),
   dosis_administrada: z.string().max(100).optional().or(z.literal("")),
+  // Opcional
+  fuente_financiamiento: z.string().max(100).optional().or(z.literal("")),
   // Requeridos
   id_diagnostico: z.string().min(1, "Selecciona un diagnóstico."),
   confirmado_por: z.string().min(1, "Selecciona quién confirmó."),
@@ -175,6 +177,14 @@ export default function RegistroFormPage() {
   const [nombreUnidadSeleccionada, setNombreUnidadSeleccionada] = useState("");
   const [unidadMedicamentoEdicion, setUnidadMedicamentoEdicion] = useState(null);
   const [unidadDeMedidaEdicion, setUnidadDeMedidaEdicion] = useState(null);
+  // Datos de paciente nuevo
+  const [fechaNacimientoNuevo, setFechaNacimientoNuevo] = useState("");
+  // Expediente y órdenes
+  const [numeroExpediente, setNumeroExpediente] = useState("");
+  const [ordenesSuministro, setOrdenesSuministro] = useState([]);
+  const [ordenesRemision, setOrdenesRemision] = useState([]);
+  const [inputOrdenSuministro, setInputOrdenSuministro] = useState({ numero_orden: "", fecha: "" });
+  const [inputOrdenRemision, setInputOrdenRemision] = useState({ numero_orden: "", fecha: "" });
 
   // Estado del widget de búsqueda por CURP
   const [curpBusqueda, setCurpBusqueda] = useState("");
@@ -307,9 +317,15 @@ export default function RegistroFormPage() {
       .catch(() => toast.error("Error al cargar datos del formulario."));
 
     if (esEdicion) {
-      obtenerRegistro(id).then((r) => {
+      Promise.all([
+        obtenerRegistro(id),
+        listarOrdenesSuministro(id),
+        listarOrdenesRemision(id),
+      ]).then(([r, os, or_]) => {
         setUnidadMedicamentoEdicion(r.medicamento?.unidad ?? null);
         setUnidadDeMedidaEdicion(r.medicamento?.unidad_de_medida ?? null);
+        setOrdenesSuministro(os);
+        setOrdenesRemision(or_);
         reset({
           estatus_diagnostico: r.estatus_diagnostico ?? "",
           confirmado_por: r.confirmado_por ?? "",
@@ -324,6 +340,7 @@ export default function RegistroFormPage() {
           frecuencia: r.frecuencia != null ? String(r.frecuencia) : "",
           unidad_tiempo: r.unidad_tiempo ?? "",
           duracion: r.duracion != null ? String(r.duracion) : "",
+          fuente_financiamiento: r.fuente_financiamiento ?? "",
         });
       }).catch(() => toast.error("Error al cargar la prescripción."));
     }
@@ -379,6 +396,80 @@ export default function RegistroFormPage() {
     setMostrarModalMedico(false);
   };
 
+  // Órdenes — modo edición (API directa)
+  const agregarOrdenSuministroEdicion = async () => {
+    if (!inputOrdenSuministro.numero_orden.trim()) return;
+    try {
+      const nueva = await crearOrdenSuministro(id, {
+        numero_orden: inputOrdenSuministro.numero_orden.trim(),
+        ...(inputOrdenSuministro.fecha && { fecha: inputOrdenSuministro.fecha }),
+      });
+      setOrdenesSuministro((prev) => [...prev, nueva]);
+      setInputOrdenSuministro({ numero_orden: "", fecha: "" });
+    } catch {
+      toast.error("Error al agregar la orden de suministro.");
+    }
+  };
+
+  const borrarOrdenSuministroEdicion = async (idOrden) => {
+    try {
+      await eliminarOrdenSuministro(id, idOrden);
+      setOrdenesSuministro((prev) => prev.filter((o) => o.id !== idOrden));
+    } catch {
+      toast.error("Error al eliminar la orden de suministro.");
+    }
+  };
+
+  const agregarOrdenRemisionEdicion = async () => {
+    if (!inputOrdenRemision.numero_orden.trim()) return;
+    try {
+      const nueva = await crearOrdenRemision(id, {
+        numero_orden: inputOrdenRemision.numero_orden.trim(),
+        ...(inputOrdenRemision.fecha && { fecha: inputOrdenRemision.fecha }),
+      });
+      setOrdenesRemision((prev) => [...prev, nueva]);
+      setInputOrdenRemision({ numero_orden: "", fecha: "" });
+    } catch {
+      toast.error("Error al agregar la orden de remisión.");
+    }
+  };
+
+  const borrarOrdenRemisionEdicion = async (idOrden) => {
+    try {
+      await eliminarOrdenRemision(id, idOrden);
+      setOrdenesRemision((prev) => prev.filter((o) => o.id !== idOrden));
+    } catch {
+      toast.error("Error al eliminar la orden de remisión.");
+    }
+  };
+
+  // Órdenes — modo creación (estado local)
+  const agregarOrdenSuministroLocal = () => {
+    if (!inputOrdenSuministro.numero_orden.trim()) return;
+    setOrdenesSuministro((prev) => [
+      ...prev,
+      { ...inputOrdenSuministro, _localId: Date.now() },
+    ]);
+    setInputOrdenSuministro({ numero_orden: "", fecha: "" });
+  };
+
+  const borrarOrdenSuministroLocal = (_localId) => {
+    setOrdenesSuministro((prev) => prev.filter((o) => o._localId !== _localId));
+  };
+
+  const agregarOrdenRemisionLocal = () => {
+    if (!inputOrdenRemision.numero_orden.trim()) return;
+    setOrdenesRemision((prev) => [
+      ...prev,
+      { ...inputOrdenRemision, _localId: Date.now() },
+    ]);
+    setInputOrdenRemision({ numero_orden: "", fecha: "" });
+  };
+
+  const borrarOrdenRemisionLocal = (_localId) => {
+    setOrdenesRemision((prev) => prev.filter((o) => o._localId !== _localId));
+  };
+
   const onSubmit = async (values) => {
     if (!esEdicion) {
       // Validar que hay CURP antes de enviar
@@ -410,6 +501,16 @@ export default function RegistroFormPage() {
         const payload = {
           ...camposBase,
           curp_paciente: curpBusqueda.trim().toUpperCase(),
+          ...(busquedaEstado === "no_encontrado" && fechaNacimientoNuevo && { fecha_nacimiento: fechaNacimientoNuevo }),
+          ...(numeroExpediente.trim() && { numero_expediente: numeroExpediente.trim() }),
+          ordenes_suministro: ordenesSuministro.map(({ numero_orden, fecha }) => ({
+            numero_orden,
+            ...(fecha && { fecha }),
+          })),
+          ordenes_remision: ordenesRemision.map(({ numero_orden, fecha }) => ({
+            numero_orden,
+            ...(fecha && { fecha }),
+          })),
         };
         const resultado = await crearRegistroCompleto(payload);
         const msg = resultado.paciente_creado
@@ -518,6 +619,11 @@ export default function RegistroFormPage() {
                         <p className="text-xs text-neutral-gray">
                           Prescripciones registradas: <span className="font-medium">{resultadoBusqueda.total_registros}</span>
                         </p>
+                        {resultadoBusqueda.fecha_nacimiento && (
+                          <p className="text-xs text-neutral-gray">
+                            Fecha de nacimiento: <span className="font-medium">{formatFecha(resultadoBusqueda.fecha_nacimiento)}</span>
+                          </p>
+                        )}
                         <p className="text-xs text-secondary mt-1">Paciente identificado — continúa llenando la prescripción.</p>
                       </div>
                     </div>
@@ -562,6 +668,20 @@ export default function RegistroFormPage() {
                         ${errors.nombre_completo ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-white"}`}
                       {...register("nombre_completo")} />
                     {errors.nombre_completo && <p className="text-red-500 text-xs mt-1">{errors.nombre_completo.message}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-black mb-1">
+                      Fecha de nacimiento
+                      <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={fechaNacimientoNuevo}
+                      onChange={(e) => setFechaNacimientoNuevo(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-white
+                        text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                    />
                   </div>
 
                 </div>
@@ -628,6 +748,28 @@ export default function RegistroFormPage() {
                   />
                 )}
                 {errors.clues && <p className="text-red-500 text-xs mt-1">{errors.clues.message}</p>}
+              </div>
+            )}
+
+            {/* Número de expediente — solo en creación */}
+            {!esEdicion && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Número de expediente
+                  <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="ej. EXP-2024-001"
+                  maxLength={100}
+                  value={numeroExpediente}
+                  onChange={(e) => setNumeroExpediente(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                />
+                <p className="text-xs text-neutral-gray mt-1">
+                  Se registra para esta unidad. Cambia si el paciente se transfiere.
+                </p>
               </div>
             )}
 
@@ -704,6 +846,22 @@ export default function RegistroFormPage() {
                 ))}
               </select>
               {errors.confirmado_por && <p className="text-red-500 text-xs mt-1">{errors.confirmado_por.message}</p>}
+            </div>
+
+            {/* Fuente de financiamiento */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Fuente de financiamiento
+                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="ej. Federal, Estatal, IMSS Bienestar"
+                maxLength={100}
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("fuente_financiamiento")}
+              />
             </div>
 
             {/* Fecha inicio tratamiento */}
@@ -910,6 +1068,153 @@ export default function RegistroFormPage() {
             )}
           </div>
 
+          {/* ── Sección: Órdenes (no disponible en modo reemplazar) ── */}
+          {!modoReemplazar && <div className="space-y-4">
+            <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-2">
+              {esEdicion ? "Órdenes" : "4. Órdenes"}
+            </p>
+
+            {/* Órdenes de suministro */}
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-neutral-black">Órdenes de suministro</p>
+
+              {/* Fila de entrada */}
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    placeholder="Número de orden"
+                    maxLength={100}
+                    value={inputOrdenSuministro.numero_orden}
+                    onChange={(e) => setInputOrdenSuministro((p) => ({ ...p, numero_orden: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                      text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="date"
+                    value={inputOrdenSuministro.fecha}
+                    onChange={(e) => setInputOrdenSuministro((p) => ({ ...p, fecha: e.target.value }))}
+                    className="px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                      text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={esEdicion ? agregarOrdenSuministroEdicion : agregarOrdenSuministroLocal}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-primary/10 hover:bg-primary/20
+                    text-primary text-sm font-medium transition flex-shrink-0"
+                >
+                  <Plus size={14} />
+                  Agregar
+                </button>
+              </div>
+
+              {/* Lista de órdenes */}
+              {ordenesSuministro.length > 0 && (
+                <ul className="space-y-1.5">
+                  {ordenesSuministro.map((o) => (
+                    <li
+                      key={o.id ?? o._localId}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg
+                        border border-neutral-gray/20 bg-neutral-light/60 text-sm"
+                    >
+                      <span className="font-medium text-neutral-black">{o.numero_orden}</span>
+                      <div className="flex items-center gap-3">
+                        {o.fecha && <span className="text-xs text-neutral-gray">{formatFecha(o.fecha)}</span>}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            esEdicion
+                              ? borrarOrdenSuministroEdicion(o.id)
+                              : borrarOrdenSuministroLocal(o._localId)
+                          }
+                          className="text-neutral-gray hover:text-red-500 transition"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {ordenesSuministro.length === 0 && (
+                <p className="text-xs text-neutral-gray/60 px-1">Sin órdenes de suministro registradas.</p>
+              )}
+            </div>
+
+            {/* Órdenes de remisión */}
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-neutral-black">Órdenes de remisión</p>
+
+              {/* Fila de entrada */}
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    placeholder="Número de orden"
+                    maxLength={100}
+                    value={inputOrdenRemision.numero_orden}
+                    onChange={(e) => setInputOrdenRemision((p) => ({ ...p, numero_orden: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                      text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="date"
+                    value={inputOrdenRemision.fecha}
+                    onChange={(e) => setInputOrdenRemision((p) => ({ ...p, fecha: e.target.value }))}
+                    className="px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                      text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={esEdicion ? agregarOrdenRemisionEdicion : agregarOrdenRemisionLocal}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-primary/10 hover:bg-primary/20
+                    text-primary text-sm font-medium transition flex-shrink-0"
+                >
+                  <Plus size={14} />
+                  Agregar
+                </button>
+              </div>
+
+              {/* Lista de órdenes */}
+              {ordenesRemision.length > 0 && (
+                <ul className="space-y-1.5">
+                  {ordenesRemision.map((o) => (
+                    <li
+                      key={o.id ?? o._localId}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg
+                        border border-neutral-gray/20 bg-neutral-light/60 text-sm"
+                    >
+                      <span className="font-medium text-neutral-black">{o.numero_orden}</span>
+                      <div className="flex items-center gap-3">
+                        {o.fecha && <span className="text-xs text-neutral-gray">{formatFecha(o.fecha)}</span>}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            esEdicion
+                              ? borrarOrdenRemisionEdicion(o.id)
+                              : borrarOrdenRemisionLocal(o._localId)
+                          }
+                          className="text-neutral-gray hover:text-red-500 transition"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {ordenesRemision.length === 0 && (
+                <p className="text-xs text-neutral-gray/60 px-1">Sin órdenes de remisión registradas.</p>
+              )}
+            </div>
+          </div>}
+
           {/* Botones */}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => navigate("/registros")}
@@ -979,6 +1284,12 @@ export default function RegistroFormPage() {
                     label="Estado"
                     valor={busquedaEstado === "encontrado" ? "Paciente existente" : "Paciente nuevo"}
                   />
+                  {busquedaEstado === "encontrado" && resultadoBusqueda?.fecha_nacimiento && (
+                    <FilaPreview label="Fecha de nacimiento" valor={formatFecha(resultadoBusqueda.fecha_nacimiento)} />
+                  )}
+                  {busquedaEstado === "no_encontrado" && fechaNacimientoNuevo && (
+                    <FilaPreview label="Fecha de nacimiento" valor={formatFecha(fechaNacimientoNuevo)} />
+                  )}
                 </div>
               </section>
             )}
@@ -1001,8 +1312,49 @@ export default function RegistroFormPage() {
                 <FilaPreview label="Fecha inicio tratamiento" valor={formatFecha(vals.fecha_inicio_tratamiento)} />
                 <FilaPreview label="Peso" valor={vals.peso ? `${vals.peso} kg` : "—"} />
                 <FilaPreview label="Talla" valor={vals.talla ? `${vals.talla} cm` : "—"} />
+                {vals.fuente_financiamiento && (
+                  <FilaPreview label="Fuente de financiamiento" valor={vals.fuente_financiamiento} />
+                )}
+                {!esEdicion && numeroExpediente.trim() && (
+                  <FilaPreview label="Número de expediente" valor={numeroExpediente.trim()} />
+                )}
               </div>
             </section>
+
+            {/* Órdenes — solo si hay alguna */}
+            {(ordenesSuministro.length > 0 || ordenesRemision.length > 0) && (
+              <section>
+                <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-1.5 mb-3">
+                  Órdenes
+                </p>
+                {ordenesSuministro.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs text-neutral-gray mb-1.5">Suministro</p>
+                    <ul className="space-y-1">
+                      {ordenesSuministro.map((o) => (
+                        <li key={o.id ?? o._localId} className="text-sm text-neutral-black flex gap-3">
+                          <span className="font-medium">{o.numero_orden}</span>
+                          {o.fecha && <span className="text-neutral-gray text-xs">{formatFecha(o.fecha)}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {ordenesRemision.length > 0 && (
+                  <div>
+                    <p className="text-xs text-neutral-gray mb-1.5">Remisión</p>
+                    <ul className="space-y-1">
+                      {ordenesRemision.map((o) => (
+                        <li key={o.id ?? o._localId} className="text-sm text-neutral-black flex gap-3">
+                          <span className="font-medium">{o.numero_orden}</span>
+                          {o.fecha && <span className="text-neutral-gray text-xs">{formatFecha(o.fecha)}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* Posología */}
             {previewPrescripcion && (
