@@ -8,7 +8,7 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink, UserPlus } from "lucide-react";
+import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink, UserPlus, Eye, ChevronLeft, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { crearRegistroCompleto, actualizarRegistro, reemplazarRegistro, obtenerRegistro } from "../../api/registros";
@@ -34,22 +34,23 @@ const CONFIRMADO_POR_OPTIONS = [
   "Trabajo Social",
 ];
 
-// Campos opcionales compartidos entre crear y editar
-const camposOpcionales = {
+// Campos del formulario (requeridos en creación y edición)
+const camposFormulario = {
+  // Sin UI — hardcodeados o no visibles en el form
   estatus_diagnostico: z.string().optional().or(z.literal("")),
-  confirmado_por: z.string().optional().or(z.literal("")),
-  fecha_inicio_tratamiento: z.string().optional().or(z.literal("")),
-  fecha_primera_administracion: z.string().optional().or(z.literal("")),
   dosis_administrada: z.string().max(100).optional().or(z.literal("")),
-  peso: z.string().optional().or(z.literal("")),
-  talla: z.string().optional().or(z.literal("")),
-  // Posología
-  dosis: z.string().optional().or(z.literal("")),
-  cantidad: z.string().optional().or(z.literal("")),
-  frecuencia: z.string().optional().or(z.literal("")),
-  unidad_tiempo: z.string().optional().or(z.literal("")),
-  duracion: z.string().optional().or(z.literal("")),
-  id_diagnostico: z.string().optional().or(z.literal("")),
+  // Requeridos
+  id_diagnostico: z.string().min(1, "Selecciona un diagnóstico."),
+  confirmado_por: z.string().min(1, "Selecciona quién confirmó."),
+  fecha_inicio_tratamiento: z.string().min(1, "Selecciona la fecha de inicio de tratamiento."),
+  fecha_primera_administracion: z.string().min(1, "Indica la fecha de primera administración."),
+  peso: z.string().min(1, "Indica el peso del paciente (kg)."),
+  talla: z.string().min(1, "Indica la talla del paciente (cm)."),
+  dosis: z.string().min(1, "Indica la dosis por toma."),
+  cantidad: z.string().min(1, "Indica la cantidad por unidad."),
+  frecuencia: z.string().min(1, "Selecciona la frecuencia."),
+  unidad_tiempo: z.string().min(1, "Selecciona la unidad de tiempo."),
+  duracion: z.string().min(1, "Indica la duración del tratamiento."),
 };
 
 const schemaCrear = z.object({
@@ -59,10 +60,30 @@ const schemaCrear = z.object({
   id_medico: z.number({ invalid_type_error: "Selecciona un médico." }).int().positive(),
   clave_cnis: z.string().min(1, "Selecciona un medicamento."),
   clues: z.string().min(1, "Selecciona una unidad."),
-  ...camposOpcionales,
+  ...camposFormulario,
 });
 
-const schemaEditar = z.object({ ...camposOpcionales });
+const schemaEditar = z.object({ ...camposFormulario });
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+const formatFecha = (iso) => {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+};
+
+function FilaPreview({ label, valor, mono = false, span2 = false }) {
+  return (
+    <div className={span2 ? "col-span-2" : ""}>
+      <p className="text-xs text-neutral-gray mb-0.5">{label}</p>
+      <p className={`text-sm font-medium text-neutral-black ${mono ? "font-mono" : ""}`}>
+        {valor || "—"}
+      </p>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Componente buscador genérico (para médicos)
@@ -150,6 +171,8 @@ export default function RegistroFormPage() {
   const [loading, setLoading] = useState(false);
   const [mostrarModalMedico, setMostrarModalMedico] = useState(false);
   const [medicoLabel, setMedicoLabel] = useState(undefined);
+  const [enVistaPrevia, setEnVistaPrevia] = useState(false);
+  const [nombreUnidadSeleccionada, setNombreUnidadSeleccionada] = useState("");
   const [unidadMedicamentoEdicion, setUnidadMedicamentoEdicion] = useState(null);
   const [unidadDeMedidaEdicion, setUnidadDeMedidaEdicion] = useState(null);
 
@@ -164,6 +187,7 @@ export default function RegistroFormPage() {
     reset,
     setValue,
     watch,
+    trigger,
     formState: { errors },
   } = useForm({ resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear) });
 
@@ -254,6 +278,7 @@ export default function RegistroFormPage() {
   useEffect(() => {
     if (!esEdicion && rolNombre === "RESPONSABLE_UNIDAD" && cluesUnidadAsignada) {
       setValue("clues", cluesUnidadAsignada, { shouldValidate: false });
+      setNombreUnidadSeleccionada(nombreUnidad ?? cluesUnidadAsignada);
     }
   }, []);
 
@@ -300,7 +325,33 @@ export default function RegistroFormPage() {
     if (payload.frecuencia !== undefined) payload.frecuencia = parseInt(payload.frecuencia, 10);
     if (payload.duracion !== undefined) payload.duracion = parseInt(payload.duracion, 10);
     if (payload.id_diagnostico !== undefined) payload.id_diagnostico = parseInt(payload.id_diagnostico, 10);
+    payload.estatus_diagnostico = "confirmado";
     return payload;
+  };
+
+  const handleVistaPrevia = async () => {
+    // Validar CURP antes de mostrar preview (solo en creación)
+    if (!esEdicion) {
+      const curp = curpBusqueda.trim().toUpperCase();
+      if (!CURP_REGEX.test(curp)) {
+        toast.error("Ingresa una CURP válida para identificar al paciente.");
+        return;
+      }
+      if (busquedaEstado === "no_encontrado") {
+        const vals = watch();
+        if (!vals.nombre_completo?.trim()) {
+          toast.error("El nombre completo del paciente es requerido.");
+          return;
+        }
+      }
+    }
+    const valido = await trigger();
+    if (!valido) {
+      toast.error("Completa todos los campos antes de continuar.");
+      return;
+    }
+    setEnVistaPrevia(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleMedicoCreado = (nuevo) => {
@@ -323,14 +374,6 @@ export default function RegistroFormPage() {
         toast.error("El nombre completo del paciente es requerido.");
         return;
       }
-    }
-
-    // Validar: si hay posología, fecha_primera_administracion es obligatoria
-    const hayPosologia = [values.dosis, values.frecuencia, values.duracion, values.unidad_tiempo]
-      .some((v) => v && v !== "");
-    if (hayPosologia && !values.fecha_primera_administracion) {
-      toast.error("La fecha de primera administración es obligatoria cuando se indica posología.");
-      return;
     }
 
     setLoading(true);
@@ -404,7 +447,7 @@ export default function RegistroFormPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-neutral-gray/20 p-6">
+      <div className={`bg-white rounded-xl border border-neutral-gray/20 p-6 ${enVistaPrevia ? "hidden" : ""}`}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
 
           {/* ── Sección: Identificación del paciente (solo en creación) ── */}
@@ -582,7 +625,10 @@ export default function RegistroFormPage() {
                 ) : (
                   <UnidadCombobox
                     value={cluesSeleccionada}
-                    onChange={(clues) => setValue("clues", clues, { shouldValidate: true })}
+                    onChange={(clues, nombre) => {
+                      setValue("clues", clues, { shouldValidate: true });
+                      setNombreUnidadSeleccionada(nombre ?? "");
+                    }}
                     error={errors.clues}
                   />
                 )}
@@ -593,8 +639,7 @@ export default function RegistroFormPage() {
             {/* Diagnóstico */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Diagnóstico
-                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+                Diagnóstico <span className="text-primary">*</span>
               </label>
               <select
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
@@ -608,31 +653,13 @@ export default function RegistroFormPage() {
                   </option>
                 ))}
               </select>
-            </div>
-
-            {/* Estatus del diagnóstico */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-black mb-1">
-                Estatus del diagnóstico
-                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
-              </label>
-              <select
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-                {...register("estatus_diagnostico")}
-              >
-                <option value="">— Selecciona un estatus —</option>
-                {ESTATUS_OPTIONS.map((op) => (
-                  <option key={op} value={op}>{op}</option>
-                ))}
-              </select>
+              {errors.id_diagnostico && <p className="text-red-500 text-xs mt-1">{errors.id_diagnostico.message}</p>}
             </div>
 
             {/* Confirmado por */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Confirmado por
-                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+                Confirmado por <span className="text-primary">*</span>
               </label>
               <select
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
@@ -644,40 +671,45 @@ export default function RegistroFormPage() {
                   <option key={op} value={op}>{op}</option>
                 ))}
               </select>
+              {errors.confirmado_por && <p className="text-red-500 text-xs mt-1">{errors.confirmado_por.message}</p>}
             </div>
 
             {/* Fecha inicio tratamiento */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Fecha inicio de tratamiento
-                <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+                Fecha inicio de tratamiento <span className="text-primary">*</span>
               </label>
               <input type="date"
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                className={`w-full px-4 py-2.5 rounded-lg border bg-neutral-light text-sm outline-none transition
+                  focus:ring-2 focus:ring-primary/20 focus:border-primary
+                  ${errors.fecha_inicio_tratamiento ? "border-red-400 bg-red-50" : "border-neutral-gray/30"}`}
                 {...register("fecha_inicio_tratamiento")} />
+              {errors.fecha_inicio_tratamiento && <p className="text-red-500 text-xs mt-1">{errors.fecha_inicio_tratamiento.message}</p>}
             </div>
-
 
             {/* Peso y Talla */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
-                  Peso <span className="text-neutral-gray font-normal">(kg, opcional)</span>
+                  Peso <span className="text-neutral-gray font-normal">(kg)</span> <span className="text-primary">*</span>
                 </label>
                 <input type="number" step="0.01" min="0" max="999.99" placeholder="ej. 75.50"
-                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                    focus:ring-2 focus:ring-primary/20 focus:border-primary
+                    ${errors.peso ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
                   {...register("peso")} />
+                {errors.peso && <p className="text-red-500 text-xs mt-1">{errors.peso.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
-                  Talla <span className="text-neutral-gray font-normal">(cm, opcional)</span>
+                  Talla <span className="text-neutral-gray font-normal">(cm)</span> <span className="text-primary">*</span>
                 </label>
                 <input type="number" step="0.01" min="0" max="999.99" placeholder="ej. 165.00"
-                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                    focus:ring-2 focus:ring-primary/20 focus:border-primary
+                    ${errors.talla ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
                   {...register("talla")} />
+                {errors.talla && <p className="text-red-500 text-xs mt-1">{errors.talla.message}</p>}
               </div>
             </div>
           </div>
@@ -686,32 +718,29 @@ export default function RegistroFormPage() {
           <div className="space-y-4">
             <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-2">
               {esEdicion ? "Posología" : "3. Posología"}
-              <span className="normal-case font-normal ml-2">
-                (opcional — calcula el total de medicamento requerido)
-              </span>
             </p>
 
-            {/* Fecha de primera administración — obligatoria con posología */}
+            {/* Fecha de primera administración */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Fecha de primera administración
-                <span className="text-primary ml-1">*</span>
-                <span className="text-neutral-gray font-normal ml-1">(requerida con posología)</span>
+                Fecha de primera administración <span className="text-primary">*</span>
               </label>
               <input type="date"
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                className={`w-full px-4 py-2.5 rounded-lg border bg-neutral-light text-sm outline-none transition
+                  focus:ring-2 focus:ring-primary/20 focus:border-primary
+                  ${errors.fecha_primera_administracion ? "border-red-400 bg-red-50" : "border-neutral-gray/30"}`}
                 {...register("fecha_primera_administracion")} />
-              <p className="text-xs text-neutral-gray mt-1">
-                La fecha de fin se calculará automáticamente a partir de esta fecha y la duración.
-              </p>
+              {errors.fecha_primera_administracion
+                ? <p className="text-red-500 text-xs mt-1">{errors.fecha_primera_administracion.message}</p>
+                : <p className="text-xs text-neutral-gray mt-1">La fecha de fin se calculará automáticamente.</p>
+              }
             </div>
 
             {/* Dosis por toma + Cantidad */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
-                  Dosis por toma
+                  Dosis por toma <span className="text-primary">*</span>
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -719,18 +748,20 @@ export default function RegistroFormPage() {
                     step="0.5"
                     min="0.5"
                     placeholder="ej. 2"
-                    className="w-24 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                      text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                    className={`w-24 px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                      focus:ring-2 focus:ring-primary/20 focus:border-primary
+                      ${errors.dosis ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
                     {...register("dosis")}
                   />
                   <span className="text-sm text-neutral-gray">
                     {unidadMedicamento ? `${unidadMedicamento}(s)` : "unidad(es)"}
                   </span>
                 </div>
+                {errors.dosis && <p className="text-red-500 text-xs mt-1">{errors.dosis.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-neutral-black mb-1">
-                  Cantidad por unidad
+                  Cantidad por unidad <span className="text-primary">*</span>
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -738,27 +769,30 @@ export default function RegistroFormPage() {
                     step="0.01"
                     min="0.01"
                     placeholder="ej. 10"
-                    className="w-24 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                      text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                    className={`w-24 px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                      focus:ring-2 focus:ring-primary/20 focus:border-primary
+                      ${errors.cantidad ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
                     {...register("cantidad")}
                   />
                   <span className="text-sm text-neutral-gray">
                     {unidadDeMedida ?? "mg/ml"}
                   </span>
                 </div>
+                {errors.cantidad && <p className="text-red-500 text-xs mt-1">{errors.cantidad.message}</p>}
               </div>
             </div>
 
             {/* Frecuencia */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Frecuencia
+                Frecuencia <span className="text-primary">*</span>
               </label>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-neutral-gray">Cada</span>
                 <select
-                  className="px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  className={`px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                    focus:ring-2 focus:ring-primary/20 focus:border-primary
+                    ${errors.frecuencia ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
                   {...register("frecuencia")}
                 >
                   <option value="">— —</option>
@@ -775,12 +809,13 @@ export default function RegistroFormPage() {
                   <option value="168">168 horas</option>
                 </select>
               </div>
+              {errors.frecuencia && <p className="text-red-500 text-xs mt-1">{errors.frecuencia.message}</p>}
             </div>
 
             {/* Duración */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Duración del tratamiento
+                Duración del tratamiento <span className="text-primary">*</span>
               </label>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-neutral-gray">Por</span>
@@ -788,13 +823,15 @@ export default function RegistroFormPage() {
                   type="number"
                   min="1"
                   placeholder="7"
-                  className="w-24 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  className={`w-24 px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                    focus:ring-2 focus:ring-primary/20 focus:border-primary
+                    ${errors.duracion ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
                   {...register("duracion")}
                 />
                 <select
-                  className="px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  className={`px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                    focus:ring-2 focus:ring-primary/20 focus:border-primary
+                    ${errors.unidad_tiempo ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
                   {...register("unidad_tiempo")}
                 >
                   <option value="">— Unidad —</option>
@@ -803,6 +840,11 @@ export default function RegistroFormPage() {
                   <option value="meses">Meses</option>
                 </select>
               </div>
+              {(errors.duracion || errors.unidad_tiempo) && (
+                <p className="text-red-500 text-xs mt-1">
+                  {errors.duracion?.message || errors.unidad_tiempo?.message}
+                </p>
+              )}
             </div>
 
             {previewPrescripcion ? (
@@ -843,19 +885,158 @@ export default function RegistroFormPage() {
                 text-sm text-neutral-gray hover:bg-neutral-light transition">
               Cancelar
             </button>
-            <button type="submit" disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark
-                text-white text-sm font-medium py-2.5 rounded-lg transition
-                disabled:opacity-60 disabled:cursor-not-allowed">
-              {loading
-                ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                : <Save size={15} />}
-              {loading ? "Guardando..." : esEdicion ? "Guardar cambios" : "Registrar"}
-            </button>
+            {esEdicion ? (
+              <button type="submit" disabled={loading}
+                className="flex-1 flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark
+                  text-white text-sm font-medium py-2.5 rounded-lg transition
+                  disabled:opacity-60 disabled:cursor-not-allowed">
+                {loading
+                  ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <Save size={15} />}
+                {loading ? "Guardando..." : "Guardar cambios"}
+              </button>
+            ) : (
+              <button type="button" onClick={handleVistaPrevia}
+                className="flex-1 flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark
+                  text-white text-sm font-medium py-2.5 rounded-lg transition">
+                <Eye size={15} />
+                Vista previa
+              </button>
+            )}
           </div>
 
         </form>
       </div>
+
+      {/* ── Vista previa ── */}
+      {enVistaPrevia && (() => {
+        const vals = watch();
+        const medicoPreview   = medicos.find((m) => m.id_medico === vals.id_medico);
+        const medPreview      = medicamentos.find((m) => m.clave_cnis === vals.clave_cnis);
+        const diagPreview     = diagnosticos.find((d) => String(d.id_diagnostico) === String(vals.id_diagnostico));
+        const unidadDisplay   = rolNombre === "RESPONSABLE_UNIDAD"
+          ? `${cluesUnidadAsignada} — ${nombreUnidad ?? ""}`
+          : nombreUnidadSeleccionada
+            ? `${vals.clues} — ${nombreUnidadSeleccionada}`
+            : vals.clues;
+
+        return (
+          <div className="bg-white rounded-xl border border-neutral-gray/20 p-6 space-y-6">
+            {/* Encabezado */}
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={20} className="text-secondary flex-shrink-0" />
+              <div>
+                <h3 className="text-base font-semibold text-neutral-black">Confirma los datos</h3>
+                <p className="text-xs text-neutral-gray mt-0.5">Revisa la información antes de registrar la prescripción.</p>
+              </div>
+            </div>
+
+            {/* Paciente */}
+            {!esEdicion && (
+              <section>
+                <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-1.5 mb-3">
+                  Paciente
+                </p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                  <FilaPreview label="CURP" valor={curpBusqueda} mono />
+                  {busquedaEstado === "no_encontrado"
+                    ? <FilaPreview label="Nombre" valor={vals.nombre_completo} />
+                    : <FilaPreview label="Nombre" valor={resultadoBusqueda?.nombre_completo} />
+                  }
+                  <FilaPreview
+                    label="Estado"
+                    valor={busquedaEstado === "encontrado" ? "Paciente existente" : "Paciente nuevo"}
+                  />
+                </div>
+              </section>
+            )}
+
+            {/* Prescripción */}
+            <section>
+              <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-1.5 mb-3">
+                Prescripción
+              </p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                {!esEdicion && (
+                  <>
+                    <FilaPreview label="Médico" valor={medicoPreview?.nombre_medico} span2 />
+                    <FilaPreview label="Medicamento" valor={medPreview ? `${medPreview.clave_cnis} — ${medPreview.descripcion}` : "—"} span2 />
+                    <FilaPreview label="Unidad" valor={unidadDisplay} span2 />
+                  </>
+                )}
+                <FilaPreview label="Diagnóstico" valor={diagPreview?.nombre} span2 />
+                <FilaPreview label="Confirmado por" valor={vals.confirmado_por} />
+                <FilaPreview label="Fecha inicio tratamiento" valor={formatFecha(vals.fecha_inicio_tratamiento)} />
+                <FilaPreview label="Peso" valor={vals.peso ? `${vals.peso} kg` : "—"} />
+                <FilaPreview label="Talla" valor={vals.talla ? `${vals.talla} cm` : "—"} />
+              </div>
+            </section>
+
+            {/* Posología */}
+            {previewPrescripcion && (
+              <section>
+                <p className="text-xs font-semibold text-neutral-gray uppercase tracking-wide border-b border-neutral-gray/10 pb-1.5 mb-3">
+                  Posología
+                </p>
+                <div className="bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3 space-y-2">
+                  <p className="text-sm font-medium text-neutral-black">{previewPrescripcion.texto}</p>
+                  <div className="flex flex-wrap gap-x-6 gap-y-1">
+                    <p className="text-xs text-neutral-gray">
+                      Total:{" "}
+                      <span className="font-semibold text-secondary">
+                        {previewPrescripcion.total % 1 === 0
+                          ? previewPrescripcion.total
+                          : previewPrescripcion.total.toFixed(2)}{" "}
+                        {previewPrescripcion.unidadTxt}
+                      </span>
+                    </p>
+                    <p className="text-xs text-neutral-gray">
+                      Primera administración:{" "}
+                      <span className="font-semibold text-neutral-black">
+                        {formatFecha(vals.fecha_primera_administracion)}
+                      </span>
+                    </p>
+                    {previewPrescripcion.fechaFinTexto && (
+                      <p className="text-xs text-neutral-gray">
+                        Fin estimado:{" "}
+                        <span className="font-semibold text-neutral-black">
+                          {previewPrescripcion.fechaFinTexto}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Botones de confirmación */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setEnVistaPrevia(false)}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg
+                  border border-neutral-gray/30 text-sm text-neutral-gray hover:bg-neutral-light transition"
+              >
+                <ChevronLeft size={15} />
+                Volver a editar
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleSubmit(onSubmit)}
+                className="flex-1 flex items-center justify-center gap-2 bg-secondary hover:bg-secondary/90
+                  text-white text-sm font-medium py-2.5 rounded-lg transition
+                  disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {loading
+                  ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <Save size={15} />}
+                {loading ? "Registrando..." : "Confirmar y registrar"}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {mostrarModalMedico && (
         <RegistrarMedicoModal

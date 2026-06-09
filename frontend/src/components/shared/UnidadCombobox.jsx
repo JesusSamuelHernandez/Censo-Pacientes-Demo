@@ -48,7 +48,7 @@ export default function UnidadCombobox({ value, onChange, error, idEntidad = nul
         .slice(0, 15);
 
   const seleccionar = (u) => {
-    onChange(u.clues);
+    onChange(u.clues, u.nombre_de_la_unidad);
     setQuery(`${u.clues} — ${u.nombre_de_la_unidad}`);
     setAbierto(false);
   };
