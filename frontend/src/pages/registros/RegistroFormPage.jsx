@@ -26,7 +26,12 @@ const CURP_REGEX = /^[A-Z]{4}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d$/;
 
 const ESTATUS_OPTIONS = ["confirmado", "por confirmar"];
 
+// Valor fijo actual del campo "Confirmado por". Las demás opciones se
+// conservan en CONFIRMADO_POR_OPTIONS por si se reactivan más adelante.
+const CONFIRMADO_POR_FIJO = "Médico tratante";
+
 const CONFIRMADO_POR_OPTIONS = [
+  CONFIRMADO_POR_FIJO,
   "Consulta Externa",
   "Farmacia Hospitalaria",
   "Comité de Medicamentos",
@@ -199,7 +204,10 @@ export default function RegistroFormPage() {
     watch,
     trigger,
     formState: { errors },
-  } = useForm({ resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear) });
+  } = useForm({
+    resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear),
+    defaultValues: !esEdicion ? { confirmado_por: CONFIRMADO_POR_FIJO } : undefined,
+  });
 
   const cluesSeleccionada = watch("clues");
   const claveCnisSeleccionada = watch("clave_cnis");
@@ -836,8 +844,10 @@ export default function RegistroFormPage() {
                 Confirmado por <span className="text-primary">*</span>
               </label>
               <select
+                disabled
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition
+                  disabled:opacity-70 disabled:cursor-not-allowed"
                 {...register("confirmado_por")}
               >
                 <option value="">— Selecciona un área —</option>
@@ -845,6 +855,7 @@ export default function RegistroFormPage() {
                   <option key={op} value={op}>{op}</option>
                 ))}
               </select>
+              <p className="text-xs text-neutral-gray mt-1">Por el momento este campo queda fijo en "{CONFIRMADO_POR_FIJO}".</p>
               {errors.confirmado_por && <p className="text-red-500 text-xs mt-1">{errors.confirmado_por.message}</p>}
             </div>
 
