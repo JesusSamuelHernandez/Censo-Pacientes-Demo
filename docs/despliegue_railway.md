@@ -63,6 +63,9 @@ python scripts/migrar_diagnosticos.py
 # tablas expedientes_paciente, ordenes_suministro, ordenes_remision
 python scripts/migrar_campos_nuevos.py
 
+# Migración estatus de evolución del paciente (banderín de color)
+python scripts/migrar_estatus_evolucion.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
 ```
@@ -89,6 +92,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_unidad_medicamentos.py` | Primera vez que se despliega la tabla `unidad_medicamentos` (medicamentos por unidad) |
 | `migrar_recalculo_fin.py` | Si se modifica la lógica de `fecha_fin_tratamiento` en registros existentes |
 | `migrar_campos_nuevos.py` | Primera vez que se despliegan: `pacientes.fecha_nacimiento`, `registros.fuente_financiamiento`, tablas `expedientes_paciente`, `ordenes_suministro`, `ordenes_remision` |
+| `migrar_estatus_evolucion.py` | Primera vez que se despliega el banderín de estatus de evolución: `pacientes.estatus_evolucion`, `pacientes.id_usuario_ultimo_cambio_estatus`, `pacientes.fecha_ultimo_cambio_estatus` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |
@@ -141,4 +145,9 @@ Verificar que los servicios de Railway tengan estas variables configuradas:
    - Al buscar un paciente existente por CURP, el card muestra su fecha de nacimiento (si la tiene).
    - Al crear una prescripción, aparecen los campos **Fuente de financiamiento** y **Número de expediente**.
    - Las secciones **Órdenes de suministro** y **Órdenes de remisión** permiten agregar y eliminar entradas.
-6. Revisar los logs del backend en Railway si hay errores 500.
+   - En el formulario de registro, el campo **Confirmado por** aparece deshabilitado y fijo en "Médico tratante".
+6. Verificar el banderín de estatus de evolución (junio 2026):
+   - En **Pacientes Activos**, cada paciente muestra un banderín de color a la izquierda de su nombre (verde por defecto).
+   - Al hacer clic en el banderín se abre una ventana con la leyenda de colores y permite cambiar el estatus.
+   - El cambio de color persiste al recargar la página.
+7. Revisar los logs del backend en Railway si hay errores 500.

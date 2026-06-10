@@ -79,6 +79,10 @@ RolStr = Annotated[
     ),
 ]
 
+# Estatus de evolución del paciente — banderín de color en Pacientes Activos.
+# "Inicia tx" es el valor por defecto para pacientes nuevos y existentes.
+ESTATUS_EVOLUCION_OPTIONS = ["Inicia tx", "Tx fase intermedia", "Recaída", "Curación"]
+
 
 # ---------------------------------------------------------------------------
 # ── 0. CatDiagnostico ───────────────────────────────────────────────────────
@@ -285,6 +289,17 @@ class PacienteUpdate(BaseModel):
         None,
         description="False = dar de baja al paciente (Soft Delete).",
     )
+    estatus_evolucion: str | None = Field(
+        None,
+        description=f"Estatus de evolución del paciente. Valores válidos: {ESTATUS_EVOLUCION_OPTIONS}",
+    )
+
+    @field_validator("estatus_evolucion")
+    @classmethod
+    def validar_estatus_evolucion(cls, v: str) -> str:
+        if v not in ESTATUS_EVOLUCION_OPTIONS:
+            raise ValueError(f"estatus_evolucion debe ser uno de: {ESTATUS_EVOLUCION_OPTIONS}")
+        return v
 
 
 class PacienteResponse(BaseModel):
@@ -300,6 +315,7 @@ class PacienteResponse(BaseModel):
     clues_unidad_adscripcion: str
     fecha_nacimiento: date | None = None
     es_activo: bool
+    estatus_evolucion: str
     fecha_registro: datetime
     id_usuario_registro: int | None
     dias_adherencia: int | None = Field(

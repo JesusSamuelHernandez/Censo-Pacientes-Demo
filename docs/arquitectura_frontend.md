@@ -45,7 +45,8 @@ frontend/
 │   │       ├── ConfirmDialog.jsx
 │   │       ├── LoadingSpinner.jsx
 │   │       ├── UnidadCombobox.jsx     # Combobox de búsqueda de unidades; onChange(clues, nombre)
-│   │       └── RegistrarMedicoModal.jsx # Modal para registrar médico sin salir del form de prescripción
+│   │       ├── RegistrarMedicoModal.jsx # Modal para registrar médico sin salir del form de prescripción
+│   │       └── BanderinEstado.jsx     # Banderín de color (estatus_evolucion) en Pacientes Activos
 │   ├── pages/
 │   │   ├── auth/
 │   │   │   ├── LoginPage.jsx
@@ -144,11 +145,13 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 ### 4.2 `pacientes.js`
 - `listarPacientes(params)` → `GET /pacientes`
 - `obtenerPaciente(curp)` → `GET /pacientes/{curp}`
-- `buscarPorCurp(curp)` → `GET /pacientes/buscar?curp=`
 - `crearPaciente(data)` → `POST /pacientes`
-- `actualizarPaciente(curp, data)` → `PATCH /pacientes/{curp}`
-- `desactivarPaciente(curp)` → `DELETE /pacientes/{curp}`
-- `obtenerRegistrosDePaciente(curp, params)` → `GET /pacientes/{curp}/registros`
+- `actualizarPaciente(curp, data)` → `PATCH /pacientes/{curp}` (también usado por `BanderinEstado` para actualizar `estatus_evolucion`)
+- `darBajaPaciente(curp)` → `DELETE /pacientes/{curp}`
+- `buscarPacientePorCurp(curp)` → `GET /pacientes/buscar?curp=`
+- `listarRegistrosDePaciente(curp, soloActivos)` → `GET /pacientes/{curp}/registros`
+- `listarExpedientesPaciente(curp)` → `GET /pacientes/{curp}/expedientes`
+- `guardarExpediente(curp, clues, numeroExpediente)` → `POST /pacientes/{curp}/expedientes` (upsert)
 
 ### 4.3 `medicos.js`
 - `listarMedicos()` → `GET /medicos` (filtrado por RBAC en backend)
@@ -164,9 +167,11 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `crearRegistro(data)` → `POST /registros`
 - `crearRegistroCompleto(data)` → `POST /registros/completo`
 - `actualizarRegistro(id, data)` → `PATCH /registros/{id}`
-- `desactivarRegistro(id)` → `DELETE /registros/{id}`
-- `validarContinuidad(id, data)` → `PATCH /registros/{id}/validar-continuidad`
+- `anularRegistro(id)` → `DELETE /registros/{id}`
+- `validarContinuidad(id, nuevaFechaFin)` → `PATCH /registros/{id}/validar-continuidad`
 - `reemplazarRegistro(id, data)` → `POST /registros/{id}/reemplazar`
+- `listarOrdenesSuministro(id)` / `crearOrdenSuministro(id, data)` / `eliminarOrdenSuministro(id, idOrden)` → `/registros/{id}/ordenes-suministro[...]`
+- `listarOrdenesRemision(id)` / `crearOrdenRemision(id, data)` / `eliminarOrdenRemision(id, idOrden)` → `/registros/{id}/ordenes-remision[...]`
 
 ### 4.5 `catalogos.js`
 - `listarDiagnosticos(soloActivos)` → `GET /catalogos/diagnosticos`
@@ -212,9 +217,20 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 | Página | Ruta | Endpoints consumidos | Roles con acceso |
 |---|---|---|---|
 | Lista | `/pacientes` | `GET /pacientes` | Todos |
-| Detalle | `/pacientes/:curp` | `GET /pacientes/{curp}` + `GET /pacientes/{curp}/registros` | Todos |
+| Detalle | `/pacientes/:curp` | `GET /pacientes/{curp}` + `GET /pacientes/{curp}/registros` + `GET /pacientes/{curp}/expedientes` | Todos |
 | Registrar | `/pacientes/nuevo` | `POST /pacientes` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 | Editar | `/pacientes/:curp/editar` | `PATCH /pacientes/{curp}` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
+
+**Banderín de estatus de evolución (`BanderinEstado.jsx`):** En `PacientesPage.jsx`, cuando `soloActivos = true`, cada fila muestra un banderín de color con forma de listón (clip-path) a la izquierda del nombre, posicionado `absolute` dentro de un contenedor `relative` con `-top-1.5 -bottom-1.5` para sobresalir visualmente sin ser recortado por el `overflow-hidden` de la tabla. El color depende de `paciente.estatus_evolucion`:
+
+| Estatus | Color |
+|---|---|
+| Inicia tx | Verde (`#22c55e`) — valor por defecto |
+| Tx fase intermedia | Ámbar (`#f59e0b`) |
+| Recaída | Rojo (`#ef4444`) |
+| Curación | Azul (`#3b82f6`) |
+
+Al hacer clic se abre un modal con la leyenda de colores y un selector; al elegir un valor distinto llama `actualizarPaciente(curp, { estatus_evolucion })` (`PATCH /pacientes/{curp}`) y actualiza el estado local vía el callback `onChange`.
 
 ---
 
@@ -251,7 +267,15 @@ Comportamiento por rol:
 
 **Todos los campos son requeridos**, incluida la posología completa (dosis, cantidad, frecuencia, unidad de tiempo, duración, peso, talla, etc.). El campo `estatus_diagnostico` siempre se envía como `"confirmado"` — no aparece en la UI.
 
-**Flujo Vista previa:** El botón "Vista previa" (ojo) valida todos los campos antes de mostrar un resumen de la prescripción (Paciente, Prescripción, Posología). El usuario confirma o regresa a editar. El form permanece montado pero oculto con CSS (`hidden`) para preservar el estado de `react-hook-form`. Solo en modo edición se muestra directamente "Guardar cambios". Envía a `POST /registros/completo`.
+**Fecha de nacimiento del paciente:** Si la búsqueda por CURP no encuentra al paciente, se muestra el campo **Fecha de nacimiento** (opcional) para capturarlo junto con el resto de datos del paciente nuevo (`fecha_nacimiento` en el payload de `POST /registros/completo`). Si el paciente ya existe y tiene `fecha_nacimiento`, se muestra como dato de solo lectura en el resumen de búsqueda.
+
+**Confirmado por (campo fijo):** El select `confirmado_por` aparece deshabilitado y fijo en `"Médico tratante"` (`CONFIRMADO_POR_FIJO` en `RegistroFormPage.jsx`). En modo creación, `defaultValues` lo precarga con ese valor; en modo edición se muestra el valor históricamente guardado. Las demás opciones (`CONFIRMADO_POR_OPTIONS`: "Consulta Externa", "Farmacia Hospitalaria", "Comité de Medicamentos", "Dirección Médica", "Trabajo Social") se conservan en el array por si se reactivan más adelante.
+
+**Fuente de financiamiento y número de expediente:** Campo de texto opcional `fuente_financiamiento` (ej. "Federal", "Estatal", "IMSS Bienestar"). El campo **Número de expediente** solo aparece al crear (no en edición); si se captura, se envía como `numero_expediente` en `POST /registros/completo`, que el backend usa para hacer upsert del expediente del paciente en la unidad de la prescripción (`POST /pacientes/{curp}/expedientes`).
+
+**Órdenes de suministro y de remisión:** Dos secciones independientes (listas dinámicas) donde el usuario puede agregar/quitar entradas con `numero_orden` y `fecha` opcional, antes de guardar. Se envían como `ordenes_suministro` / `ordenes_remision` (arrays) dentro del payload de `POST /registros/completo`, que las crea junto con el registro.
+
+**Flujo Vista previa:** El botón "Vista previa" (ojo) valida todos los campos antes de mostrar un resumen de la prescripción (Paciente, Prescripción, Posología, fuente de financiamiento, número de expediente). El usuario confirma o regresa a editar. El form permanece montado pero oculto con CSS (`hidden`) para preservar el estado de `react-hook-form`. Solo en modo edición se muestra directamente "Guardar cambios". Envía a `POST /registros/completo`.
 
 ---
 

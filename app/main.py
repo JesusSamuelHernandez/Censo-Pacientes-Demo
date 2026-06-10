@@ -426,6 +426,9 @@ def actualizar_paciente(
     if "diagnostico_actual" in datos:
         val = datos.pop("diagnostico_actual")
         paciente.diagnostico_actual = cifrar(val) if val else None
+    if "estatus_evolucion" in datos:
+        paciente.id_usuario_ultimo_cambio_estatus = current_user.id_usuario
+        paciente.fecha_ultimo_cambio_estatus = datetime.now(timezone.utc)
     for campo, valor in datos.items():
         setattr(paciente, campo, valor)
 
@@ -2274,6 +2277,7 @@ def _paciente_to_response(
         clues_unidad_adscripcion=p.clues_unidad_adscripcion,
         fecha_nacimiento=p.fecha_nacimiento,
         es_activo=p.es_activo,
+        estatus_evolucion=p.estatus_evolucion,
         fecha_registro=p.fecha_registro,
         id_usuario_registro=p.id_usuario_registro,
         dias_adherencia=None,
