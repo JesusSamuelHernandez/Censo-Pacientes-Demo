@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { listarPacientes, darBajaPaciente } from "../../api/pacientes";
 import { listarMedicamentos } from "../../api/catalogos";
 import useAuthStore from "../../store/authStore";
+import BanderinEstado from "../../components/shared/BanderinEstado";
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 
@@ -64,6 +65,12 @@ export default function PacientesPage() {
         p.curp_paciente.toLowerCase().includes(busqueda.toLowerCase())
       : true
   );
+
+  const handleEstatusEvolucionCambiado = (curp, nuevoEstatus) => {
+    setPacientes((prev) =>
+      prev.map((p) => (p.curp_paciente === curp ? { ...p, estatus_evolucion: nuevoEstatus } : p))
+    );
+  };
 
   const handleBaja = async () => {
     if (!confirmBaja) return;
@@ -167,7 +174,18 @@ export default function PacientesPage() {
               ) : (
                 pacientesFiltrados.map((p) => (
                   <tr key={p.curp_paciente} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
-                    <td className="px-4 py-3 font-medium text-neutral-black" title={p.nombre_completo}>{p.nombre_completo}</td>
+                    <td className="px-4 py-3 font-medium text-neutral-black">
+                      <div className={`relative ${soloActivos ? "pl-5" : ""}`}>
+                        {soloActivos && (
+                          <BanderinEstado
+                            curp={p.curp_paciente}
+                            estatus={p.estatus_evolucion}
+                            onChange={(nuevo) => handleEstatusEvolucionCambiado(p.curp_paciente, nuevo)}
+                          />
+                        )}
+                        <span title={p.nombre_completo}>{p.nombre_completo}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-neutral-gray font-mono text-xs">{p.curp_paciente}</td>
                     <td className="px-4 py-3 text-neutral-gray text-xs">{p.clues_unidad_adscripcion}</td>
 
