@@ -330,6 +330,10 @@ class PacienteResponse(BaseModel):
         default_factory=list,
         description="Descripciones de los medicamentos de prescripciones activas.",
     )
+    adherencia_medicamentos: list[int | None] = Field(
+        default_factory=list,
+        description="Días de adherencia por medicamento activo, alineado posicionalmente con medicamentos_activos.",
+    )
     diagnosticos_activos: list[str] = Field(
         default_factory=list,
         description="Nombres de diagnósticos de prescripciones activas.",

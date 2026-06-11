@@ -217,9 +217,27 @@ export default function PacientesPage() {
                       )}
                     </td>
 
+                    {/* Columna de adherencia, alineada con medicamentos activos */}
                     <td className="px-4 py-3">
-                      {p.dias_adherencia != null ? (
-                        <span className="text-secondary font-medium">{p.dias_adherencia} días</span>
+                      {p.adherencia_medicamentos && p.adherencia_medicamentos.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {p.adherencia_medicamentos.slice(0, 2).map((dias, i) => (
+                            <span key={i} className="inline-flex items-center px-2 py-0.5 text-xs text-secondary font-medium">
+                              {dias != null ? `${dias} días` : "—"}
+                            </span>
+                          ))}
+                          {p.adherencia_medicamentos.length > 2 && (
+                            <span
+                              title={p.adherencia_medicamentos
+                                .slice(2)
+                                .map((d) => (d != null ? `${d} días` : "—"))
+                                .join("\n")}
+                              className="text-xs text-neutral-gray cursor-default"
+                            >
+                              +{p.adherencia_medicamentos.length - 2} más
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-neutral-gray">—</span>
                       )}

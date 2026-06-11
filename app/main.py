@@ -228,30 +228,37 @@ def listar_pacientes(
     # De paso sirve para calcular `tiene_prescripcion_activa` e `ids_con_activo`.
     ids_con_activo: set[int] = set()
     medicamentos_por_paciente: dict[int, list[str]] = {}
+    adherencia_por_paciente: dict[int, list[int | None]] = {}
 
     if pacientes_pag:
         ids_pag = [p.id_paciente for p in pacientes_pag]
         meds_rows = (
-            db.query(Registro.id_paciente, CatMedicamento.descripcion, CatMedicamento.clave_cnis)
+            db.query(Registro.id_paciente, CatMedicamento.descripcion, CatMedicamento.clave_cnis, Registro.fecha_inicio_tratamiento)
             .join(CatMedicamento, Registro.clave_cnis == CatMedicamento.clave_cnis)
             .filter(Registro.id_paciente.in_(ids_pag), Registro.es_activo == True)
-            .distinct()
+            .order_by(Registro.fecha_registro_sistema.desc())
             .all()
         )
-        for id_p, desc, clave in meds_rows:
+        for id_p, desc, clave, fecha_inicio in meds_rows:
             ids_con_activo.add(id_p)
             label = (desc[:60] + "..." if desc and len(desc) > 60 else desc or clave)
             if id_p not in medicamentos_por_paciente:
                 medicamentos_por_paciente[id_p] = []
+                adherencia_por_paciente[id_p] = []
             if label not in medicamentos_por_paciente[id_p]:
                 medicamentos_por_paciente[id_p].append(label)
+                adherencia_por_paciente[id_p].append(
+                    (date.today() - fecha_inicio).days if fecha_inicio else None
+                )
 
     resultados = []
     for p in pacientes_pag:
         tiene = p.id_paciente in ids_con_activo
         meds = medicamentos_por_paciente.get(p.id_paciente, [])
+        adherencias = adherencia_por_paciente.get(p.id_paciente, [])
         diags = _get_diagnosticos_activos(p.id_paciente, db)
         datos = _paciente_to_response(p, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
+        datos.adherencia_medicamentos = adherencias
         datos.dias_adherencia = _calcular_adherencia(p.id_paciente, db)
         resultados.append(datos)
 
@@ -366,9 +373,10 @@ def obtener_paciente(
     # La restricción RBAC aplica solo en escritura (PATCH / DELETE).
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
-    meds = _get_medicamentos_activos(paciente.id_paciente, db)
+    meds, adherencias = _get_medicamentos_y_adherencia(paciente.id_paciente, db)
     diags = _get_diagnosticos_activos(paciente.id_paciente, db)
     respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
+    respuesta.adherencia_medicamentos = adherencias
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -448,9 +456,10 @@ def actualizar_paciente(
         db.commit()
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
-    meds = _get_medicamentos_activos(paciente.id_paciente, db)
+    meds, adherencias = _get_medicamentos_y_adherencia(paciente.id_paciente, db)
     diags = _get_diagnosticos_activos(paciente.id_paciente, db)
     respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
+    respuesta.adherencia_medicamentos = adherencias
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
 
@@ -2289,14 +2298,33 @@ def _paciente_to_response(
 
 def _get_medicamentos_activos(id_paciente: int, db: Session) -> list[str]:
     """Retorna las descripciones de medicamentos de prescripciones activas del paciente."""
+    return _get_medicamentos_y_adherencia(id_paciente, db)[0]
+
+
+def _get_medicamentos_y_adherencia(id_paciente: int, db: Session) -> tuple[list[str], list[int | None]]:
+    """
+    Retorna (descripciones, dias_adherencia) de medicamentos de prescripciones activas
+    del paciente, alineados posicionalmente. Si hay varios registros activos para el
+    mismo medicamento, se usa el más reciente (`fecha_registro_sistema`).
+    """
     rows = (
-        db.query(CatMedicamento.descripcion, CatMedicamento.clave_cnis)
+        db.query(CatMedicamento.descripcion, CatMedicamento.clave_cnis, Registro.fecha_inicio_tratamiento)
         .join(Registro, Registro.clave_cnis == CatMedicamento.clave_cnis)
         .filter(Registro.id_paciente == id_paciente, Registro.es_activo == True)
-        .distinct()
+        .order_by(Registro.fecha_registro_sistema.desc())
         .all()
     )
-    return [(desc[:60] + "..." if desc and len(desc) > 60 else desc or clave) for desc, clave in rows]
+    medicamentos: list[str] = []
+    adherencias: list[int | None] = []
+    vistos: set[str] = set()
+    for desc, clave, fecha_inicio in rows:
+        label = desc[:60] + "..." if desc and len(desc) > 60 else desc or clave
+        if label in vistos:
+            continue
+        vistos.add(label)
+        medicamentos.append(label)
+        adherencias.append((date.today() - fecha_inicio).days if fecha_inicio else None)
+    return medicamentos, adherencias
 
 
 def _get_diagnosticos_activos(id_paciente: int, db: Session) -> list[str]:
