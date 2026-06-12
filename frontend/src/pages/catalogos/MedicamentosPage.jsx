@@ -21,7 +21,7 @@ const schemaCrear = z.object({
     .min(1, "La clave CNIS es requerida.")
     .max(20)
     .regex(/^[A-Z0-9\-]+$/i, "Solo letras, números y guiones."),
-  descripcion: z.string().min(1, "La descripción es requerida.").max(2000),
+  descripcion: z.string().min(1, "La descripción es requerida.").max(3000),
   grupo: z.string().max(150).optional().or(z.literal("")),
   tipo_clave: z.string().max(100).optional().or(z.literal("")),
   unidad: z.string().max(100).optional().or(z.literal("")),
@@ -29,7 +29,7 @@ const schemaCrear = z.object({
 });
 
 const schemaEditar = z.object({
-  descripcion: z.string().min(1, "La descripción es requerida.").max(2000),
+  descripcion: z.string().min(1, "La descripción es requerida.").max(3000),
   grupo: z.string().max(150).optional().or(z.literal("")),
   tipo_clave: z.string().max(100).optional().or(z.literal("")),
   unidad: z.string().max(100).optional().or(z.literal("")),
@@ -258,7 +258,7 @@ export default function MedicamentosPage() {
   const cargar = async () => {
     setLoading(true);
     try {
-      const data = await listarMedicamentos(soloActivos);
+      const data = await listarMedicamentos(null, soloActivos);
       setMedicamentos(data);
     } catch {
       toast.error("Error al cargar medicamentos.");

@@ -115,7 +115,7 @@ class DiagnosticoResponse(DiagnosticoBase):
 # ---------------------------------------------------------------------------
 
 class MedicamentoBase(BaseModel):
-    descripcion: str = Field(..., min_length=1, max_length=2000)
+    descripcion: str = Field(..., min_length=1, max_length=3000)
     grupo: str | None = Field(None, max_length=150)
     tipo_clave: str | None = Field(None, max_length=100)
     unidad: str | None = Field(None, max_length=100, description="Unidad singular del medicamento (ej. 'tableta', 'inyección', 'ml').")
@@ -127,7 +127,7 @@ class MedicamentoCreate(MedicamentoBase):
 
 
 class MedicamentoUpdate(BaseModel):
-    descripcion: str | None = Field(None, min_length=1, max_length=2000)
+    descripcion: str | None = Field(None, min_length=1, max_length=3000)
     grupo: str | None = Field(None, max_length=150)
     tipo_clave: str | None = Field(None, max_length=100)
     unidad: str | None = Field(None, max_length=100)
