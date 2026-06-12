@@ -8,7 +8,7 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink, UserPlus, Eye, ChevronLeft, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink, Eye, ChevronLeft, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { crearRegistroCompleto, actualizarRegistro, reemplazarRegistro, obtenerRegistro, listarOrdenesSuministro, listarOrdenesRemision, crearOrdenSuministro, crearOrdenRemision, eliminarOrdenSuministro, eliminarOrdenRemision } from "../../api/registros";
@@ -16,7 +16,6 @@ import { buscarPacientePorCurp } from "../../api/pacientes";
 import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos, listarDiagnosticos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
-import RegistrarMedicoModal from "../../components/shared/RegistrarMedicoModal";
 import useAuthStore from "../../store/authStore";
 
 // ---------------------------------------------------------------------------
@@ -95,15 +94,10 @@ function FilaPreview({ label, valor, mono = false, span2 = false }) {
 // ---------------------------------------------------------------------------
 // Componente buscador genérico (para médicos)
 // ---------------------------------------------------------------------------
-function BuscadorItem({ placeholder, items, displayFn, itemKey, onSelect, error, externalLabel }) {
+function BuscadorItem({ placeholder, items, displayFn, itemKey, onSelect, error }) {
   const [query, setQuery] = useState("");
   const [abierto, setAbierto] = useState(false);
   const ref = useRef(null);
-
-  // Cuando el padre notifica un médico recién creado, lo muestra como seleccionado
-  useEffect(() => {
-    if (externalLabel) setQuery(externalLabel);
-  }, [externalLabel]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -176,8 +170,6 @@ export default function RegistroFormPage() {
   const [medicamentos, setMedicamentos] = useState([]);
   const [diagnosticos, setDiagnosticos] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [mostrarModalMedico, setMostrarModalMedico] = useState(false);
-  const [medicoLabel, setMedicoLabel] = useState(undefined);
   const [enVistaPrevia, setEnVistaPrevia] = useState(false);
   const [nombreUnidadSeleccionada, setNombreUnidadSeleccionada] = useState("");
   const [unidadMedicamentoEdicion, setUnidadMedicamentoEdicion] = useState(null);
@@ -395,13 +387,6 @@ export default function RegistroFormPage() {
     }
     setEnVistaPrevia(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const handleMedicoCreado = (nuevo) => {
-    setMedicos((prev) => [...prev, nuevo]);
-    setValue("id_medico", nuevo.id_medico, { shouldValidate: true });
-    setMedicoLabel(`${nuevo.nombre_medico} — Céd. ${nuevo.cedula}`);
-    setMostrarModalMedico(false);
   };
 
   // Órdenes — modo edición (API directa)
@@ -718,18 +703,8 @@ export default function RegistroFormPage() {
                   itemKey={(m) => m.id_medico}
                   onSelect={(m) => setValue("id_medico", m?.id_medico ?? null, { shouldValidate: true })}
                   error={errors.id_medico}
-                  externalLabel={medicoLabel}
                 />
                 {errors.id_medico && <p className="text-red-500 text-xs mt-1">{errors.id_medico.message}</p>}
-                <button
-                  type="button"
-                  onClick={() => setMostrarModalMedico(true)}
-                  className="flex items-center gap-1.5 mt-2 text-xs text-primary hover:text-primary-dark
-                    font-medium transition"
-                >
-                  <UserPlus size={13} />
-                  ¿No encuentras al médico? Registrar uno nuevo
-                </button>
               </div>
             )}
 
@@ -1432,13 +1407,6 @@ export default function RegistroFormPage() {
           </div>
         );
       })()}
-
-      {mostrarModalMedico && (
-        <RegistrarMedicoModal
-          onClose={() => setMostrarModalMedico(false)}
-          onMedicoCreado={handleMedicoCreado}
-        />
-      )}
     </div>
   );
 }

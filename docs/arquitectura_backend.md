@@ -482,7 +482,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
 | GET | `/medicos` | Todos | Lista activos (`es_activo=True`) con filtro RBAC geográfico automático. Param opcional: `clues_adscripcion`. |
-| POST | `/medicos` | Todos con RBAC | Crear médico. RESPONSABLE_UNIDAD: solo su unidad. ADMIN_ESTATAL: unidades de su estado. SUPER_ADMIN: sin restricción. Nombre y cédula cifrados. |
+| POST | `/medicos` | ADMIN_ESTATAL, SUPER_ADMIN | Crear médico. RESPONSABLE_UNIDAD: 403 (ya no puede registrar médicos). ADMIN_ESTATAL: unidades de su estado. SUPER_ADMIN: sin restricción. Nombre y cédula cifrados. |
 | GET | `/medicos/{id_medico}` | Todos | Perfil de un médico. |
 | PATCH | `/medicos/{id_medico}` | Todos con RBAC | Actualizar datos o dar de baja (`es_activo=False`). RBAC geográfico: RESPONSABLE_UNIDAD solo su unidad, ADMIN_ESTATAL solo su estado. Re-cifra nombre/cédula si cambian. |
 | DELETE | `/medicos/{id_medico}` | Solo SUPER_ADMIN | Eliminación física (204 No Content). |

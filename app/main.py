@@ -795,7 +795,7 @@ def listar_medicos(
     response_model=MedicoResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Médicos"],
-    summary="Registrar un médico. RESPONSABLE_UNIDAD (su unidad) o SUPER_ADMIN.",
+    summary="Registrar un médico. ADMIN_ESTATAL (su estado) o SUPER_ADMIN.",
 )
 def crear_medico(
     payload: MedicoCreate,
@@ -805,11 +805,10 @@ def crear_medico(
     clues = payload.clues_adscripcion.strip().upper()
 
     if current_user.es_responsable_unidad:
-        if clues != current_user.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede registrar médicos de su propia unidad médica.",
-            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso para registrar médicos. Contacte a su administrador estatal.",
+        )
     elif current_user.es_admin_estatal:
         unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == clues).first()
         if not unidad or unidad.id_entidad != current_user.id_entidad:

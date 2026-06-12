@@ -7,9 +7,11 @@ import { UserPlus, Search, Pencil, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 
 import { listarMedicos, darBajaMedico } from "../../api/medicos";
+import useAuthStore from "../../store/authStore";
 
 export default function MedicosPage() {
   const navigate = useNavigate();
+  const { rolNombre } = useAuthStore();
 
   const [medicos, setMedicos] = useState([]);
   const [busqueda, setBusqueda] = useState("");
@@ -53,14 +55,16 @@ export default function MedicosPage() {
           <h2 className="text-xl font-semibold text-neutral-black">Médicos</h2>
           <p className="text-sm text-neutral-gray mt-0.5">{medicos.length} médicos registrados</p>
         </div>
-        <button
-          onClick={() => navigate("/medicos/nuevo")}
-          className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
-            text-sm font-medium px-4 py-2 rounded-lg transition"
-        >
-          <UserPlus size={16} />
-          Registrar médico
-        </button>
+        {rolNombre !== "RESPONSABLE_UNIDAD" && (
+          <button
+            onClick={() => navigate("/medicos/nuevo")}
+            className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
+              text-sm font-medium px-4 py-2 rounded-lg transition"
+          >
+            <UserPlus size={16} />
+            Registrar médico
+          </button>
+        )}
       </div>
 
       {/* Búsqueda */}

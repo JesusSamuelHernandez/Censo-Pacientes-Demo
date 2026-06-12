@@ -51,10 +51,10 @@ export default function MedicoFormPage() {
 
   const cluesSeleccionada = watch("clues_adscripcion");
 
-  // Para RESPONSABLE_UNIDAD en creación: pre-establecer su propia unidad
+  // RESPONSABLE_UNIDAD ya no puede registrar médicos nuevos
   useEffect(() => {
-    if (!esEdicion && rolNombre === ROLES.RESPONSABLE_UNIDAD && cluesUnidadAsignada) {
-      setValue("clues_adscripcion", cluesUnidadAsignada, { shouldValidate: false });
+    if (!esEdicion && rolNombre === ROLES.RESPONSABLE_UNIDAD) {
+      navigate("/medicos", { replace: true });
     }
   }, []);
 
