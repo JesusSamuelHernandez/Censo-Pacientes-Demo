@@ -62,11 +62,10 @@ El modelo `Registro` amplía el concepto de "receta" con posología completa (do
 ```
 app/
 ├── database.py          → Conexión a PostgreSQL, pool de conexiones, get_db().
-├── models.py            → 12 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
+├── models.py            → 10 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
 │                          Usuario, Paciente, Medico, Registro, NotificacionTransferencia,
 │                          UnidadMedicamento (unidad_medicamentos — relación N:M unidad↔medicamento),
-│                          ExpedientePaciente (expedientes_paciente), OrdenSuministro (ordenes_suministro),
-│                          OrdenRemision (ordenes_remision).
+│                          ExpedientePaciente (expedientes_paciente).
 ├── schemas.py           → Validación de entrada/salida con Pydantic v2.
 ├── auth.py              → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
 ├── crypto.py            → cifrar(), descifrar(), descifrar_o_none(), hash_sha256() con Fernet.
@@ -225,43 +224,12 @@ La PK es autoincremental. Reemplaza al modelo `Receta` desde Blueprint v6.
 | `duracion` | Integer | nullable | Número de unidades de tiempo |
 | `id_diagnostico` | Integer | FK → cat_diagnosticos (RESTRICT), nullable, index | Diagnóstico de esta prescripción |
 | `total_medicamento` | Float | nullable | Total calculado por `_aplicar_posologia()` |
-| `fuente_financiamiento` | String(100) | nullable | Ej. "Federal", "Estatal", "IMSS Bienestar" |
 | `id_registro_origen` | Integer | FK → registros (SET NULL), nullable | Auto-referencia para trazabilidad de reemplazos |
 | `fecha_registro_sistema` | DateTime(timezone=True) | NOT NULL, server_default=now() | Timestamp automático BD |
 | `id_usuario_registro` | Integer | FK → usuarios (SET NULL), nullable | Auditoría |
 | `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
 
-**Relaciones:** `medico`, `paciente`, `medicamento`, `unidad`, `diagnostico`, `usuario_registro`, `ordenes_suministro` (→ `OrdenSuministro`, cascade all, delete-orphan), `ordenes_remision` (→ `OrdenRemision`, cascade all, delete-orphan)
-
----
-
-### 5.6b OrdenSuministro — `ordenes_suministro`
-
-Órdenes de suministro asociadas a una prescripción. Una prescripción puede tener varias.
-
-| Campo | Tipo SQLAlchemy | Restricciones | Notas |
-|---|---|---|---|
-| `id` | Integer | PK, autoincrement | |
-| `id_registro` | Integer | FK → registros (CASCADE), NOT NULL, index | |
-| `numero_orden` | String(100) | NOT NULL | |
-| `fecha` | Date | nullable | |
-
-**Relaciones:** `registro` (→ `Registro`, back_populates=`ordenes_suministro`)
-
----
-
-### 5.6c OrdenRemision — `ordenes_remision`
-
-Órdenes de remisión asociadas a una prescripción. Misma estructura que `OrdenSuministro`, tabla independiente.
-
-| Campo | Tipo SQLAlchemy | Restricciones | Notas |
-|---|---|---|---|
-| `id` | Integer | PK, autoincrement | |
-| `id_registro` | Integer | FK → registros (CASCADE), NOT NULL, index | |
-| `numero_orden` | String(100) | NOT NULL | |
-| `fecha` | Date | nullable | |
-
-**Relaciones:** `registro` (→ `Registro`, back_populates=`ordenes_remision`)
+**Relaciones:** `medico`, `paciente`, `medicamento`, `unidad`, `diagnostico`, `usuario_registro`
 
 ---
 
@@ -364,15 +332,13 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 ---
 
-### 6.4b Expediente y Órdenes
+### 6.4b Expediente
 
 | Schema | Campos destacados |
 |---|---|
 | `ExpedienteCreate` | `clues` (CluesStr, normalizado a mayúsculas), `numero_expediente` (str, 1-100) |
 | `ExpedienteUpdate` | `numero_expediente` (str, 1-100) |
 | `ExpedienteResponse` | `id_paciente`, `clues`, `numero_expediente`. `from_attributes=True` |
-| `OrdenCreate` | `numero_orden` (str, 1-100), `fecha` (opt Date) |
-| `OrdenResponse` | `id`, `id_registro`, `numero_orden`, `fecha`. `from_attributes=True`. Usado tanto para órdenes de suministro como de remisión |
 
 ---
 
@@ -391,12 +357,12 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Schema | Campos destacados |
 |---|---|
-| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0), `fuente_financiamiento` (opt, max 100) |
+| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
 | `RegistroCreate` | Idéntico a Base |
-| `RegistroUpdate` | Todos opcionales, incluye `id_diagnostico`, `fuente_financiamiento` y `es_activo` (Soft Delete) |
-| `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido), `diagnostico` (DiagnosticoResponse embebido, nullable), `ordenes_suministro` (list[OrdenResponse]), `ordenes_remision` (list[OrdenResponse]) |
+| `RegistroUpdate` | Todos opcionales, incluye `id_diagnostico` y `es_activo` (Soft Delete) |
+| `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido), `diagnostico` (DiagnosticoResponse embebido, nullable) |
 | `RegistroListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[RegistroResponse]) |
-| `RegistroCompletoCreate` | Un solo payload que crea/reutiliza paciente + prescripción: `curp_paciente` (req), `nombre_completo` (req si CURP no existe), `fecha_nacimiento` (opt, solo si paciente nuevo), `clues_unidad_adscripcion` (opt), `id_diagnostico` (opt), `fuente_financiamiento` (opt), `numero_expediente` (opt — si se provee, hace upsert del expediente del paciente en la unidad de la prescripción), `ordenes_suministro` / `ordenes_remision` (list[OrdenCreate], se crean junto con el registro), más todos los campos de posología |
+| `RegistroCompletoCreate` | Un solo payload que crea/reutiliza paciente + prescripción: `curp_paciente` (req), `nombre_completo` (req si CURP no existe), `fecha_nacimiento` (opt, solo si paciente nuevo), `clues_unidad_adscripcion` (opt), `id_diagnostico` (opt), `numero_expediente` (opt — si se provee, hace upsert del expediente del paciente en la unidad de la prescripción), más todos los campos de posología |
 | `RegistroCompletoResponse` | Extiende `RegistroResponse` + `paciente_creado` (bool) |
 
 ---
@@ -501,14 +467,6 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | DELETE | `/registros/{id_registro}` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Soft Delete (`es_activo = False`). ADMIN_ESTATAL recibe 403. |
 | PATCH | `/registros/{id_registro}/validar-continuidad` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Reactiva el registro y recalcula `fecha_fin_tratamiento`. Con posología: calcula desde hoy. Sin posología (legacy): requiere `nueva_fecha_fin_tratamiento` en el body. ADMIN_ESTATAL recibe 403. |
 | POST | `/registros/{id_registro}/reemplazar` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Crea nuevo registro activo copiando el original con los cambios del payload; anula el original. Guarda `id_registro_origen` para trazabilidad. ADMIN_ESTATAL recibe 403. |
-| GET | `/registros/{id_registro}/ordenes-suministro` | Todos (con acceso) | Lista las órdenes de suministro de la prescripción. |
-| POST | `/registros/{id_registro}/ordenes-suministro` | Todos (con acceso) | Agrega una orden de suministro (`numero_orden`, `fecha` opcional). 201 Created. |
-| DELETE | `/registros/{id_registro}/ordenes-suministro/{id_orden}` | Todos (con acceso) | Elimina (físicamente) una orden de suministro. 204 No Content. |
-| GET | `/registros/{id_registro}/ordenes-remision` | Todos (con acceso) | Lista las órdenes de remisión de la prescripción. |
-| POST | `/registros/{id_registro}/ordenes-remision` | Todos (con acceso) | Agrega una orden de remisión (`numero_orden`, `fecha` opcional). 201 Created. |
-| DELETE | `/registros/{id_registro}/ordenes-remision/{id_orden}` | Todos (con acceso) | Elimina (físicamente) una orden de remisión. 204 No Content. |
-
-**Acceso a órdenes:** validado por el helper `_get_registro_con_acceso()` — 404 si el registro no existe, 403 si `RESPONSABLE_UNIDAD` y `registro.clues` no coincide con su unidad asignada.
 
 ---
 
@@ -594,7 +552,6 @@ class Rol:
 
 - `_verificar_acceso_paciente(paciente, usuario, db)`: Valida que el usuario puede operar sobre un paciente concreto.
 - `_verificar_acceso_registro(registro, usuario, db)`: Valida acceso a un registro concreto usando la unidad del paciente, no la del registro.
-- `_get_registro_con_acceso(id_registro, usuario, db)`: Obtiene un `Registro` por ID validando existencia (404) y acceso RBAC (403 si `RESPONSABLE_UNIDAD` y `registro.clues` no es su unidad). Usado por los endpoints de órdenes de suministro/remisión.
 
 ---
 

@@ -59,8 +59,7 @@ Correr solo los scripts que correspondan a los cambios de este deploy:
 # Migración estructural (nueva tabla / columna)
 python scripts/migrar_diagnosticos.py
 
-# Migración campos nuevos: fecha_nacimiento, fuente_financiamiento,
-# tablas expedientes_paciente, ordenes_suministro, ordenes_remision
+# Migración campos nuevos: fecha_nacimiento, tabla expedientes_paciente
 python scripts/migrar_campos_nuevos.py
 
 # Migración estatus de evolución del paciente (banderín de color)
@@ -91,7 +90,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_medico_baja.py` | Primera vez que se despliega el Soft Delete de médicos (columna `medicos.es_activo`) |
 | `migrar_unidad_medicamentos.py` | Primera vez que se despliega la tabla `unidad_medicamentos` (medicamentos por unidad) |
 | `migrar_recalculo_fin.py` | Si se modifica la lógica de `fecha_fin_tratamiento` en registros existentes |
-| `migrar_campos_nuevos.py` | Primera vez que se despliegan: `pacientes.fecha_nacimiento`, `registros.fuente_financiamiento`, tablas `expedientes_paciente`, `ordenes_suministro`, `ordenes_remision` |
+| `migrar_campos_nuevos.py` | Primera vez que se despliegan: `pacientes.fecha_nacimiento`, tabla `expedientes_paciente` |
 | `migrar_estatus_evolucion.py` | Primera vez que se despliega el banderín de estatus de evolución: `pacientes.estatus_evolucion`, `pacientes.id_usuario_ultimo_cambio_estatus`, `pacientes.fecha_ultimo_cambio_estatus` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |

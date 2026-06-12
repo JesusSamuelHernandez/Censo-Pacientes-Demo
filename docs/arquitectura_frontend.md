@@ -170,8 +170,6 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `anularRegistro(id)` → `DELETE /registros/{id}`
 - `validarContinuidad(id, nuevaFechaFin)` → `PATCH /registros/{id}/validar-continuidad`
 - `reemplazarRegistro(id, data)` → `POST /registros/{id}/reemplazar`
-- `listarOrdenesSuministro(id)` / `crearOrdenSuministro(id, data)` / `eliminarOrdenSuministro(id, idOrden)` → `/registros/{id}/ordenes-suministro[...]`
-- `listarOrdenesRemision(id)` / `crearOrdenRemision(id, data)` / `eliminarOrdenRemision(id, idOrden)` → `/registros/{id}/ordenes-remision[...]`
 
 ### 4.5 `catalogos.js`
 - `listarDiagnosticos(soloActivos)` → `GET /catalogos/diagnosticos`
@@ -271,11 +269,9 @@ Comportamiento por rol:
 
 **Confirmado por (campo fijo):** El select `confirmado_por` aparece deshabilitado y fijo en `"Médico tratante"` (`CONFIRMADO_POR_FIJO` en `RegistroFormPage.jsx`). En modo creación, `defaultValues` lo precarga con ese valor; en modo edición se muestra el valor históricamente guardado. Las demás opciones (`CONFIRMADO_POR_OPTIONS`: "Consulta Externa", "Farmacia Hospitalaria", "Comité de Medicamentos", "Dirección Médica", "Trabajo Social") se conservan en el array por si se reactivan más adelante.
 
-**Fuente de financiamiento y número de expediente:** Campo de texto opcional `fuente_financiamiento` (ej. "Federal", "Estatal", "IMSS Bienestar"). El campo **Número de expediente** solo aparece al crear (no en edición); si se captura, se envía como `numero_expediente` en `POST /registros/completo`, que el backend usa para hacer upsert del expediente del paciente en la unidad de la prescripción (`POST /pacientes/{curp}/expedientes`).
+**Número de expediente:** El campo **Número de expediente** solo aparece al crear (no en edición); si se captura, se envía como `numero_expediente` en `POST /registros/completo`, que el backend usa para hacer upsert del expediente del paciente en la unidad de la prescripción (`POST /pacientes/{curp}/expedientes`).
 
-**Órdenes de suministro y de remisión:** Dos secciones independientes (listas dinámicas) donde el usuario puede agregar/quitar entradas con `numero_orden` y `fecha` opcional, antes de guardar. Se envían como `ordenes_suministro` / `ordenes_remision` (arrays) dentro del payload de `POST /registros/completo`, que las crea junto con el registro.
-
-**Flujo Vista previa:** El botón "Vista previa" (ojo) valida todos los campos antes de mostrar un resumen de la prescripción (Paciente, Prescripción, Posología, fuente de financiamiento, número de expediente). El usuario confirma o regresa a editar. El form permanece montado pero oculto con CSS (`hidden`) para preservar el estado de `react-hook-form`. Solo en modo edición se muestra directamente "Guardar cambios". Envía a `POST /registros/completo`.
+**Flujo Vista previa:** El botón "Vista previa" (ojo) valida todos los campos antes de mostrar un resumen de la prescripción (Paciente, Prescripción, Posología, número de expediente). El usuario confirma o regresa a editar. El form permanece montado pero oculto con CSS (`hidden`) para preservar el estado de `react-hook-form`. Solo en modo edición se muestra directamente "Guardar cambios". Envía a `POST /registros/completo`.
 
 ---
 

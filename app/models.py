@@ -11,8 +11,6 @@ Tablas:
     - Medico                 : Profesionales médicos adscritos a unidades.
     - Registro               : Censo de prescripción de medicamentos por paciente (Blueprint v6).
     - ExpedientePaciente     : Número de expediente del paciente por unidad (N expedientes distintos).
-    - OrdenSuministro        : Órdenes de suministro asociadas a una prescripción (N por Registro).
-    - OrdenRemision          : Órdenes de remisión asociadas a una prescripción (N por Registro).
 
 Convenciones:
     - Soft Delete        : columna es_activo (Boolean) en Paciente y Registro.
@@ -375,8 +373,6 @@ class Registro(Base):
         index=True,
     )
 
-    fuente_financiamiento: Mapped[str | None] = mapped_column(String(100), nullable=True)
-
     # Trazabilidad de reemplazos (cuando se edita desde Notificaciones)
     id_registro_origen: Mapped[int | None] = mapped_column(
         Integer,
@@ -406,14 +402,6 @@ class Registro(Base):
     usuario_registro: Mapped["Usuario | None"] = relationship(
         back_populates="registros_registrados",
         foreign_keys=[id_usuario_registro],
-    )
-    ordenes_suministro: Mapped[list["OrdenSuministro"]] = relationship(
-        back_populates="registro",
-        cascade="all, delete-orphan",
-    )
-    ordenes_remision: Mapped[list["OrdenRemision"]] = relationship(
-        back_populates="registro",
-        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
@@ -453,52 +441,6 @@ class ExpedientePaciente(Base):
 
     def __repr__(self) -> str:
         return f"<ExpedientePaciente paciente={self.id_paciente} clues={self.clues!r}>"
-
-
-# ---------------------------------------------------------------------------
-# 7b. Órdenes de Suministro (N por Registro)
-# ---------------------------------------------------------------------------
-class OrdenSuministro(Base):
-    """Órdenes de suministro asociadas a una prescripción. Múltiples por Registro."""
-    __tablename__ = "ordenes_suministro"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    id_registro: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("registros.id_registro", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    numero_orden: Mapped[str] = mapped_column(String(100), nullable=False)
-    fecha: Mapped[date | None] = mapped_column(Date, nullable=True)
-
-    registro: Mapped["Registro"] = relationship(back_populates="ordenes_suministro")
-
-    def __repr__(self) -> str:
-        return f"<OrdenSuministro id={self.id} registro={self.id_registro}>"
-
-
-# ---------------------------------------------------------------------------
-# 7c. Órdenes de Remisión (N por Registro)
-# ---------------------------------------------------------------------------
-class OrdenRemision(Base):
-    """Órdenes de remisión asociadas a una prescripción. Múltiples por Registro."""
-    __tablename__ = "ordenes_remision"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    id_registro: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("registros.id_registro", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    numero_orden: Mapped[str] = mapped_column(String(100), nullable=False)
-    fecha: Mapped[date | None] = mapped_column(Date, nullable=True)
-
-    registro: Mapped["Registro"] = relationship(back_populates="ordenes_remision")
-
-    def __repr__(self) -> str:
-        return f"<OrdenRemision id={self.id} registro={self.id_registro}>"
 
 
 # ---------------------------------------------------------------------------
