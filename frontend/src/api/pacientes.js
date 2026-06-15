@@ -43,6 +43,14 @@ export const buscarPacientePorCurp = async (curp) => {
   return data; // { existe, id_paciente, nombre_completo, clues_unidad_adscripcion, nombre_unidad, total_registros }
 };
 
+// GET /pacientes/buscar-por-nombre?q=...&limite=15 — Búsqueda nacional por nombre, sin filtro RBAC
+export const buscarPacientesPorNombre = async (q, limite = 15) => {
+  const { data } = await axiosClient.get("/pacientes/buscar-por-nombre", {
+    params: { q, limite },
+  });
+  return data; // { resultados: [...] }
+};
+
 // GET /pacientes/{curp}/registros — Todas las prescripciones del paciente, sin filtro de unidad
 export const listarRegistrosDePaciente = async (curp, soloActivos = false) => {
   const { data } = await axiosClient.get(`/pacientes/${curp}/registros`, {

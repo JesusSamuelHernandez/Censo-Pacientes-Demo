@@ -12,7 +12,7 @@ import { ArrowLeft, Save, Search, X, UserCheck, UserX, ExternalLink, Eye, Chevro
 import { toast } from "sonner";
 
 import { crearRegistroCompleto, actualizarRegistro, reemplazarRegistro, obtenerRegistro } from "../../api/registros";
-import { buscarPacientePorCurp } from "../../api/pacientes";
+import { buscarPacientePorCurp, buscarPacientesPorNombre } from "../../api/pacientes";
 import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos, listarDiagnosticos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
@@ -76,6 +76,12 @@ const formatFecha = (iso) => {
   if (!iso) return "—";
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
+};
+
+const formatFechaCorta = (iso) => {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y.slice(2)}`;
 };
 
 function FilaPreview({ label, valor, mono = false, span2 = false }) {
@@ -153,6 +159,148 @@ function BuscadorItem({ placeholder, items, displayFn, itemKey, onSelect, error 
 }
 
 // ---------------------------------------------------------------------------
+// Tarjeta de paciente identificado (por CURP o por nombre)
+// ---------------------------------------------------------------------------
+function PacienteEncontradoCard({ data, historialId, navigate, onQuitar }) {
+  return (
+    <div className="flex items-start justify-between gap-3 bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3">
+      <div className="flex items-start gap-2">
+        <UserCheck size={16} className="text-secondary mt-0.5 flex-shrink-0" />
+        <div>
+          <p className="text-sm font-semibold text-neutral-black">{data.nombre_completo}</p>
+          <p className="text-xs text-neutral-gray mt-0.5">
+            Unidad: <span className="font-medium">{data.nombre_unidad ?? data.clues_unidad_adscripcion}</span>
+          </p>
+          <p className="text-xs text-neutral-gray">
+            Prescripciones registradas: <span className="font-medium">{data.total_registros}</span>
+          </p>
+          {data.fecha_nacimiento && (
+            <p className="text-xs text-neutral-gray">
+              Fecha de nacimiento: <span className="font-medium">{formatFecha(data.fecha_nacimiento)}</span>
+            </p>
+          )}
+          <p className="text-xs text-secondary mt-1">Paciente identificado — continúa llenando la prescripción.</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <button type="button"
+          onClick={() => navigate(`/pacientes/${historialId}`, {
+            state: { from: "registro-form", curpOrigen: typeof historialId === "string" ? historialId : null }
+          })}
+          className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark
+            border border-primary/30 hover:border-primary px-3 py-1.5 rounded-lg transition">
+          <ExternalLink size={12} />
+          Ver historial
+        </button>
+        {onQuitar && (
+          <button type="button" onClick={onQuitar}
+            className="text-neutral-gray hover:text-neutral-black p-1.5">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Buscador "as you type" de pacientes por nombre (para pacientes sin CURP)
+// ---------------------------------------------------------------------------
+function BuscadorPacientePorNombre({ onSelect }) {
+  const [query, setQuery] = useState("");
+  const [resultados, setResultados] = useState([]);
+  const [estado, setEstado] = useState(null); // null | "buscando" | "resultados" | "sin_resultados" | "error"
+  const [abierto, setAbierto] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setAbierto(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 3) {
+      return;
+    }
+    const timeoutId = setTimeout(() => {
+      setEstado("buscando");
+      buscarPacientesPorNombre(q)
+        .then((res) => {
+          setResultados(res.resultados);
+          setEstado(res.resultados.length > 0 ? "resultados" : "sin_resultados");
+        })
+        .catch(() => setEstado("error"));
+    }, 350);
+    return () => clearTimeout(timeoutId);
+  }, [query]);
+
+  const limpiar = () => { setQuery(""); setResultados([]); setEstado(null); };
+
+  // El estado de búsqueda solo es relevante si el query sigue cumpliendo el mínimo
+  const estadoVisible = query.trim().length >= 3 ? estado : null;
+
+  return (
+    <div ref={ref} className="relative">
+      <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-white text-sm">
+        <Search size={14} className="text-neutral-gray flex-shrink-0" />
+        <input
+          type="text"
+          placeholder="Escribe el nombre del paciente (apellidos o nombre, mín. 3 letras)..."
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setAbierto(true); }}
+          onFocus={() => { if (resultados.length > 0) setAbierto(true); }}
+          className="flex-1 bg-transparent outline-none text-neutral-black placeholder:text-neutral-gray"
+        />
+        {query && (
+          <button type="button" onClick={limpiar} className="text-neutral-gray hover:text-neutral-black">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {estadoVisible === "buscando" && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-gray/20 rounded-lg
+          shadow-lg px-4 py-3 text-sm text-neutral-gray flex items-center gap-2">
+          <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block" />
+          Buscando...
+        </div>
+      )}
+
+      {abierto && estadoVisible === "resultados" && (
+        <ul className="absolute z-50 w-full mt-1 bg-white border border-neutral-gray/20 rounded-lg
+          shadow-lg max-h-64 overflow-y-auto">
+          {resultados.map((item) => (
+            <li key={item.id_paciente}
+              onMouseDown={() => { onSelect(item); limpiar(); setAbierto(false); }}
+              className="px-4 py-2.5 cursor-pointer hover:bg-primary/5 text-sm">
+              <p className="font-medium text-neutral-black">{item.nombre_completo}</p>
+              <p className="text-xs text-neutral-gray">
+                Nac. {formatFechaCorta(item.fecha_nacimiento)} — {item.nombre_unidad ?? item.clues_unidad_adscripcion}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {estadoVisible === "sin_resultados" && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-gray/20 rounded-lg
+          shadow-lg px-4 py-3 text-sm text-neutral-gray">
+          No se encontraron pacientes con ese nombre.
+        </div>
+      )}
+
+      {estadoVisible === "error" && (
+        <p className="text-sm text-red-500 mt-1">Error al buscar. Intenta de nuevo.</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Componente principal
 // ---------------------------------------------------------------------------
 export default function RegistroFormPage() {
@@ -181,6 +329,11 @@ export default function RegistroFormPage() {
   const [curpBusqueda, setCurpBusqueda] = useState("");
   const [busquedaEstado, setBusquedaEstado] = useState(null); // null | "buscando" | "encontrado" | "no_encontrado" | "error"
   const [resultadoBusqueda, setResultadoBusqueda] = useState(null);
+
+  // Paciente identificado por búsqueda de nombre (pacientes sin CURP)
+  const [pacienteSeleccionado, setPacienteSeleccionado] = useState(null);
+  // CURP opcional al registrar un paciente nuevo sin identificar previamente
+  const [curpPacienteNuevo, setCurpPacienteNuevo] = useState("");
 
   const {
     register,
@@ -262,6 +415,7 @@ export default function RegistroFormPage() {
       setResultadoBusqueda(null);
       return;
     }
+    setPacienteSeleccionado(null);
     setBusquedaEstado("buscando");
     buscarPacientePorCurp(curp)
       .then((res) => {
@@ -270,6 +424,9 @@ export default function RegistroFormPage() {
       })
       .catch(() => setBusquedaEstado("error"));
   }, [curpBusqueda]);
+
+  // Paciente identificado (por CURP o por nombre) — fuente única para la tarjeta y los payloads
+  const pacienteEncontrado = busquedaEstado === "encontrado" ? resultadoBusqueda : pacienteSeleccionado;
 
   // Pre-carga la CURP cuando se regresa desde el historial del paciente
   useEffect(() => {
@@ -351,22 +508,34 @@ export default function RegistroFormPage() {
     return payload;
   };
 
-  const handleVistaPrevia = async () => {
-    // Validar CURP antes de mostrar preview (solo en creación)
-    if (!esEdicion) {
-      const curp = curpBusqueda.trim().toUpperCase();
-      if (!CURP_REGEX.test(curp)) {
-        toast.error("Ingresa una CURP válida para identificar al paciente.");
-        return;
+  // Valida la identificación del paciente (solo en creación): paciente ya
+  // identificado (por CURP o por nombre), o datos mínimos para uno nuevo.
+  const _validarIdentificacionPaciente = (values) => {
+    if (pacienteEncontrado) return true;
+
+    const curp = curpBusqueda.trim().toUpperCase();
+    if (CURP_REGEX.test(curp)) {
+      if (busquedaEstado === "no_encontrado" && !values.nombre_completo?.trim()) {
+        toast.error("El nombre completo del paciente es requerido.");
+        return false;
       }
-      if (busquedaEstado === "no_encontrado") {
-        const vals = watch();
-        if (!vals.nombre_completo?.trim()) {
-          toast.error("El nombre completo del paciente es requerido.");
-          return;
-        }
-      }
+      return true;
     }
+
+    // Sin CURP y sin paciente identificado: se registrará un paciente nuevo
+    if (!values.nombre_completo?.trim()) {
+      toast.error("El nombre completo del paciente es requerido.");
+      return false;
+    }
+    if (curpPacienteNuevo.trim() && !CURP_REGEX.test(curpPacienteNuevo.trim().toUpperCase())) {
+      toast.error("La CURP del paciente nuevo no es válida.");
+      return false;
+    }
+    return true;
+  };
+
+  const handleVistaPrevia = async () => {
+    if (!esEdicion && !_validarIdentificacionPaciente(watch())) return;
     const valido = await trigger();
     if (!valido) {
       toast.error("Completa todos los campos antes de continuar.");
@@ -377,19 +546,7 @@ export default function RegistroFormPage() {
   };
 
   const onSubmit = async (values) => {
-    if (!esEdicion) {
-      // Validar que hay CURP antes de enviar
-      const curp = curpBusqueda.trim().toUpperCase();
-      if (!CURP_REGEX.test(curp)) {
-        toast.error("Ingresa una CURP válida para identificar al paciente.");
-        return;
-      }
-      // Si el paciente no existe, el nombre es obligatorio
-      if (busquedaEstado === "no_encontrado" && !values.nombre_completo?.trim()) {
-        toast.error("El nombre completo del paciente es requerido.");
-        return;
-      }
-    }
+    if (!esEdicion && !_validarIdentificacionPaciente(values)) return;
 
     setLoading(true);
     try {
@@ -406,10 +563,25 @@ export default function RegistroFormPage() {
       } else {
         const payload = {
           ...camposBase,
-          curp_paciente: curpBusqueda.trim().toUpperCase(),
-          ...(busquedaEstado === "no_encontrado" && fechaNacimientoNuevo && { fecha_nacimiento: fechaNacimientoNuevo }),
           ...(numeroExpediente.trim() && { numero_expediente: numeroExpediente.trim() }),
         };
+
+        if (pacienteSeleccionado) {
+          payload.id_paciente = pacienteSeleccionado.id_paciente;
+        } else {
+          const curp = curpBusqueda.trim().toUpperCase();
+          if (CURP_REGEX.test(curp)) {
+            payload.curp_paciente = curp;
+            if (busquedaEstado === "no_encontrado" && fechaNacimientoNuevo) {
+              payload.fecha_nacimiento = fechaNacimientoNuevo;
+            }
+          } else {
+            if (fechaNacimientoNuevo) payload.fecha_nacimiento = fechaNacimientoNuevo;
+            const curpNueva = curpPacienteNuevo.trim().toUpperCase();
+            if (curpNueva) payload.curp_paciente = curpNueva;
+          }
+        }
+
         const resultado = await crearRegistroCompleto(payload);
         const msg = resultado.paciente_creado
           ? "Paciente y prescripción registrados correctamente."
@@ -506,35 +678,7 @@ export default function RegistroFormPage() {
                 )}
 
                 {busquedaEstado === "encontrado" && resultadoBusqueda && (
-                  <div className="flex items-start justify-between gap-3 bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3">
-                    <div className="flex items-start gap-2">
-                      <UserCheck size={16} className="text-secondary mt-0.5 flex-shrink-0" />
-                      <div>
-                        <p className="text-sm font-semibold text-neutral-black">{resultadoBusqueda.nombre_completo}</p>
-                        <p className="text-xs text-neutral-gray mt-0.5">
-                          Unidad: <span className="font-medium">{resultadoBusqueda.nombre_unidad ?? resultadoBusqueda.clues_unidad_adscripcion}</span>
-                        </p>
-                        <p className="text-xs text-neutral-gray">
-                          Prescripciones registradas: <span className="font-medium">{resultadoBusqueda.total_registros}</span>
-                        </p>
-                        {resultadoBusqueda.fecha_nacimiento && (
-                          <p className="text-xs text-neutral-gray">
-                            Fecha de nacimiento: <span className="font-medium">{formatFecha(resultadoBusqueda.fecha_nacimiento)}</span>
-                          </p>
-                        )}
-                        <p className="text-xs text-secondary mt-1">Paciente identificado — continúa llenando la prescripción.</p>
-                      </div>
-                    </div>
-                    <button type="button"
-                      onClick={() => navigate(`/pacientes/${curpBusqueda}`, {
-                        state: { from: "registro-form", curpOrigen: curpBusqueda }
-                      })}
-                      className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark
-                        border border-primary/30 hover:border-primary px-3 py-1.5 rounded-lg transition flex-shrink-0">
-                      <ExternalLink size={12} />
-                      Ver historial
-                    </button>
-                  </div>
+                  <PacienteEncontradoCard data={resultadoBusqueda} historialId={curpBusqueda} navigate={navigate} />
                 )}
 
                 {busquedaEstado === "no_encontrado" && (
@@ -551,8 +695,27 @@ export default function RegistroFormPage() {
                 )}
               </div>
 
-              {/* Campos del paciente nuevo — solo si no fue encontrado */}
-              {busquedaEstado === "no_encontrado" && (
+              {/* Buscador por nombre — alternativa para pacientes sin CURP */}
+              {busquedaEstado !== "encontrado" && (
+                <div className="rounded-xl border border-neutral-gray/20 bg-neutral-light/50 p-4 space-y-3">
+                  <p className="text-xs font-medium text-neutral-gray">
+                    Buscar por nombre <span className="font-normal text-neutral-gray/70">(si el paciente no tiene CURP)</span>
+                  </p>
+                  {pacienteSeleccionado ? (
+                    <PacienteEncontradoCard
+                      data={pacienteSeleccionado}
+                      historialId={pacienteSeleccionado.curp_paciente ?? pacienteSeleccionado.id_paciente}
+                      navigate={navigate}
+                      onQuitar={() => setPacienteSeleccionado(null)}
+                    />
+                  ) : (
+                    <BuscadorPacientePorNombre onSelect={setPacienteSeleccionado} />
+                  )}
+                </div>
+              )}
+
+              {/* Campos del paciente nuevo — solo si no se identificó un paciente existente */}
+              {!pacienteEncontrado && (
                 <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50/30 p-4">
                   <p className="text-xs font-medium text-amber-700">Datos del paciente nuevo</p>
 
@@ -582,6 +745,23 @@ export default function RegistroFormPage() {
                     />
                   </div>
 
+                  {!CURP_REGEX.test(curpBusqueda.trim().toUpperCase()) && (
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-black mb-1">
+                        CURP
+                        <span className="text-neutral-gray font-normal ml-1">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Si el paciente cuenta con CURP, captúrala aquí"
+                        value={curpPacienteNuevo}
+                        onChange={(e) => setCurpPacienteNuevo(e.target.value.toUpperCase())}
+                        maxLength={18}
+                        className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-white
+                          text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition font-mono"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1003,19 +1183,20 @@ export default function RegistroFormPage() {
                   Paciente
                 </p>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                  <FilaPreview label="CURP" valor={curpBusqueda} mono />
-                  {busquedaEstado === "no_encontrado"
-                    ? <FilaPreview label="Nombre" valor={vals.nombre_completo} />
-                    : <FilaPreview label="Nombre" valor={resultadoBusqueda?.nombre_completo} />
-                  }
+                  <FilaPreview
+                    label="CURP"
+                    valor={pacienteEncontrado?.curp_paciente || curpBusqueda || curpPacienteNuevo.trim().toUpperCase()}
+                    mono
+                  />
+                  <FilaPreview label="Nombre" valor={pacienteEncontrado ? pacienteEncontrado.nombre_completo : vals.nombre_completo} />
                   <FilaPreview
                     label="Estado"
-                    valor={busquedaEstado === "encontrado" ? "Paciente existente" : "Paciente nuevo"}
+                    valor={pacienteEncontrado ? "Paciente existente" : "Paciente nuevo"}
                   />
-                  {busquedaEstado === "encontrado" && resultadoBusqueda?.fecha_nacimiento && (
-                    <FilaPreview label="Fecha de nacimiento" valor={formatFecha(resultadoBusqueda.fecha_nacimiento)} />
+                  {pacienteEncontrado?.fecha_nacimiento && (
+                    <FilaPreview label="Fecha de nacimiento" valor={formatFecha(pacienteEncontrado.fecha_nacimiento)} />
                   )}
-                  {busquedaEstado === "no_encontrado" && fechaNacimientoNuevo && (
+                  {!pacienteEncontrado && fechaNacimientoNuevo && (
                     <FilaPreview label="Fecha de nacimiento" valor={formatFecha(fechaNacimientoNuevo)} />
                   )}
                 </div>

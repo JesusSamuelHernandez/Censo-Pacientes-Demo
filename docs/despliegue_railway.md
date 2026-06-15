@@ -65,6 +65,9 @@ python scripts/migrar_campos_nuevos.py
 # Migración estatus de evolución del paciente (banderín de color)
 python scripts/migrar_estatus_evolucion.py
 
+# Migración CURP opcional (pacientes.curp_hash / curp_paciente nullable)
+python scripts/migrar_paciente_curp_opcional.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
 ```
@@ -92,6 +95,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_recalculo_fin.py` | Si se modifica la lógica de `fecha_fin_tratamiento` en registros existentes |
 | `migrar_campos_nuevos.py` | Primera vez que se despliegan: `pacientes.fecha_nacimiento`, tabla `expedientes_paciente` |
 | `migrar_estatus_evolucion.py` | Primera vez que se despliega el banderín de estatus de evolución: `pacientes.estatus_evolucion`, `pacientes.id_usuario_ultimo_cambio_estatus`, `pacientes.fecha_ultimo_cambio_estatus` |
+| `migrar_paciente_curp_opcional.py` | Primera vez que se despliega el registro de pacientes sin CURP: vuelve nullable `pacientes.curp_hash` y `pacientes.curp_paciente` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |
@@ -142,11 +146,14 @@ Verificar que los servicios de Railway tengan estas variables configuradas:
 5. Verificar los campos nuevos del deploy de campos adicionales (junio 2026):
    - Al registrar un paciente, el campo **Fecha de nacimiento** aparece y se guarda.
    - Al buscar un paciente existente por CURP, el card muestra su fecha de nacimiento (si la tiene).
-   - Al crear una prescripción, aparecen los campos **Fuente de financiamiento** y **Número de expediente**.
-   - Las secciones **Órdenes de suministro** y **Órdenes de remisión** permiten agregar y eliminar entradas.
+   - Al crear una prescripción, aparece el campo **Número de expediente**.
    - En el formulario de registro, el campo **Confirmado por** aparece deshabilitado y fijo en "Médico tratante".
 6. Verificar el banderín de estatus de evolución (junio 2026):
    - En **Pacientes Activos**, cada paciente muestra un banderín de color a la izquierda de su nombre (verde por defecto).
    - Al hacer clic en el banderín se abre una ventana con la leyenda de colores y permite cambiar el estatus.
    - El cambio de color persiste al recargar la página.
-7. Revisar los logs del backend en Railway si hay errores 500.
+7. Verificar CURP opcional / búsqueda por nombre (junio 2026):
+   - Registrar un paciente nuevo **sin CURP** (solo nombre completo) y confirmar que se guarda correctamente.
+   - Buscarlo por nombre desde "Registrar Paciente" (apellido o nombre primero, con/sin acentos) y confirmar que aparece con su fecha de nacimiento en formato DD/MM/AA.
+   - Seleccionarlo y verificar que "Ver historial" carga su detalle.
+8. Revisar los logs del backend en Railway si hay errores 500.

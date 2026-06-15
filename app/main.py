@@ -27,6 +27,7 @@ Adherencia:
     (date.today() - registro.fecha_inicio_tratamiento).days
 """
 import calendar
+import unicodedata
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
@@ -53,6 +54,8 @@ from app.database import engine, get_db
 from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, Registro, UnidadMedica, UnidadMedicamento, Usuario
 from app.schemas import (
     BusquedaCurpResponse,
+    BusquedaNombreItem,
+    BusquedaNombreResponse,
     CambiarPasswordRequest,
     DiagnosticoCreate,
     DiagnosticoResponse,
@@ -348,6 +351,58 @@ def buscar_paciente_por_curp(
     )
 
 
+def _normalizar_texto(texto: str) -> str:
+    """Mayúsculas, sin espacios extremos y sin acentos (NFD, quitando categoría Mn)."""
+    sin_acentos = unicodedata.normalize("NFD", texto.strip().upper())
+    return "".join(c for c in sin_acentos if unicodedata.category(c) != "Mn")
+
+
+@app.get(
+    "/pacientes/buscar-por-nombre",
+    response_model=BusquedaNombreResponse,
+    tags=["Pacientes"],
+    summary="Búsqueda nacional de pacientes por nombre (pacientes sin CURP). Sin filtro RBAC — todos los roles.",
+)
+def buscar_pacientes_por_nombre(
+    q: str = Query(..., min_length=3, description="Texto a buscar en el nombre completo del paciente."),
+    limite: int = Query(15, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    tokens_busqueda = _normalizar_texto(q).split()
+
+    candidatos: list[tuple[Paciente, str, str]] = []
+    for paciente in db.query(Paciente).all():
+        nombre = descifrar(paciente.nombre_completo)
+        nombre_normalizado = _normalizar_texto(nombre)
+        tokens_nombre = nombre_normalizado.split()
+        if all(
+            any(token_nombre.startswith(token_q) for token_nombre in tokens_nombre)
+            for token_q in tokens_busqueda
+        ):
+            candidatos.append((paciente, nombre, nombre_normalizado))
+
+    candidatos.sort(key=lambda c: c[2])
+    candidatos = candidatos[:limite]
+
+    unidades = {u.clues: u.nombre_de_la_unidad for u in db.query(UnidadMedica).all()}
+
+    resultados = [
+        BusquedaNombreItem(
+            id_paciente=paciente.id_paciente,
+            nombre_completo=nombre,
+            fecha_nacimiento=paciente.fecha_nacimiento,
+            curp_paciente=descifrar_o_none(paciente.curp_paciente),
+            clues_unidad_adscripcion=paciente.clues_unidad_adscripcion,
+            nombre_unidad=unidades.get(paciente.clues_unidad_adscripcion),
+            total_registros=db.query(Registro).filter(Registro.id_paciente == paciente.id_paciente).count(),
+        )
+        for paciente, nombre, _ in candidatos
+    ]
+
+    return BusquedaNombreResponse(resultados=resultados)
+
+
 @app.get(
     "/pacientes/{curp_paciente}",
     response_model=PacienteResponse,
@@ -360,11 +415,7 @@ def obtener_paciente(
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     marcar_registros_vencidos(db)
-    paciente = db.query(Paciente).filter(
-        Paciente.curp_hash == hash_sha256(curp_paciente)
-    ).first()
-    if not paciente:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
 
     # Lectura nacional sin restricción: cualquier rol puede consultar el detalle de
     # un paciente para hacer búsquedas al registrar una nueva prescripción.
@@ -391,11 +442,7 @@ def actualizar_paciente(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    paciente = db.query(Paciente).filter(
-        Paciente.curp_hash == hash_sha256(curp_paciente)
-    ).first()
-    if not paciente:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
 
     # RBAC para escritura — permite traslado entrante para RESPONSABLE_UNIDAD
     if current_user.es_responsable_unidad:
@@ -473,11 +520,7 @@ def dar_baja_paciente(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    paciente = db.query(Paciente).filter(
-        Paciente.curp_hash == hash_sha256(curp_paciente)
-    ).first()
-    if not paciente:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
 
     _verificar_acceso_paciente(paciente, current_user, db)
 
@@ -514,11 +557,7 @@ def listar_expedientes_paciente(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    paciente = db.query(Paciente).filter(
-        Paciente.curp_hash == hash_sha256(curp_paciente)
-    ).first()
-    if not paciente:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
     expedientes = db.query(ExpedientePaciente).filter(
         ExpedientePaciente.id_paciente == paciente.id_paciente
     ).all()
@@ -538,11 +577,7 @@ def upsert_expediente_paciente(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    paciente = db.query(Paciente).filter(
-        Paciente.curp_hash == hash_sha256(curp_paciente)
-    ).first()
-    if not paciente:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
 
     if current_user.es_responsable_unidad and payload.clues != current_user.clues_unidad_asignada:
         raise HTTPException(
@@ -585,11 +620,7 @@ def listar_registros_de_paciente(
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     marcar_registros_vencidos(db)
-    paciente = db.query(Paciente).filter(
-        Paciente.curp_hash == hash_sha256(curp_paciente)
-    ).first()
-    if not paciente:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
 
     query = (
         db.query(Registro)
@@ -952,12 +983,8 @@ def crear_registro_completo(
             detail="El Administrador Estatal no puede registrar prescripciones.",
         )
 
-    # 1. Buscar paciente por CURP hash
-    curp_hash = hash_sha256(payload.curp_paciente)
-    paciente = db.query(Paciente).filter(Paciente.curp_hash == curp_hash).first()
-    paciente_creado = False
-
-    if not paciente:
+    # 1. Identificar al paciente: por id_paciente, por CURP, o crear uno nuevo sin CURP
+    def _crear_paciente_nuevo(curp_hash: str | None, curp_cifrada: bytes | None) -> Paciente:
         if not payload.nombre_completo:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -974,22 +1001,50 @@ def crear_registro_completo(
                     detail="Solo puede registrar pacientes en su propia unidad médica.",
                 )
 
-        paciente = Paciente(
+        nuevo_paciente = Paciente(
             curp_hash=curp_hash,
-            curp_paciente=cifrar(payload.curp_paciente),
+            curp_paciente=curp_cifrada,
             nombre_completo=cifrar(payload.nombre_completo),
             fecha_nacimiento=payload.fecha_nacimiento,
             clues_unidad_adscripcion=clues_paciente,
             es_activo=True,
             id_usuario_registro=current_user.id_usuario,
         )
-        db.add(paciente)
+        db.add(nuevo_paciente)
         db.flush()  # Obtiene id_paciente sin hacer commit aún
-        paciente_creado = True
-    else:
+        return nuevo_paciente
+
+    if payload.id_paciente is not None and payload.curp_paciente:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No se puede proporcionar id_paciente y curp_paciente al mismo tiempo.",
+        )
+
+    paciente_creado = False
+
+    if payload.id_paciente is not None:
+        paciente = db.query(Paciente).filter(Paciente.id_paciente == payload.id_paciente).first()
+        if not paciente:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
         _verificar_acceso_paciente(paciente, current_user, db)
         if not paciente.es_activo:
             paciente.es_activo = True
+
+    elif payload.curp_paciente:
+        curp_hash = hash_sha256(payload.curp_paciente)
+        paciente = db.query(Paciente).filter(Paciente.curp_hash == curp_hash).first()
+
+        if not paciente:
+            paciente = _crear_paciente_nuevo(curp_hash, cifrar(payload.curp_paciente))
+            paciente_creado = True
+        else:
+            _verificar_acceso_paciente(paciente, current_user, db)
+            if not paciente.es_activo:
+                paciente.es_activo = True
+
+    else:
+        paciente = _crear_paciente_nuevo(None, None)
+        paciente_creado = True
 
     # 2. Validar CLUES de la prescripción
     if current_user.es_responsable_unidad:
@@ -1467,7 +1522,7 @@ def listar_notificaciones_transferencia(
             id=n.id,
             id_paciente=n.id_paciente,
             nombre_paciente=descifrar(n.paciente.nombre_completo) if n.paciente else "—",
-            curp_paciente=descifrar(n.paciente.curp_paciente) if n.paciente else "—",
+            curp_paciente=descifrar_o_none(n.paciente.curp_paciente) if n.paciente else None,
             clues_unidad_origen=n.clues_unidad_origen,
             nombre_unidad_origen=n.unidad_origen.nombre_de_la_unidad if n.unidad_origen else None,
             clues_unidad_destino=n.clues_unidad_destino,
@@ -1575,7 +1630,7 @@ def reporte_resumen_detallado(
             {
                 "id_registro": r.id_registro,
                 "id_paciente": r.id_paciente,
-                "curp_paciente": descifrar(r.paciente.curp_paciente) if r.paciente else None,
+                "curp_paciente": descifrar_o_none(r.paciente.curp_paciente) if r.paciente else None,
                 "nombre_paciente": descifrar(r.paciente.nombre_completo) if r.paciente else None,
                 "diagnostico": descifrar_o_none(r.paciente.diagnostico_actual) if r.paciente else None,
                 "clues_unidad": r.clues,
@@ -2133,7 +2188,7 @@ def _paciente_to_response(
     """Descifra los campos LargeBinary y construye el schema de respuesta."""
     return PacienteResponse(
         id_paciente=p.id_paciente,
-        curp_paciente=descifrar(p.curp_paciente),
+        curp_paciente=descifrar_o_none(p.curp_paciente),
         nombre_completo=descifrar(p.nombre_completo),
         diagnostico_actual=descifrar_o_none(p.diagnostico_actual),
         clues_unidad_adscripcion=p.clues_unidad_adscripcion,
@@ -2305,7 +2360,7 @@ def _registro_to_response(r: Registro) -> RegistroResponse:
         fecha_registro_sistema=r.fecha_registro_sistema,
         id_usuario_registro=r.id_usuario_registro,
         nombre_paciente=descifrar(r.paciente.nombre_completo) if r.paciente else None,
-        curp_paciente=descifrar(r.paciente.curp_paciente) if r.paciente else None,
+        curp_paciente=descifrar_o_none(r.paciente.curp_paciente) if r.paciente else None,
         id_diagnostico=r.id_diagnostico,
         medicamento=MedicamentoResponse.model_validate(r.medicamento) if r.medicamento else None,
         medico=_medico_to_response(r.medico) if r.medico else None,
@@ -2356,6 +2411,21 @@ def _verificar_acceso_paciente(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tiene acceso a pacientes de otro estado.",
             )
+
+
+def _obtener_paciente_por_identificador(identificador: str, db: Session) -> Paciente:
+    """Resuelve un paciente a partir del segmento {curp_paciente} de la URL.
+
+    El identificador puede ser una CURP (siempre empieza con 4 letras, nunca es
+    numérica) o el id_paciente numérico de un paciente sin CURP.
+    """
+    if identificador.isdigit():
+        paciente = db.query(Paciente).filter(Paciente.id_paciente == int(identificador)).first()
+    else:
+        paciente = db.query(Paciente).filter(Paciente.curp_hash == hash_sha256(identificador)).first()
+    if not paciente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+    return paciente
 
 
 def marcar_registros_vencidos(db: Session) -> int:

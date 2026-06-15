@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-09
+> Última actualización: 2026-06-15
 
 ## 1. Visión General
 
@@ -54,6 +54,9 @@ El modelo `Registro` amplía el concepto de "receta" con posología completa (do
 
 ### Estatus de evolución del paciente (banderín)
 `Paciente.estatus_evolucion` (default `"Inicia tx"`) representa el avance clínico del paciente y se muestra como un banderín de color en el frontend (solo en "Pacientes Activos"). Se actualiza vía el mismo `PATCH /pacientes/{curp_paciente}` que el resto de los datos del paciente — no hay endpoint dedicado, por lo que reutiliza el RBAC existente (las 3 roles que pueden editar a un paciente también pueden cambiar su estatus de evolución). Cada cambio estampa `id_usuario_ultimo_cambio_estatus` y `fecha_ultimo_cambio_estatus`.
+
+### CURP opcional (pacientes sin CURP, ej. recién nacidos)
+`Paciente.curp_hash` y `curp_paciente` son `nullable` (Postgres permite múltiples `NULL` en una columna `unique`). Un paciente sin CURP se identifica y localiza por `id_paciente`. El helper `_obtener_paciente_por_identificador(identificador, db)` resuelve el segmento `{curp_paciente}` de las rutas existentes: si `identificador.isdigit()` busca por `id_paciente`, si no por `curp_hash`. Esto permite que rutas como `GET /pacientes/{curp_paciente}` acepten también un `id_paciente` numérico sin cambiar su definición. La búsqueda de estos pacientes se hace por nombre vía `GET /pacientes/buscar-por-nombre` (ver §7.2).
 
 ---
 
@@ -148,8 +151,8 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | Campo | Tipo SQLAlchemy | Restricciones | Notas |
 |---|---|---|---|
 | `id_paciente` | Integer | PK, autoincrement | |
-| `curp_hash` | String(64) | unique, NOT NULL, index | SHA-256 de la CURP para búsquedas |
-| `curp_paciente` | LargeBinary | NOT NULL | CURP cifrada con Fernet |
+| `curp_hash` | String(64) | unique, nullable, index | SHA-256 de la CURP para búsquedas. `NULL` si el paciente no tiene CURP (ej. recién nacidos) |
+| `curp_paciente` | LargeBinary | nullable | CURP cifrada con Fernet. `NULL` si el paciente no tiene CURP |
 | `nombre_completo` | LargeBinary | NOT NULL | Nombre cifrado con Fernet |
 | `diagnostico_actual` | LargeBinary | nullable | Diagnóstico cifrado con Fernet |
 | `fecha_nacimiento` | Date | nullable | Fecha de nacimiento del paciente |
@@ -326,9 +329,11 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | `PacienteBase` | `nombre_completo` (str, 2-255), `diagnostico_actual` (opt, max 5000), `clues_unidad_adscripcion` (CluesStr, normalizado a mayúsculas), `fecha_nacimiento` (opt) |
 | `PacienteCreate` | Base + `curp_paciente` (CurpStr, validado contra regex oficial) |
 | `PacienteUpdate` | Opcionales: `nombre_completo`, `diagnostico_actual`, `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion` (validado contra `ESTATUS_EVOLUCION_OPTIONS`) |
-| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas) |
+| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado, `str \| None` — `None` si el paciente no tiene CURP), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas) |
 | `PacienteListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[PacienteResponse]) |
 | `BusquedaCurpResponse` | `existe`, `id_paciente`, `nombre_completo`, `fecha_nacimiento`, `clues_unidad_adscripcion`, `nombre_unidad`, `total_registros` |
+| `BusquedaNombreItem` | `id_paciente`, `nombre_completo`, `fecha_nacimiento` (opt), `curp_paciente` (opt, descifrado), `clues_unidad_adscripcion`, `nombre_unidad` (opt), `total_registros` |
+| `BusquedaNombreResponse` | `resultados` (list[BusquedaNombreItem]) |
 
 ---
 
@@ -362,7 +367,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | `RegistroUpdate` | Todos opcionales, incluye `id_diagnostico` y `es_activo` (Soft Delete) |
 | `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido), `diagnostico` (DiagnosticoResponse embebido, nullable) |
 | `RegistroListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[RegistroResponse]) |
-| `RegistroCompletoCreate` | Un solo payload que crea/reutiliza paciente + prescripción: `curp_paciente` (req), `nombre_completo` (req si CURP no existe), `fecha_nacimiento` (opt, solo si paciente nuevo), `clues_unidad_adscripcion` (opt), `id_diagnostico` (opt), `numero_expediente` (opt — si se provee, hace upsert del expediente del paciente en la unidad de la prescripción), más todos los campos de posología |
+| `RegistroCompletoCreate` | Un solo payload que crea/reutiliza paciente + prescripción: `id_paciente` (opt — paciente ya identificado por búsqueda, con o sin CURP), `curp_paciente` (opt, `CurpStr \| None`), `nombre_completo` (req si el paciente es nuevo), `fecha_nacimiento` (opt, solo si paciente nuevo), `clues_unidad_adscripcion` (opt), `id_diagnostico` (opt), `numero_expediente` (opt — si se provee, hace upsert del expediente del paciente en la unidad de la prescripción), más todos los campos de posología. Ver §7.4 para los 3 casos de identificación del paciente |
 | `RegistroCompletoResponse` | Extiende `RegistroResponse` + `paciente_creado` (bool) |
 
 ---
@@ -434,12 +439,15 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | GET | `/pacientes` | Todos | Lista paginada con filtro RBAC automático. Params: `solo_activos`, `pagina`, `por_pagina`, `clave_cnis`. Llama `marcar_registros_vencidos()`. |
 | POST | `/pacientes` | Todos | Crear nuevo paciente. CURP cifrada + hash. Conflicto 409 si CURP duplicada. |
 | GET | `/pacientes/buscar` | Todos | Búsqueda nacional por CURP. Sin filtro RBAC. |
+| GET | `/pacientes/buscar-por-nombre` | Todos | Búsqueda nacional por nombre (para pacientes sin CURP). Sin filtro RBAC. Param: `q` (min 3 chars), `limite` (default 15, max 50). Descifra y normaliza (mayúsculas, sin acentos) cada `nombre_completo`; hace match si cada token de `q` es prefijo de algún token del nombre (acepta apellido-primero o nombre-primero). |
 | GET | `/pacientes/{curp_paciente}` | Todos | Detalle completo. Lectura nacional sin restricción RBAC. |
 | PATCH | `/pacientes/{curp_paciente}` | Todos (con restricciones por rol) | Actualización parcial. Si cambia `clues_unidad_adscripcion`, genera `NotificacionTransferencia` automáticamente. Si el payload incluye `estatus_evolucion`, estampa `id_usuario_ultimo_cambio_estatus` y `fecha_ultimo_cambio_estatus` antes de aplicar los cambios. |
 | DELETE | `/pacientes/{curp_paciente}` | Todos (con acceso) | Soft Delete (`es_activo = False`). |
 | GET | `/pacientes/{curp_paciente}/registros` | Todos | Todas las prescripciones del paciente, sin filtro de unidad. Param: `solo_activos`. |
 | GET | `/pacientes/{curp_paciente}/expedientes` | Todos | Lista los expedientes (número de expediente por unidad) del paciente. |
 | POST | `/pacientes/{curp_paciente}/expedientes` | Todos (con restricciones por rol) | Crea o actualiza (upsert) el número de expediente del paciente en una unidad (`clues` + `numero_expediente`). RESPONSABLE_UNIDAD solo puede gestionar expedientes de su propia unidad (403 si no coincide). 201 Created. |
+
+> **Nota:** En todas las rutas con `{curp_paciente}`, el segmento acepta también el `id_paciente` numérico de un paciente sin CURP — resuelto por `_obtener_paciente_por_identificador()` (ver §3, "CURP opcional").
 
 ---
 
@@ -461,7 +469,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 |---|---|---|---|
 | GET | `/registros` | Todos | Lista paginada. Filtro RBAC por **unidad actual del paciente** (no por unidad de la prescripción). Llama `marcar_registros_vencidos()`. |
 | POST | `/registros` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Crear prescripción. Llama `_aplicar_posologia()` si hay campos de posología. |
-| POST | `/registros/completo` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Crea (o reutiliza) paciente + prescripción en una llamada. |
+| POST | `/registros/completo` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Crea (o reutiliza) paciente + prescripción en una llamada. Identificación del paciente, 3 casos: (1) `id_paciente` → paciente existente (con o sin CURP), reactiva si estaba inactivo; (2) `curp_paciente` → busca por `curp_hash`, crea uno nuevo con CURP si no existe; (3) ninguno → crea paciente nuevo sin CURP (`curp_hash=None`), requiere `nombre_completo`. 422 si se envían `id_paciente` y `curp_paciente` simultáneamente. |
 | GET | `/registros/{id_registro}` | Todos | Detalle con validación RBAC. |
 | PATCH | `/registros/{id_registro}` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Actualización parcial. Recalcula posología si se modifican campos de posología. ADMIN_ESTATAL recibe 403. |
 | DELETE | `/registros/{id_registro}` | SUPER_ADMIN, RESPONSABLE_UNIDAD | Soft Delete (`es_activo = False`). ADMIN_ESTATAL recibe 403. |

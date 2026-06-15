@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-09
+> Última actualización: 2026-06-15
 
 ## 1. Stack Tecnológico
 
@@ -149,6 +149,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `actualizarPaciente(curp, data)` → `PATCH /pacientes/{curp}` (también usado por `BanderinEstado` para actualizar `estatus_evolucion`)
 - `darBajaPaciente(curp)` → `DELETE /pacientes/{curp}`
 - `buscarPacientePorCurp(curp)` → `GET /pacientes/buscar?curp=`
+- `buscarPacientesPorNombre(q, limite)` → `GET /pacientes/buscar-por-nombre?q=&limite=` (para pacientes sin CURP)
 - `listarRegistrosDePaciente(curp, soloActivos)` → `GET /pacientes/{curp}/registros`
 - `listarExpedientesPaciente(curp)` → `GET /pacientes/{curp}/expedientes`
 - `guardarExpediente(curp, clues, numeroExpediente)` → `POST /pacientes/{curp}/expedientes` (upsert)
@@ -253,6 +254,17 @@ Al hacer clic se abre un modal con la leyenda de colores y un selector; al elegi
 | Editar | `/registros/:id/editar` | `PATCH /registros/:id` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 
 **Formulario combinado (`RegistroFormPage`):** Busca primero el paciente por CURP (`GET /pacientes/buscar`). Si existe, usa sus datos. Si no existe, muestra campos para capturarlo.
+
+**Identificación de pacientes sin CURP (recién nacidos):** Debajo del buscador de CURP, un segundo buscador "as you type" (`BuscadorPacientePorNombre`, debounce 350ms, mínimo 3 caracteres) consulta `GET /pacientes/buscar-por-nombre`. Acepta apellido-primero o nombre-primero y es insensible a acentos (normalización NFD en backend). Cada resultado muestra el nombre y la fecha de nacimiento en formato `DD/MM/AA` (`formatFechaCorta`) junto con la unidad de adscripción. Al seleccionar un resultado se limpia cualquier búsqueda por CURP en curso (los dos buscadores no permanecen activos a la vez).
+
+Ambos caminos de identificación (CURP encontrada o nombre seleccionado) convergen en una única variable derivada `pacienteEncontrado`, renderizada con el componente compartido `PacienteEncontradoCard` (nombre, unidad, total de registros, fecha de nacimiento, botón "Ver historial" que navega a `/pacientes/:curp` — el backend resuelve `id_paciente` numérico igual que una CURP — y botón "Quitar" para el caso de búsqueda por nombre).
+
+Si no hay paciente identificado (ni por CURP ni por nombre), se muestran los campos de **paciente nuevo**: `nombre_completo` (requerido), `fecha_nacimiento` (opcional) y, si la CURP capturada no tiene formato válido, un campo **CURP (opcional)** adicional para pacientes que sí cuentan con CURP pero no fueron encontrados por ese buscador.
+
+**Payload de `POST /registros/completo` — 3 casos de identificación:**
+- Paciente seleccionado por nombre → `payload.id_paciente`.
+- CURP válida capturada → `payload.curp_paciente` (+ `fecha_nacimiento` si es paciente nuevo).
+- Ninguno → `payload.nombre_completo` + `fecha_nacimiento` opcional + `curp_paciente` solo si se capturó en el campo CURP opcional.
 
 Comportamiento por rol:
 - **RESPONSABLE_UNIDAD:** La unidad de la prescripción (`clues`) se bloquea y pre-llena automáticamente con su unidad asignada. El dropdown de medicamentos carga solo los asignados a esa unidad (vía `?clues=`).

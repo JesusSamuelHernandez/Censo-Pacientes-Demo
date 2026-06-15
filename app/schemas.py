@@ -309,7 +309,7 @@ class PacienteResponse(BaseModel):
     directamente del ORM, por eso este schema no hereda de PacienteBase.
     """
     id_paciente: int
-    curp_paciente: str
+    curp_paciente: str | None = None
     nombre_completo: str
     diagnostico_actual: str | None
     clues_unidad_adscripcion: str
@@ -534,10 +534,14 @@ class RegistroCompletoCreate(BaseModel):
     Crea (o reutiliza) un paciente y registra su prescripción en una sola llamada.
     Los campos de paciente solo son obligatorios cuando el CURP no existe en BD.
     """
-    # Identificador del paciente — siempre requerido
-    curp_paciente: CurpStr
+    # Identificador del paciente — exactamente una de estas dos vías, o ninguna
+    # si se está registrando un paciente nuevo sin CURP:
+    #   - id_paciente: paciente ya identificado (con o sin CURP) por búsqueda de nombre
+    #   - curp_paciente: identifica/crea por CURP (flujo histórico)
+    id_paciente: int | None = Field(None, description="ID de un paciente ya identificado por búsqueda (con o sin CURP).")
+    curp_paciente: CurpStr | None = None
 
-    # Datos del paciente — requeridos solo si el CURP no existe en BD
+    # Datos del paciente — requeridos solo si no se identifica un paciente existente
     nombre_completo: str | None = Field(None, max_length=255)
     fecha_nacimiento: date | None = Field(None, description="Fecha de nacimiento del paciente nuevo.")
     # Si omitido, el backend usa la CLUES de la prescripción
@@ -567,7 +571,9 @@ class RegistroCompletoCreate(BaseModel):
 
     @field_validator("curp_paciente", mode="before")
     @classmethod
-    def normalizar_curp(cls, v: str) -> str:
+    def normalizar_curp(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
         return v.strip().upper()
 
     @field_validator("clues", mode="before")
@@ -595,6 +601,24 @@ class BusquedaCurpResponse(BaseModel):
     clues_unidad_adscripcion: str | None = None
     nombre_unidad: str | None = None
     total_registros: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# ── 8b. Búsqueda nacional de paciente por nombre ────────────────────────────
+# ---------------------------------------------------------------------------
+
+class BusquedaNombreItem(BaseModel):
+    id_paciente: int
+    nombre_completo: str
+    fecha_nacimiento: date | None = None
+    curp_paciente: str | None = None
+    clues_unidad_adscripcion: str
+    nombre_unidad: str | None = None
+    total_registros: int
+
+
+class BusquedaNombreResponse(BaseModel):
+    resultados: list[BusquedaNombreItem]
 
 
 # ---------------------------------------------------------------------------
@@ -646,7 +670,7 @@ class NotificacionTransferenciaResponse(BaseModel):
     id: int
     id_paciente: int
     nombre_paciente: str
-    curp_paciente: str
+    curp_paciente: str | None = None
     clues_unidad_origen: str
     nombre_unidad_origen: str | None
     clues_unidad_destino: str

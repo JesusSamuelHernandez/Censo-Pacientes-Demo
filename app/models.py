@@ -211,8 +211,8 @@ class Paciente(Base):
     __tablename__ = "pacientes"
 
     id_paciente: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    curp_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
-    curp_paciente: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    curp_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
+    curp_paciente: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     nombre_completo: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     diagnostico_actual: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     fecha_nacimiento: Mapped[date | None] = mapped_column(Date, nullable=True)
