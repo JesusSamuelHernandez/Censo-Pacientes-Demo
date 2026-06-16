@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-15
+> Última actualización: 2026-06-15 (reacciones adversas)
 
 ## 1. Visión General
 
@@ -65,10 +65,11 @@ El modelo `Registro` amplía el concepto de "receta" con posología completa (do
 ```
 app/
 ├── database.py          → Conexión a PostgreSQL, pool de conexiones, get_db().
-├── models.py            → 10 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
+├── models.py            → 11 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
 │                          Usuario, Paciente, Medico, Registro, NotificacionTransferencia,
 │                          UnidadMedicamento (unidad_medicamentos — relación N:M unidad↔medicamento),
-│                          ExpedientePaciente (expedientes_paciente).
+│                          ExpedientePaciente (expedientes_paciente),
+│                          ReaccionAdversa (reacciones_adversas).
 ├── schemas.py           → Validación de entrada/salida con Pydantic v2.
 ├── auth.py              → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
 ├── crypto.py            → cifrar(), descifrar(), descifrar_o_none(), hash_sha256() con Fernet.
@@ -164,7 +165,7 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | `id_usuario_registro` | Integer | FK → usuarios (SET NULL), nullable | Auditoría |
 | `fecha_registro` | DateTime(timezone=True) | NOT NULL, server_default=now() | Timestamp automático BD |
 
-**Relaciones:** `unidad_adscripcion`, `usuario_registro`, `registros` (cascade all, delete-orphan), `expedientes` (→ `ExpedientePaciente`, cascade all, delete-orphan)
+**Relaciones:** `unidad_adscripcion`, `usuario_registro`, `registros` (cascade all, delete-orphan), `expedientes` (→ `ExpedientePaciente`, cascade all, delete-orphan), `reacciones_adversas` (→ `ReaccionAdversa`, cascade all, delete-orphan)
 
 ---
 
@@ -181,6 +182,23 @@ Número de expediente clínico del paciente en cada unidad médica donde ha sido
 **PK compuesta:** `(id_paciente, clues)` — un solo expediente por combinación paciente-unidad. `CASCADE` en `id_paciente` limpia los expedientes si se elimina el paciente.
 
 **Relaciones:** `paciente` (→ `Paciente`, back_populates=`expedientes`), `unidad`
+
+---
+
+### 5.4c ReaccionAdversa — `reacciones_adversas`
+
+Registro histórico de reacciones adversas a medicamentos reportadas para un paciente. No tienen `es_activo` — son inmutables una vez creadas (históricas).
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `id_reaccion` | Integer | PK, autoincrement | |
+| `id_paciente` | Integer | FK → pacientes (CASCADE), NOT NULL, index | |
+| `clave_cnis` | String(50) | FK → cat_medicamentos (RESTRICT), NOT NULL | |
+| `comentario` | Text | NOT NULL | Descripción de la reacción |
+| `id_usuario_registro` | Integer | FK → usuarios (SET NULL), nullable | Quién registró la reacción |
+| `fecha_registro` | DateTime(timezone=True) | NOT NULL, server_default=now() | Timestamp automático BD |
+
+**Relaciones:** `paciente` (→ `Paciente`), `medicamento` (→ `CatMedicamento`), `usuario_registro` (→ `Usuario | None`)
 
 ---
 
@@ -329,7 +347,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | `PacienteBase` | `nombre_completo` (str, 2-255), `diagnostico_actual` (opt, max 5000), `clues_unidad_adscripcion` (CluesStr, normalizado a mayúsculas), `fecha_nacimiento` (opt) |
 | `PacienteCreate` | Base + `curp_paciente` (CurpStr, validado contra regex oficial) |
 | `PacienteUpdate` | Opcionales: `nombre_completo`, `diagnostico_actual`, `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion` (validado contra `ESTATUS_EVOLUCION_OPTIONS`) |
-| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado, `str \| None` — `None` si el paciente no tiene CURP), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas) |
+| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado, `str \| None` — `None` si el paciente no tiene CURP), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas), `tiene_reaccion_adversa` (bool — True si existe al menos una reacción adversa en `reacciones_adversas`) |
 | `PacienteListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[PacienteResponse]) |
 | `BusquedaCurpResponse` | `existe`, `id_paciente`, `nombre_completo`, `fecha_nacimiento`, `clues_unidad_adscripcion`, `nombre_unidad`, `total_registros` |
 | `BusquedaNombreItem` | `id_paciente`, `nombre_completo`, `fecha_nacimiento` (opt), `curp_paciente` (opt, descifrado), `clues_unidad_adscripcion`, `nombre_unidad` (opt), `total_registros` |
@@ -344,6 +362,15 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | `ExpedienteCreate` | `clues` (CluesStr, normalizado a mayúsculas), `numero_expediente` (str, 1-100) |
 | `ExpedienteUpdate` | `numero_expediente` (str, 1-100) |
 | `ExpedienteResponse` | `id_paciente`, `clues`, `numero_expediente`. `from_attributes=True` |
+
+---
+
+### 6.4c ReaccionAdversa
+
+| Schema | Campos destacados |
+|---|---|
+| `ReaccionAdversaCreate` | `clave_cnis` (str), `comentario` (str, 1-2000) |
+| `ReaccionAdversaResponse` | `id_reaccion`, `clave_cnis`, `nombre_medicamento` (de `medicamento.descripcion`), `comentario`, `nombre_usuario_registro` (`str \| None`), `email_usuario_registro` (`str \| None`), `fecha_registro`. `from_attributes=True` |
 
 ---
 
@@ -446,6 +473,8 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | GET | `/pacientes/{curp_paciente}/registros` | Todos | Todas las prescripciones del paciente, sin filtro de unidad. Param: `solo_activos`. |
 | GET | `/pacientes/{curp_paciente}/expedientes` | Todos | Lista los expedientes (número de expediente por unidad) del paciente. |
 | POST | `/pacientes/{curp_paciente}/expedientes` | Todos (con restricciones por rol) | Crea o actualiza (upsert) el número de expediente del paciente en una unidad (`clues` + `numero_expediente`). RESPONSABLE_UNIDAD solo puede gestionar expedientes de su propia unidad (403 si no coincide). 201 Created. |
+| GET | `/pacientes/{curp_paciente}/reacciones-adversas` | Todos | Lista todas las reacciones adversas del paciente en orden descendente de fecha. Sin filtro RBAC (lectura nacional). Devuelve `list[ReaccionAdversaResponse]` |
+| POST | `/pacientes/{curp_paciente}/reacciones-adversas` | Todos (con restricciones de acceso) | Registra una nueva reacción adversa. Aplica `_verificar_acceso_paciente()` (RESPONSABLE_UNIDAD → solo su unidad, ADMIN_ESTATAL → solo su estado). Guarda `id_usuario_registro`. 201 Created. |
 
 > **Nota:** En todas las rutas con `{curp_paciente}`, el segmento acepta también el `id_paciente` numérico de un paciente sin CURP — resuelto por `_obtener_paciente_por_identificador()` (ver §3, "CURP opcional").
 

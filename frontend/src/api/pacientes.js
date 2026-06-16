@@ -73,3 +73,18 @@ export const guardarExpediente = async (curp, clues, numeroExpediente) => {
   });
   return data; // ExpedienteResponse
 };
+
+// GET /pacientes/{identificador}/reacciones-adversas — Lista reacciones adversas del paciente
+export const obtenerReaccionesAdversas = async (identificador) => {
+  const { data } = await axiosClient.get(`/pacientes/${identificador}/reacciones-adversas`);
+  return data; // list[ReaccionAdversaResponse]
+};
+
+// POST /pacientes/{identificador}/reacciones-adversas — Registra una reacción adversa
+export const agregarReaccionAdversa = async (identificador, payload) => {
+  const { data } = await axiosClient.post(
+    `/pacientes/${identificador}/reacciones-adversas`,
+    payload // { clave_cnis, comentario }
+  );
+  return data; // ReaccionAdversaResponse
+};

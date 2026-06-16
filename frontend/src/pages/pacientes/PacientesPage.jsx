@@ -3,13 +3,15 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, ChevronLeft, ChevronRight, Eye, UserX } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Eye, UserX, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { listarPacientes, darBajaPaciente } from "../../api/pacientes";
 import { listarMedicamentos } from "../../api/catalogos";
 import useAuthStore from "../../store/authStore";
 import BanderinEstado from "../../components/shared/BanderinEstado";
+import ReaccionAdversaIcon from "../../components/shared/ReaccionAdversaIcon";
+import ModalAgregarReaccionAdversa from "../../components/shared/ModalAgregarReaccionAdversa";
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 
@@ -26,6 +28,7 @@ export default function PacientesPage() {
   const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmBaja, setConfirmBaja] = useState(null);
+  const [pacienteReaccion, setPacienteReaccion] = useState(null);
 
   const porPagina = 20;
   const totalPaginas = Math.ceil(total / porPagina);
@@ -173,7 +176,7 @@ export default function PacientesPage() {
                 </tr>
               ) : (
                 pacientesFiltrados.map((p) => (
-                  <tr key={p.curp_paciente} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
+                  <tr key={p.id_paciente} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-4 py-3 font-medium text-neutral-black">
                       <div className={`relative ${soloActivos ? "pl-5" : ""}`}>
                         {soloActivos && (
@@ -183,7 +186,14 @@ export default function PacientesPage() {
                             onChange={(nuevo) => handleEstatusEvolucionCambiado(p.curp_paciente, nuevo)}
                           />
                         )}
-                        <span title={p.nombre_completo}>{p.nombre_completo}</span>
+                        <div className="flex items-center gap-1.5">
+                          {p.tiene_reaccion_adversa && (
+                            <ReaccionAdversaIcon
+                              identificador={p.curp_paciente ?? String(p.id_paciente)}
+                            />
+                          )}
+                          <span title={p.nombre_completo}>{p.nombre_completo}</span>
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-neutral-gray font-mono text-xs">{p.curp_paciente}</td>
@@ -262,11 +272,18 @@ export default function PacientesPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => navigate(`/pacientes/${p.curp_paciente}`)}
+                          onClick={() => navigate(`/pacientes/${p.curp_paciente ?? p.id_paciente}`)}
                           className="p-1.5 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
                           title="Ver detalle"
                         >
                           <Eye size={15} />
+                        </button>
+                        <button
+                          onClick={() => setPacienteReaccion(p.curp_paciente ?? String(p.id_paciente))}
+                          className="p-1.5 rounded-lg text-neutral-gray hover:text-yellow-600 hover:bg-yellow-50 transition"
+                          title="Reacción adversa"
+                        >
+                          <TriangleAlert size={15} />
                         </button>
                         {ROLES_PUEDEN_CREAR.includes(rolNombre) && p.es_activo && (
                           <button
@@ -313,6 +330,14 @@ export default function PacientesPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de reacción adversa */}
+      <ModalAgregarReaccionAdversa
+        identificador={pacienteReaccion}
+        isOpen={!!pacienteReaccion}
+        onClose={() => setPacienteReaccion(null)}
+        onGuardado={() => { setPacienteReaccion(null); cargar(); }}
+      />
 
       {/* Modal de confirmación de baja */}
       {confirmBaja && (

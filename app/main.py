@@ -51,7 +51,7 @@ from app.auth import (
 )
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
-from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, Registro, UnidadMedica, UnidadMedicamento, Usuario
+from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario
 from app.schemas import (
     BusquedaCurpResponse,
     BusquedaNombreItem,
@@ -83,6 +83,8 @@ from app.schemas import (
     PacienteListResponse,
     PacienteResponse,
     PacienteUpdate,
+    ReaccionAdversaCreate,
+    ReaccionAdversaResponse,
     RegistroCreate,
     RegistroListResponse,
     RegistroResponse,
@@ -258,7 +260,7 @@ def listar_pacientes(
         meds = medicamentos_por_paciente.get(p.id_paciente, [])
         adherencias = adherencia_por_paciente.get(p.id_paciente, [])
         diags = _get_diagnosticos_activos(p.id_paciente, db)
-        datos = _paciente_to_response(p, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
+        datos = _paciente_to_response(p, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags, db=db)
         datos.adherencia_medicamentos = adherencias
         datos.dias_adherencia = _calcular_adherencia(p.id_paciente, db)
         resultados.append(datos)
@@ -308,7 +310,7 @@ def crear_paciente(
     db.commit()
     db.refresh(nuevo)
 
-    respuesta = _paciente_to_response(nuevo, tiene_prescripcion_activa=False)
+    respuesta = _paciente_to_response(nuevo, tiene_prescripcion_activa=False, db=db)
     respuesta.dias_adherencia = None
     return respuesta
 
@@ -424,7 +426,7 @@ def obtener_paciente(
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds, adherencias = _get_medicamentos_y_adherencia(paciente.id_paciente, db)
     diags = _get_diagnosticos_activos(paciente.id_paciente, db)
-    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags, db=db)
     respuesta.adherencia_medicamentos = adherencias
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
@@ -503,7 +505,7 @@ def actualizar_paciente(
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds, adherencias = _get_medicamentos_y_adherencia(paciente.id_paciente, db)
     diags = _get_diagnosticos_activos(paciente.id_paciente, db)
-    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=tiene, medicamentos_activos=meds, diagnosticos_activos=diags, db=db)
     respuesta.adherencia_medicamentos = adherencias
     respuesta.dias_adherencia = _calcular_adherencia(paciente.id_paciente, db)
     return respuesta
@@ -541,7 +543,7 @@ def dar_baja_paciente(
     db.commit()
     db.refresh(paciente)
 
-    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=False)
+    respuesta = _paciente_to_response(paciente, tiene_prescripcion_activa=False, db=db)
     respuesta.dias_adherencia = None
     return respuesta
 
@@ -605,6 +607,75 @@ def upsert_expediente_paciente(
     db.commit()
     db.refresh(expediente)
     return ExpedienteResponse.model_validate(expediente)
+
+
+# ---------------------------------------------------------------------------
+# Reacciones Adversas
+# ---------------------------------------------------------------------------
+
+def _reaccion_to_response(r: ReaccionAdversa) -> ReaccionAdversaResponse:
+    return ReaccionAdversaResponse(
+        id_reaccion=r.id_reaccion,
+        clave_cnis=r.clave_cnis,
+        nombre_medicamento=r.medicamento.descripcion if r.medicamento else r.clave_cnis,
+        comentario=r.comentario,
+        nombre_usuario_registro=r.usuario_registro.nombre_usuario if r.usuario_registro else None,
+        email_usuario_registro=r.usuario_registro.email if r.usuario_registro else None,
+        fecha_registro=r.fecha_registro,
+    )
+
+
+@app.get(
+    "/pacientes/{curp_paciente}/reacciones-adversas",
+    response_model=list[ReaccionAdversaResponse],
+    tags=["Pacientes"],
+    summary="Lista las reacciones adversas registradas para un paciente.",
+)
+def listar_reacciones_adversas(
+    curp_paciente: str,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+    reacciones = (
+        db.query(ReaccionAdversa)
+        .filter(ReaccionAdversa.id_paciente == paciente.id_paciente)
+        .options(joinedload(ReaccionAdversa.medicamento), joinedload(ReaccionAdversa.usuario_registro))
+        .order_by(ReaccionAdversa.fecha_registro.desc())
+        .all()
+    )
+    return [_reaccion_to_response(r) for r in reacciones]
+
+
+@app.post(
+    "/pacientes/{curp_paciente}/reacciones-adversas",
+    response_model=ReaccionAdversaResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Pacientes"],
+    summary="Registra una reacción adversa a un medicamento para un paciente.",
+)
+def agregar_reaccion_adversa(
+    curp_paciente: str,
+    payload: ReaccionAdversaCreate,
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+    _verificar_acceso_paciente(paciente, current_user, db)
+
+    if not db.query(CatMedicamento).filter(CatMedicamento.clave_cnis == payload.clave_cnis).first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicamento no encontrado.")
+
+    reaccion = ReaccionAdversa(
+        id_paciente=paciente.id_paciente,
+        clave_cnis=payload.clave_cnis,
+        comentario=payload.comentario,
+        id_usuario_registro=current_user.id_usuario,
+    )
+    db.add(reaccion)
+    db.commit()
+    db.refresh(reaccion)
+    return _reaccion_to_response(reaccion)
 
 
 @app.get(
@@ -2184,8 +2255,16 @@ def _paciente_to_response(
     tiene_prescripcion_activa: bool = False,
     medicamentos_activos: list[str] | None = None,
     diagnosticos_activos: list[str] | None = None,
+    db: Session | None = None,
 ) -> PacienteResponse:
     """Descifra los campos LargeBinary y construye el schema de respuesta."""
+    tiene_reaccion = (
+        db.query(ReaccionAdversa).filter(
+            ReaccionAdversa.id_paciente == p.id_paciente
+        ).count() > 0
+        if db is not None
+        else False
+    )
     return PacienteResponse(
         id_paciente=p.id_paciente,
         curp_paciente=descifrar_o_none(p.curp_paciente),
@@ -2201,6 +2280,7 @@ def _paciente_to_response(
         tiene_prescripcion_activa=tiene_prescripcion_activa,
         medicamentos_activos=medicamentos_activos or [],
         diagnosticos_activos=diagnosticos_activos or [],
+        tiene_reaccion_adversa=tiene_reaccion,
     )
 
 

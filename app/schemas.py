@@ -338,6 +338,10 @@ class PacienteResponse(BaseModel):
         default_factory=list,
         description="Nombres de diagnósticos de prescripciones activas.",
     )
+    tiene_reaccion_adversa: bool = Field(
+        False,
+        description="True si el paciente tiene al menos una reacción adversa registrada.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -619,6 +623,27 @@ class BusquedaNombreItem(BaseModel):
 
 class BusquedaNombreResponse(BaseModel):
     resultados: list[BusquedaNombreItem]
+
+
+# ---------------------------------------------------------------------------
+# ── 8c. Reacciones Adversas a Medicamentos ───────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class ReaccionAdversaCreate(BaseModel):
+    clave_cnis: str
+    comentario: str = Field(..., min_length=1, max_length=2000)
+
+
+class ReaccionAdversaResponse(BaseModel):
+    id_reaccion: int
+    clave_cnis: str
+    nombre_medicamento: str
+    comentario: str
+    nombre_usuario_registro: str | None = None
+    email_usuario_registro: str | None = None
+    fecha_registro: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------

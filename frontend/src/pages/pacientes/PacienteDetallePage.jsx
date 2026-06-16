@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { obtenerPaciente, listarRegistrosDePaciente } from "../../api/pacientes";
 import useAuthStore from "../../store/authStore";
+import ReaccionAdversaIcon from "../../components/shared/ReaccionAdversaIcon";
 
 function getEstadoRegistro(r) {
   if (r.es_activo) {
@@ -150,6 +151,19 @@ export default function PacienteDetallePage() {
               : "—"
           } />
         </div>
+        {paciente.tiene_reaccion_adversa && (
+          <div className="col-span-2">
+            <Campo
+              label="Alertas"
+              valor={
+                <ReaccionAdversaIcon
+                  identificador={curp}
+                  modoDetalle
+                />
+              }
+            />
+          </div>
+        )}
       </div>
 
       {/* Modal de detalle de prescripción */}

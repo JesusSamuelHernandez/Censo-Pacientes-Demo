@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-15
+> Última actualización: 2026-06-15 (reacciones adversas)
 
 ## 1. Stack Tecnológico
 
@@ -46,7 +46,9 @@ frontend/
 │   │       ├── LoadingSpinner.jsx
 │   │       ├── UnidadCombobox.jsx     # Combobox de búsqueda de unidades; onChange(clues, nombre)
 │   │       ├── RegistrarMedicoModal.jsx # Modal para registrar médico sin salir del form de prescripción
-│   │       └── BanderinEstado.jsx     # Banderín de color (estatus_evolucion) en Pacientes Activos
+│   │       ├── BanderinEstado.jsx     # Banderín de color (estatus_evolucion) en Pacientes Activos
+│   │       ├── ReaccionAdversaIcon.jsx    # Icono TriangleAlert amarillo; lazy-load y modal de reacciones
+│   │       └── ModalAgregarReaccionAdversa.jsx # Formulario modal para registrar reacción adversa
 │   ├── pages/
 │   │   ├── auth/
 │   │   │   ├── LoginPage.jsx
@@ -153,6 +155,8 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `listarRegistrosDePaciente(curp, soloActivos)` → `GET /pacientes/{curp}/registros`
 - `listarExpedientesPaciente(curp)` → `GET /pacientes/{curp}/expedientes`
 - `guardarExpediente(curp, clues, numeroExpediente)` → `POST /pacientes/{curp}/expedientes` (upsert)
+- `obtenerReaccionesAdversas(identificador)` → `GET /pacientes/{identificador}/reacciones-adversas`
+- `agregarReaccionAdversa(identificador, payload)` → `POST /pacientes/{identificador}/reacciones-adversas`
 
 ### 4.3 `medicos.js`
 - `listarMedicos()` → `GET /medicos` (filtrado por RBAC en backend)
@@ -282,6 +286,8 @@ Comportamiento por rol:
 **Confirmado por (campo fijo):** El select `confirmado_por` aparece deshabilitado y fijo en `"Médico tratante"` (`CONFIRMADO_POR_FIJO` en `RegistroFormPage.jsx`). En modo creación, `defaultValues` lo precarga con ese valor; en modo edición se muestra el valor históricamente guardado. Las demás opciones (`CONFIRMADO_POR_OPTIONS`: "Consulta Externa", "Farmacia Hospitalaria", "Comité de Medicamentos", "Dirección Médica", "Trabajo Social") se conservan en el array por si se reactivan más adelante.
 
 **Número de expediente:** El campo **Número de expediente** solo aparece al crear (no en edición); si se captura, se envía como `numero_expediente` en `POST /registros/completo`, que el backend usa para hacer upsert del expediente del paciente en la unidad de la prescripción (`POST /pacientes/{curp}/expedientes`).
+
+**Reacciones adversas a medicamentos (`ReaccionAdversaIcon`, `ModalAgregarReaccionAdversa`):** En `PacientesPage.jsx`, cuando `PacienteResponse.tiene_reaccion_adversa` es `true`, aparece un icono `TriangleAlert` amarillo (`ReaccionAdversaIcon`) entre el banderín de estatus y el nombre del paciente. Al hacer clic, el componente carga lazy las reacciones desde `GET /pacientes/{id}/reacciones-adversas` y muestra un modal con la lista (medicamento, comentario, quién lo registró, fecha). Adicionalmente, en la columna **Acciones** existe un botón `TriangleAlert` para cualquier paciente que abre `ModalAgregarReaccionAdversa`: un formulario con selector de medicamento (todos los activos del catálogo) y textarea de comentario, que hace `POST /pacientes/{id}/reacciones-adversas` y recarga la lista al guardar. En `PacienteDetallePage.jsx`, si el paciente `tiene_reaccion_adversa`, el card superior muestra un badge "Reacción adversa" (variante `modoDetalle` de `ReaccionAdversaIcon`) que al hacer clic muestra el mismo modal de listado.
 
 **Flujo Vista previa:** El botón "Vista previa" (ojo) valida todos los campos antes de mostrar un resumen de la prescripción (Paciente, Prescripción, Posología, número de expediente). El usuario confirma o regresa a editar. El form permanece montado pero oculto con CSS (`hidden`) para preservar el estado de `react-hook-form`. Solo en modo edición se muestra directamente "Guardar cambios". Envía a `POST /registros/completo`.
 

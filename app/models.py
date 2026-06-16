@@ -263,6 +263,10 @@ class Paciente(Base):
         back_populates="paciente",
         cascade="all, delete-orphan",
     )
+    reacciones_adversas: Mapped[list["ReaccionAdversa"]] = relationship(
+        back_populates="paciente",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Paciente id={self.id_paciente}>"
@@ -444,7 +448,49 @@ class ExpedientePaciente(Base):
 
 
 # ---------------------------------------------------------------------------
-# 8. Notificaciones de Transferencia (Blueprint Transferencia Paciente Paso 3)
+# 8. Reacciones Adversas a Medicamentos
+# ---------------------------------------------------------------------------
+class ReaccionAdversa(Base):
+    """
+    Registro de una reacción adversa a un medicamento reportada para un paciente.
+    Históricas: no se eliminan físicamente.
+    """
+    __tablename__ = "reacciones_adversas"
+
+    id_reaccion: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_paciente: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("pacientes.id_paciente", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    clave_cnis: Mapped[str] = mapped_column(
+        String(50),
+        ForeignKey("cat_medicamentos.clave_cnis", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    comentario: Mapped[str] = mapped_column(Text, nullable=False)
+    id_usuario_registro: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("usuarios.id_usuario", ondelete="SET NULL"),
+        nullable=True,
+    )
+    fecha_registro: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    paciente: Mapped["Paciente"] = relationship(back_populates="reacciones_adversas")
+    medicamento: Mapped["CatMedicamento"] = relationship()
+    usuario_registro: Mapped["Usuario | None"] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<ReaccionAdversa id={self.id_reaccion} paciente={self.id_paciente}>"
+
+
+# ---------------------------------------------------------------------------
+# 9. Notificaciones de Transferencia (Blueprint Transferencia Paciente Paso 3)
 # ---------------------------------------------------------------------------
 class NotificacionTransferencia(Base):
     """
