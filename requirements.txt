@@ -1,10 +1,12 @@
 # ── Web Framework ─────────────────────────────────────────────────────────────
 fastapi==0.115.6
 uvicorn[standard]==0.32.1        # Servidor ASGI con recarga automática (--reload)
+gunicorn==23.0.0                 # Servidor multiproceso para producción
 
 # ── Base de Datos ──────────────────────────────────────────────────────────────
 sqlalchemy==2.0.36               # ORM — versión que soporta Mapped/mapped_column
 psycopg2-binary==2.9.10          # Driver PostgreSQL para Python
+alembic==1.14.0                  # Migraciones versionadas de base de datos
 
 # ── Validación de datos ────────────────────────────────────────────────────────
 pydantic==2.10.3                 # Motor de validación (v2)

@@ -27,6 +27,7 @@ Adherencia:
     (date.today() - registro.fecha_inicio_tratamiento).days
 """
 import calendar
+import os
 import unicodedata
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -34,7 +35,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import exists, func, update
+from sqlalchemy import exists, func, text, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import (
@@ -50,8 +51,8 @@ from app.auth import (
     verify_password,
 )
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
-from app.database import engine, get_db
-from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario
+from app.database import get_db
+from app.models import CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario
 from app.schemas import (
     BusquedaCurpResponse,
     BusquedaNombreItem,
@@ -103,8 +104,6 @@ from app.schemas import (
 # ---------------------------------------------------------------------------
 # Inicialización
 # ---------------------------------------------------------------------------
-Base.metadata.create_all(bind=engine)
-
 app = FastAPI(
     title="API — Medicamentos de Alto Costo",
     description=(
@@ -118,27 +117,31 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
-import os
-
-FRONTEND_URL = os.getenv(
-    "FRONTEND_URL",
-    "http://localhost:5173,https://censo-frontend-production-dab7.up.railway.app"
-)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 
 allowed_origins = [url.strip() for url in FRONTEND_URL.split(",") if url.strip()]
 
-if "http://localhost:5173" not in allowed_origins:
-    allowed_origins.append("http://localhost:5173")
+if not allowed_origins:
+    raise RuntimeError(
+        "Variable de entorno FRONTEND_URL no definida. "
+        "Configura los origenes permitidos separados por coma."
+    )
 
 print(f"✓ CORS allowed origins: {allowed_origins}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TEMPORAL: permitir todos para debugging
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health", tags=["Sistema"], summary="Verifica la salud de la API y la base de datos.")
+def healthcheck(db: Session = Depends(get_db)):
+    db.execute(text("SELECT 1"))
+    return {"status": "ok", "database": "ok"}
 
 # ===========================================================================
 # AUTENTICACIÓN
