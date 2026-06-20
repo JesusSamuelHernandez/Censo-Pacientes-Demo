@@ -49,7 +49,7 @@ Edita el archivo `.env` en la raíz del proyecto y reemplaza `DATABASE_URL` con 
 DATABASE_URL=postgresql://usuario:password@host:puerto/nombre_bd
 ```
 
-> La URL de Railway está en el dashboard: servicio PostgreSQL → Variables → `DATABASE_URL`.
+> **IMPORTANTE:** Usa la URL **pública** (servicio PostgreSQL → pestaña **Connect** → "Public Network" / variable `DATABASE_PUBLIC_URL`), no la interna que aparece en pestaña "Variables" (`postgres.railway.internal`). La interna solo es alcanzable entre servicios de Railway; desde tu máquina local el script se queda colgado tratando de conectar (sin error visible) porque ese host no es accesible desde fuera de la red privada de Railway.
 
 ### Paso 2 — Correr los scripts necesarios
 

@@ -17,6 +17,7 @@ engine = create_engine(
     pool_pre_ping=True,       # Verifica la conexión antes de usarla (evita conexiones muertas).
     pool_size=10,             # Conexiones simultáneas mantenidas en el pool.
     max_overflow=20,          # Conexiones extras permitidas en picos de carga.
+    connect_args={"connect_timeout": 10},  # Falla rápido si el host no es alcanzable (p.ej. URL interna de Railway).
 )
 
 SessionLocal = sessionmaker(
