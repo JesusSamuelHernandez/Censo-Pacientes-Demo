@@ -86,6 +86,9 @@ python scripts/migrar_amparo_derechos_humanos.py
 # Migración motivo de baja del paciente
 python scripts/migrar_motivo_baja.py
 
+# Migración motivo de baja múltiple (amplía pacientes.motivo_baja a VARCHAR(300))
+python scripts/migrar_motivo_baja_multiple.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
 
@@ -124,6 +127,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_confirmado_mediante.py` | Primera vez que se despliega el campo `confirmado_mediante` en `registros` |
 | `migrar_amparo_derechos_humanos.py` | Primera vez que se despliegan `registros.tratamiento_amparo` y `registros.queja_derechos_humanos` |
 | `migrar_motivo_baja.py` | Primera vez que se despliega `pacientes.motivo_baja` |
+| `migrar_motivo_baja_multiple.py` | Primera vez que se despliega la selección múltiple de motivo de baja (amplía la columna a VARCHAR(300)) |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |

@@ -318,15 +318,16 @@ class PacienteUpdate(BaseModel):
 
 
 class BajaPacienteRequest(BaseModel):
-    motivo_baja: str = Field(
-        ..., description=f"Motivo de la baja. Valores válidos: {MOTIVO_BAJA_OPTIONS}"
+    motivo_baja: list[str] = Field(
+        ..., min_length=1, description=f"Uno o más motivos de la baja. Valores válidos: {MOTIVO_BAJA_OPTIONS}"
     )
 
     @field_validator("motivo_baja")
     @classmethod
-    def validar_motivo_baja(cls, v: str) -> str:
-        if v not in MOTIVO_BAJA_OPTIONS:
-            raise ValueError(f"motivo_baja debe ser uno de: {MOTIVO_BAJA_OPTIONS}")
+    def validar_motivo_baja(cls, v: list[str]) -> list[str]:
+        invalidos = [m for m in v if m not in MOTIVO_BAJA_OPTIONS]
+        if invalidos:
+            raise ValueError(f"motivo_baja contiene valores inválidos: {invalidos}. Válidos: {MOTIVO_BAJA_OPTIONS}")
         return v
 
 
@@ -343,7 +344,7 @@ class PacienteResponse(BaseModel):
     clues_unidad_adscripcion: str
     fecha_nacimiento: date | None = None
     es_activo: bool
-    motivo_baja: str | None = None
+    motivo_baja: list[str] | None = None
     estatus_evolucion: str
     fecha_registro: datetime
     id_usuario_registro: int | None

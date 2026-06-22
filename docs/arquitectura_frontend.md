@@ -149,7 +149,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `obtenerPaciente(curp)` → `GET /pacientes/{curp}`
 - `crearPaciente(data)` → `POST /pacientes`
 - `actualizarPaciente(curp, data)` → `PATCH /pacientes/{curp}` (también usado por `BanderinEstado` para actualizar `estatus_evolucion`)
-- `darBajaPaciente(curp, motivoBaja)` → `DELETE /pacientes/{curp}` (body `{ motivo_baja }`)
+- `darBajaPaciente(curp, motivosBaja)` → `DELETE /pacientes/{curp}` (body `{ motivo_baja }`, arreglo de 1 o más valores)
 - `buscarPacientePorCurp(curp)` → `GET /pacientes/buscar?curp=`
 - `buscarPacientesPorNombre(q, limite)` → `GET /pacientes/buscar-por-nombre?q=&limite=` (para pacientes sin CURP)
 - `listarRegistrosDePaciente(curp, soloActivos)` → `GET /pacientes/{curp}/registros`
@@ -235,7 +235,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 
 Al hacer clic se abre un modal con la leyenda de colores y un selector; al elegir un valor distinto llama `actualizarPaciente(curp, { estatus_evolucion })` (`PATCH /pacientes/{curp}`) y actualiza el estado local vía el callback `onChange`.
 
-**Dar de baja con motivo obligatorio:** El modal de confirmación de baja (botón `UserX` en Acciones) incluye 4 radio buttons obligatorios — "Efecto adverso", "Defunción", "Cambio de tratamiento", "Atención en seguridad social o medios privados" (constante local `MOTIVO_BAJA_OPTIONS`, espejo de `MOTIVO_BAJA_OPTIONS` en `schemas.py`). El botón "Confirmar baja" permanece deshabilitado hasta elegir una opción; se envía como `motivo_baja` en `darBajaPaciente(curp, motivoBaja)`.
+**Dar de baja con motivo(s) obligatorio(s):** El modal de confirmación de baja (botón `UserX` en Acciones) incluye 4 checkboxes — "Efecto adverso", "Defunción", "Cambio de tratamiento", "Atención en seguridad social o medios privados" (constante local `MOTIVO_BAJA_OPTIONS`, espejo de `MOTIVO_BAJA_OPTIONS` en `schemas.py`). Se puede seleccionar más de uno. El botón "Confirmar baja" permanece deshabilitado hasta elegir al menos una opción; se envía como arreglo `motivo_baja` en `darBajaPaciente(curp, motivosBaja)`.
 
 ---
 

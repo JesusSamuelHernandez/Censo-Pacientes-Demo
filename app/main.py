@@ -544,7 +544,7 @@ def dar_baja_paciente(
         )
 
     paciente.es_activo = False
-    paciente.motivo_baja = payload.motivo_baja
+    paciente.motivo_baja = _serializar_motivo_baja(payload.motivo_baja)
     paciente.id_usuario_registro = current_user.id_usuario
 
     db.query(Registro).filter(
@@ -2294,6 +2294,21 @@ def _generar_password_temporal(longitud: int = 12) -> str:
     return "".join(secrets.choice(alfabeto) for _ in range(longitud))
 
 
+_MOTIVO_BAJA_SEP = ", "
+
+
+def _serializar_motivo_baja(motivos: list[str]) -> str:
+    """Une varios motivos de baja en un solo string para guardar en BD."""
+    return _MOTIVO_BAJA_SEP.join(motivos)
+
+
+def _deserializar_motivo_baja(valor: str | None) -> list[str] | None:
+    """Separa el string guardado en BD de vuelta a la lista de motivos."""
+    if not valor:
+        return None
+    return [m.strip() for m in valor.split(",") if m.strip()]
+
+
 def _paciente_to_response(
     p: Paciente,
     tiene_prescripcion_activa: bool = False,
@@ -2317,7 +2332,7 @@ def _paciente_to_response(
         clues_unidad_adscripcion=p.clues_unidad_adscripcion,
         fecha_nacimiento=p.fecha_nacimiento,
         es_activo=p.es_activo,
-        motivo_baja=p.motivo_baja,
+        motivo_baja=_deserializar_motivo_baja(p.motivo_baja),
         estatus_evolucion=p.estatus_evolucion,
         fecha_registro=p.fecha_registro,
         id_usuario_registro=p.id_usuario_registro,

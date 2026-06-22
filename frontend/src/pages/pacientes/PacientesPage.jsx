@@ -36,7 +36,7 @@ export default function PacientesPage() {
   const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmBaja, setConfirmBaja] = useState(null);
-  const [motivoBaja, setMotivoBaja] = useState("");
+  const [motivosBaja, setMotivosBaja] = useState([]);
   const [pacienteReaccion, setPacienteReaccion] = useState(null);
 
   const porPagina = 20;
@@ -84,22 +84,28 @@ export default function PacientesPage() {
     );
   };
 
+  const toggleMotivoBaja = (op) => {
+    setMotivosBaja((prev) =>
+      prev.includes(op) ? prev.filter((m) => m !== op) : [...prev, op]
+    );
+  };
+
   const handleBaja = async () => {
     if (!confirmBaja) return;
-    if (!motivoBaja) {
-      toast.error("Selecciona el motivo de la baja.");
+    if (motivosBaja.length === 0) {
+      toast.error("Selecciona al menos un motivo de la baja.");
       return;
     }
     try {
-      await darBajaPaciente(confirmBaja, motivoBaja);
+      await darBajaPaciente(confirmBaja, motivosBaja);
       toast.success("Paciente dado de baja correctamente.");
       setConfirmBaja(null);
-      setMotivoBaja("");
+      setMotivosBaja([]);
       cargar();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Error al dar de baja al paciente.");
       setConfirmBaja(null);
-      setMotivoBaja("");
+      setMotivosBaja([]);
     }
   };
 
@@ -369,6 +375,7 @@ export default function PacientesPage() {
             <div className="mb-6 space-y-2">
               <p className="text-sm font-medium text-neutral-black">
                 Motivo de la baja <span className="text-primary">*</span>
+                <span className="text-xs text-neutral-gray font-normal"> (puedes elegir más de uno)</span>
               </p>
               {MOTIVO_BAJA_OPTIONS.map((op) => (
                 <label
@@ -376,11 +383,9 @@ export default function PacientesPage() {
                   className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none"
                 >
                   <input
-                    type="radio"
-                    name="motivo_baja"
-                    value={op}
-                    checked={motivoBaja === op}
-                    onChange={() => setMotivoBaja(op)}
+                    type="checkbox"
+                    checked={motivosBaja.includes(op)}
+                    onChange={() => toggleMotivoBaja(op)}
                     className="accent-primary w-4 h-4"
                   />
                   {op}
@@ -389,7 +394,7 @@ export default function PacientesPage() {
             </div>
             <div className="flex gap-3">
               <button
-                onClick={() => { setConfirmBaja(null); setMotivoBaja(""); }}
+                onClick={() => { setConfirmBaja(null); setMotivosBaja([]); }}
                 className="flex-1 px-4 py-2 rounded-lg border border-neutral-gray/30
                   text-sm text-neutral-gray hover:bg-neutral-light transition"
               >
@@ -397,7 +402,7 @@ export default function PacientesPage() {
               </button>
               <button
                 onClick={handleBaja}
-                disabled={!motivoBaja}
+                disabled={motivosBaja.length === 0}
                 className="flex-1 px-4 py-2 rounded-lg bg-primary-dark hover:bg-primary
                   text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
               >

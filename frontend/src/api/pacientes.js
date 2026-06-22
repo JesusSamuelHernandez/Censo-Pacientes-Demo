@@ -29,10 +29,10 @@ export const actualizarPaciente = async (curp, payload) => {
   return data;
 };
 
-// DELETE /pacientes/{curp} — Soft Delete (es_activo = false), requiere motivo de baja
-export const darBajaPaciente = async (curp, motivoBaja) => {
+// DELETE /pacientes/{curp} — Soft Delete (es_activo = false), requiere uno o más motivos de baja
+export const darBajaPaciente = async (curp, motivosBaja) => {
   const { data } = await axiosClient.delete(`/pacientes/${curp}`, {
-    data: { motivo_baja: motivoBaja },
+    data: { motivo_baja: motivosBaja },
   });
   return data;
 };
