@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en RegistroFormPage; motivo de baja obligatorio en Pacientes Activos; Reporte Detallado con campos nuevos)
+> Última actualización: 2026-06-22 (confirmado_mediante con 3 opciones fijas; confirmado_por oculto en form y Reporte Detallado; caso relacionado con amparo/derechos humanos; motivo de baja obligatorio en Pacientes Activos)
 
 ## 1. Stack Tecnológico
 
@@ -285,9 +285,9 @@ Comportamiento por rol:
 
 **Fecha de nacimiento del paciente:** Si la búsqueda por CURP no encuentra al paciente, se muestra el campo **Fecha de nacimiento** (opcional) para capturarlo junto con el resto de datos del paciente nuevo (`fecha_nacimiento` en el payload de `POST /registros/completo`). Si el paciente ya existe y tiene `fecha_nacimiento`, se muestra como dato de solo lectura en el resumen de búsqueda.
 
-**Confirmado por (campo fijo):** El select `confirmado_por` aparece deshabilitado y fijo en `"Médico tratante"` (`CONFIRMADO_POR_FIJO` en `RegistroFormPage.jsx`). En modo creación, `defaultValues` lo precarga con ese valor; en modo edición se muestra el valor históricamente guardado. Las demás opciones (`CONFIRMADO_POR_OPTIONS`: "Consulta Externa", "Farmacia Hospitalaria", "Comité de Medicamentos", "Dirección Médica", "Trabajo Social") se conservan en el array por si se reactivan más adelante.
+**Confirmado por (oculto):** El bloque completo del campo `confirmado_por` (select, label, nota, fila de Vista previa) está envuelto en `{CONFIRMADO_POR_HABILITADO && (...)}` (flag en `featureFlags.js`, actualmente `false`) — ya no se usa. La validación zod se vuelve condicional al flag: requerida si está habilitado, opcional si no. `defaultValues` solo precarga `CONFIRMADO_POR_FIJO` cuando el flag está activo. Constantes `CONFIRMADO_POR_FIJO`/`CONFIRMADO_POR_OPTIONS` se conservan sin uso por si se reactiva.
 
-**Confirmado mediante (texto libre):** Campo `confirmado_mediante` ubicado justo después de "Confirmado por" y antes de "Fecha inicio de tratamiento". Es un `<input type="text">` libre (máx. 200 caracteres, obligatorio) que describe el método con el que se confirmó el diagnóstico (ej. "Estudio de gabinete", "Biopsia"). Se valida en el esquema zod compartido (`camposFormulario`) y se muestra en la Vista previa junto a "Confirmado por".
+**Confirmado mediante (select de 3 opciones fijas):** Campo `confirmado_mediante` ubicado justo después de "Confirmado por" y antes de "Fecha inicio de tratamiento". Cambió de texto libre a `<select>` obligatorio con 3 opciones fijas (`CONFIRMADO_MEDIANTE_OPTIONS` en `RegistroFormPage.jsx`, espejo de la constante homónima en `schemas.py`): "Médico tratante (Clínico)", "Estudios de laboratorio especializados", "Confirmación por centro de referencia o especialista". Validado también en backend (`field_validator` en los 3 schemas que usan el campo). Se muestra en la Vista previa.
 
 **Caso relacionado con (amparo / derechos humanos):** Justo después de "Confirmado mediante", 3 checkboxes mutuamente excluyentes: "Tratamiento por amparo", "Caso relacionado con queja de derechos humanos" y "No aplica". Implementado como checkboxes controlados (`watch` + `setValue`, no `register` directo) en lugar de inputs nativos, porque marcar uno desmarca el otro automáticamente (`tratamiento_amparo`/`queja_derechos_humanos` son mutuamente excluyentes en el backend). "No aplica" es un estado derivado (`!tratamiento_amparo && !queja_derechos_humanos`), no se persiste como campo propio. Por defecto en creación ambos booleanos inician en `false` (equivalente a "No aplica" marcado). Se muestra en la Vista previa como "Caso relacionado con".
 
@@ -317,7 +317,7 @@ Comportamiento por rol:
 
 **Exportar a Excel:** Botón disponible en Reporte Detallado. Usa SheetJS en el cliente para convertir el JSON de la API a `.xlsx` descargable.
 
-**Columnas del Reporte Detallado (tabla y Excel, 17 columnas):** Folio, Paciente, CURP, Diagnóstico (de la prescripción), Estatus Diagnóstico, Confirmado por, Confirmado mediante, Caso relacionado con (amparo/derechos humanos), Unidad, Médico, Días Adh., Medicamento, Prescripción, Peso, Talla, Inicio Trat., Fin Trat. El backend ya entrega estos campos calculados (incluyendo `caso_relacionado_con` como texto legible); el frontend solo los muestra sin transformación adicional. Aplica igual para los 3 niveles RBAC — el filtrado de filas ocurre en el backend (`apply_rbac_filter`), no hay lógica de roles en este componente.
+**Columnas del Reporte Detallado (tabla y Excel, idénticas en ambos):** Folio, ID Paciente, Paciente, CURP, Diagnóstico (de la prescripción), Estatus Diagnóstico, ~~Confirmado por~~ (oculto), Confirmado mediante, Caso relacionado con (amparo/derechos humanos), Unidad, Médico, Cédula Médico, Días Adh., Clave CNIS, Medicamento, Prescripción, Peso, Talla, Inicio Trat., Fin Trat., Fecha Primera Adm., Fecha Registro, Activo (22 columnas visibles con `CONFIRMADO_POR_HABILITADO = false`, 23 si se reactiva). El backend ya entrega estos campos calculados (incluyendo `caso_relacionado_con` como texto legible); el frontend solo los muestra sin transformación adicional. La lista de columnas (`COLUMNAS_DETALLADO`) y el `colSpan` de los estados de carga/vacío se computan a partir del mismo flag, evitando números mágicos. Aplica igual para los 3 niveles RBAC — el filtrado de filas ocurre en el backend (`apply_rbac_filter`), no hay lógica de roles en este componente.
 
 ---
 

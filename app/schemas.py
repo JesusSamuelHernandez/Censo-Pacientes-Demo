@@ -91,6 +91,13 @@ MOTIVO_BAJA_OPTIONS = [
     "Atención en seguridad social o medios privados",
 ]
 
+# Método mediante el cual se confirmó el diagnóstico — Registro.confirmado_mediante.
+CONFIRMADO_MEDIANTE_OPTIONS = [
+    "Médico tratante (Clínico)",
+    "Estudios de laboratorio especializados",
+    "Confirmación por centro de referencia o especialista",
+]
+
 
 # ---------------------------------------------------------------------------
 # ── 0. CatDiagnostico ───────────────────────────────────────────────────────
@@ -497,6 +504,13 @@ class RegistroBase(BaseModel):
     def normalizar_clues(cls, v: str) -> str:
         return v.strip().upper()
 
+    @field_validator("confirmado_mediante")
+    @classmethod
+    def validar_confirmado_mediante(cls, v: str | None) -> str | None:
+        if v is not None and v not in CONFIRMADO_MEDIANTE_OPTIONS:
+            raise ValueError(f"confirmado_mediante debe ser uno de: {CONFIRMADO_MEDIANTE_OPTIONS}")
+        return v
+
 
 class RegistroCreate(RegistroBase):
     pass
@@ -525,6 +539,13 @@ class RegistroUpdate(BaseModel):
         None,
         description="False = anular registro por error de captura (Soft Delete).",
     )
+
+    @field_validator("confirmado_mediante")
+    @classmethod
+    def validar_confirmado_mediante(cls, v: str | None) -> str | None:
+        if v is not None and v not in CONFIRMADO_MEDIANTE_OPTIONS:
+            raise ValueError(f"confirmado_mediante debe ser uno de: {CONFIRMADO_MEDIANTE_OPTIONS}")
+        return v
 
 
 class RegistroResponse(RegistroBase):
@@ -617,6 +638,13 @@ class RegistroCompletoCreate(BaseModel):
     @classmethod
     def normalizar_clues(cls, v: str) -> str:
         return v.strip().upper()
+
+    @field_validator("confirmado_mediante")
+    @classmethod
+    def validar_confirmado_mediante(cls, v: str | None) -> str | None:
+        if v is not None and v not in CONFIRMADO_MEDIANTE_OPTIONS:
+            raise ValueError(f"confirmado_mediante debe ser uno de: {CONFIRMADO_MEDIANTE_OPTIONS}")
+        return v
 
 
 class RegistroCompletoResponse(RegistroResponse):

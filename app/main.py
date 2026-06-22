@@ -1711,9 +1711,9 @@ def reporte_resumen_detallado(
         ).filter(UnidadMedica.id_entidad == filtro.valor_entidad)
 
     if fecha_inicio:
-        query = query.filter(Registro.fecha_primera_administracion >= fecha_inicio)
+        query = query.filter(Registro.fecha_inicio_tratamiento >= fecha_inicio)
     if fecha_fin:
-        query = query.filter(Registro.fecha_primera_administracion <= fecha_fin)
+        query = query.filter(Registro.fecha_inicio_tratamiento <= fecha_fin)
 
     registros = query.all()
 

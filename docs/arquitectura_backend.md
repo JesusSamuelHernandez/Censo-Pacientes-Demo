@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en Registro; motivo_baja en Paciente; Reporte Detallado actualizado con campos nuevos)
+> Última actualización: 2026-06-22 (confirmado_mediante con 3 opciones fijas; confirmado_por oculto; caso relacionado con amparo/derechos humanos en Registro; motivo_baja en Paciente; Reporte Detallado actualizado)
 
 ## 1. Visión General
 
@@ -237,8 +237,8 @@ La PK es autoincremental. Reemplaza al modelo `Receta` desde Blueprint v6.
 | `peso` | Numeric(5,2) | nullable | Peso en kg |
 | `talla` | Numeric(5,2) | nullable | Talla en cm |
 | `estatus_diagnostico` | String(50) | nullable | "confirmado" / "por confirmar" |
-| `confirmado_por` | String(100) | nullable | Área que confirmó el diagnóstico |
-| `confirmado_mediante` | String(200) | nullable | Método mediante el cual se confirmó el diagnóstico (texto libre) |
+| `confirmado_por` | String(100) | nullable | **Oculto** desde el frontend (`CONFIRMADO_POR_HABILITADO = false`); columna se conserva sin uso |
+| `confirmado_mediante` | String(200) | nullable | Método mediante el cual se confirmó el diagnóstico. Valores válidos: `CONFIRMADO_MEDIANTE_OPTIONS` (ver §6.6) |
 | `tratamiento_amparo` | Boolean | NOT NULL, default=False | Caso relacionado con tratamiento por amparo. Mutuamente excluyente con `queja_derechos_humanos` (aplicado en frontend) |
 | `queja_derechos_humanos` | Boolean | NOT NULL, default=False | Caso relacionado con queja de derechos humanos. Si ambos son False, equivale a "No aplica" |
 | `prescripcion` | Text | nullable | Auto-generado por `_aplicar_posologia()` |
@@ -394,9 +394,11 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 ### 6.6 Registro
 
+`CONFIRMADO_MEDIANTE_OPTIONS = ["Médico tratante (Clínico)", "Estudios de laboratorio especializados", "Confirmación por centro de referencia o especialista"]` — constante a nivel módulo en `schemas.py`, valores válidos para `confirmado_mediante`. Validado vía `field_validator` en `RegistroBase`, `RegistroUpdate` y `RegistroCompletoCreate` (las 3 clases que exponen el campo).
+
 | Schema | Campos destacados |
 |---|---|
-| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `confirmado_mediante` (opt, str, max 200 — texto libre), `tratamiento_amparo` (bool, default False), `queja_derechos_humanos` (bool, default False), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
+| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt — oculto en frontend), `confirmado_mediante` (opt, validado contra `CONFIRMADO_MEDIANTE_OPTIONS`), `tratamiento_amparo` (bool, default False), `queja_derechos_humanos` (bool, default False), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
 | `RegistroCreate` | Idéntico a Base |
 | `RegistroUpdate` | Todos opcionales, incluye `id_diagnostico` y `es_activo` (Soft Delete) |
 | `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido), `diagnostico` (DiagnosticoResponse embebido, nullable) |
@@ -528,7 +530,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
-| GET | `/reportes/resumen-detallado` | Todos | Datos crudos para Excel/PDF. Params: `fecha_inicio`, `fecha_fin`, `solo_activos`. Filtro RBAC por unidad actual del paciente. Cada fila incluye: `diagnostico` (de la prescripción vía `Registro.diagnostico`/`id_diagnostico`, no del paciente — más preciso que el legacy `paciente.diagnostico_actual`), `estatus_diagnostico`, `confirmado_por`, `confirmado_mediante`, `caso_relacionado_con` (computado: "Tratamiento por amparo" / "Caso relacionado con queja de derechos humanos" / "No aplica"), `peso`, `talla`, `fecha_fin_tratamiento`, además de los campos previos. |
+| GET | `/reportes/resumen-detallado` | Todos | Datos crudos para Excel/PDF. Params: `fecha_inicio`, `fecha_fin` (filtran por `Registro.fecha_inicio_tratamiento`, no por `fecha_primera_administracion`), `solo_activos`. Filtro RBAC por unidad actual del paciente. Cada fila incluye: `diagnostico` (de la prescripción vía `Registro.diagnostico`/`id_diagnostico`, no del paciente — más preciso que el legacy `paciente.diagnostico_actual`), `estatus_diagnostico`, `confirmado_por`, `confirmado_mediante`, `caso_relacionado_con` (computado: "Tratamiento por amparo" / "Caso relacionado con queja de derechos humanos" / "No aplica"), `peso`, `talla`, `fecha_fin_tratamiento`, además de los campos previos. |
 | GET | `/reportes/estatal` | ADMIN_ESTATAL, SUPER_ADMIN | Agrupados por unidad: total pacientes activos + total registros activos. Scope por entidad para ADMIN_ESTATAL. |
 | GET | `/reportes/rtm` | Solo SUPER_ADMIN | Requerimiento Teórico Mensual. Params: `clues` (req), `meses` (1-24, default 7). Calcula consumo mensual proporcional por medicamento usando overlap de fechas con límites exclusivos. Solo prescripciones con posología completa. |
 

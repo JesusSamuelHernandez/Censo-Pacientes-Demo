@@ -7,3 +7,6 @@ export const REACCIONES_ADVERSAS_HABILITADO = false;
 
 // Reactivar para volver a mostrar el banderín de estatus de evolución en Pacientes Activos.
 export const ESTATUS_EVOLUCION_HABILITADO = false;
+
+// Reactivar para volver a mostrar "Confirmado por" en Registrar Paciente y en el Reporte Detallado.
+export const CONFIRMADO_POR_HABILITADO = false;

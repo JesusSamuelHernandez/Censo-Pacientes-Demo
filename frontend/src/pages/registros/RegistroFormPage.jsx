@@ -17,6 +17,7 @@ import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos, listarDiagnosticos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
 import useAuthStore from "../../store/authStore";
+import { CONFIRMADO_POR_HABILITADO } from "../../config/featureFlags";
 
 // ---------------------------------------------------------------------------
 // Constantes
@@ -38,6 +39,12 @@ const CONFIRMADO_POR_OPTIONS = [
   "Trabajo Social",
 ];
 
+const CONFIRMADO_MEDIANTE_OPTIONS = [
+  "Médico tratante (Clínico)",
+  "Estudios de laboratorio especializados",
+  "Confirmación por centro de referencia o especialista",
+];
+
 // Campos del formulario (requeridos en creación y edición)
 const camposFormulario = {
   // Sin UI — hardcodeados o no visibles en el form
@@ -45,8 +52,10 @@ const camposFormulario = {
   dosis_administrada: z.string().max(100).optional().or(z.literal("")),
   // Requeridos
   id_diagnostico: z.string().min(1, "Selecciona un diagnóstico."),
-  confirmado_por: z.string().min(1, "Selecciona quién confirmó."),
-  confirmado_mediante: z.string().min(1, "Indica mediante qué se confirmó el diagnóstico.").max(200),
+  confirmado_por: CONFIRMADO_POR_HABILITADO
+    ? z.string().min(1, "Selecciona quién confirmó.")
+    : z.string().optional().or(z.literal("")),
+  confirmado_mediante: z.string().min(1, "Selecciona mediante qué se confirmó el diagnóstico."),
   tratamiento_amparo: z.boolean().default(false),
   queja_derechos_humanos: z.boolean().default(false),
   fecha_inicio_tratamiento: z.string().min(1, "Selecciona la fecha de inicio de tratamiento."),
@@ -349,7 +358,11 @@ export default function RegistroFormPage() {
   } = useForm({
     resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear),
     defaultValues: !esEdicion
-      ? { confirmado_por: CONFIRMADO_POR_FIJO, tratamiento_amparo: false, queja_derechos_humanos: false }
+      ? {
+          ...(CONFIRMADO_POR_HABILITADO ? { confirmado_por: CONFIRMADO_POR_FIJO } : {}),
+          tratamiento_amparo: false,
+          queja_derechos_humanos: false,
+        }
       : undefined,
   });
 
@@ -909,36 +922,43 @@ export default function RegistroFormPage() {
             </div>
 
             {/* Confirmado por */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-black mb-1">
-                Confirmado por <span className="text-primary">*</span>
-              </label>
-              <select
-                disabled
-                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition
-                  disabled:opacity-70 disabled:cursor-not-allowed"
-                {...register("confirmado_por")}
-              >
-                <option value="">— Selecciona un área —</option>
-                {CONFIRMADO_POR_OPTIONS.map((op) => (
-                  <option key={op} value={op}>{op}</option>
-                ))}
-              </select>
-              <p className="text-xs text-neutral-gray mt-1">Por el momento este campo queda fijo en "{CONFIRMADO_POR_FIJO}".</p>
-              {errors.confirmado_por && <p className="text-red-500 text-xs mt-1">{errors.confirmado_por.message}</p>}
-            </div>
+            {CONFIRMADO_POR_HABILITADO && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Confirmado por <span className="text-primary">*</span>
+                </label>
+                <select
+                  disabled
+                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition
+                    disabled:opacity-70 disabled:cursor-not-allowed"
+                  {...register("confirmado_por")}
+                >
+                  <option value="">— Selecciona un área —</option>
+                  {CONFIRMADO_POR_OPTIONS.map((op) => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-neutral-gray mt-1">Por el momento este campo queda fijo en "{CONFIRMADO_POR_FIJO}".</p>
+                {errors.confirmado_por && <p className="text-red-500 text-xs mt-1">{errors.confirmado_por.message}</p>}
+              </div>
+            )}
 
             {/* Confirmado mediante */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
                 Confirmado mediante <span className="text-primary">*</span>
               </label>
-              <input type="text" maxLength={200} placeholder="ej. Estudio de gabinete, biopsia, laboratorio..."
-                className={`w-full px-4 py-2.5 rounded-lg border bg-neutral-light text-sm outline-none transition
-                  focus:ring-2 focus:ring-primary/20 focus:border-primary
-                  ${errors.confirmado_mediante ? "border-red-400 bg-red-50" : "border-neutral-gray/30"}`}
-                {...register("confirmado_mediante")} />
+              <select
+                className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("confirmado_mediante")}
+              >
+                <option value="">— Selecciona una opción —</option>
+                {CONFIRMADO_MEDIANTE_OPTIONS.map((op) => (
+                  <option key={op} value={op}>{op}</option>
+                ))}
+              </select>
               {errors.confirmado_mediante && <p className="text-red-500 text-xs mt-1">{errors.confirmado_mediante.message}</p>}
             </div>
 
@@ -1285,7 +1305,9 @@ export default function RegistroFormPage() {
                   </>
                 )}
                 <FilaPreview label="Diagnóstico" valor={diagPreview?.nombre} span2 />
-                <FilaPreview label="Confirmado por" valor={vals.confirmado_por} />
+                {CONFIRMADO_POR_HABILITADO && (
+                  <FilaPreview label="Confirmado por" valor={vals.confirmado_por} />
+                )}
                 <FilaPreview label="Confirmado mediante" valor={vals.confirmado_mediante} />
                 <FilaPreview
                   label="Caso relacionado con"
