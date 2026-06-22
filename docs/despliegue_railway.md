@@ -86,10 +86,12 @@ python scripts/cargar_diagnosticos.py
 
 Otros scripts disponibles:
 ```bash
-python scripts/cargar_medicamentos.py   # catálogo CNIS
+python scripts/cargar_medicamentos.py --actualizar --sincronizar   # catálogo CNIS completo (ver nota)
 python scripts/cargar_unidades.py       # unidades médicas
 python scripts/create_admin.py          # crear usuario SUPER_ADMIN inicial
 ```
+
+> **Nota sobre `cargar_medicamentos.py`:** sin flags, solo inserta claves nuevas (modo incremental). Con `--actualizar`, también actualiza descripción/grupo/tipo_clave de claves existentes. Con `--sincronizar`, además desactiva (`es_activo=False`, Soft Delete — no elimina físicamente) los medicamentos de la BD que ya no aparecen en el Excel. Usar `--actualizar --sincronizar` juntos cuando el Excel representa el catálogo completo vigente (ej. tras una actualización del cuadro básico), no un incremental.
 
 ### Paso 3 — Restaurar el .env local
 

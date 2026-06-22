@@ -5,6 +5,7 @@ Uso:
     python scripts/cargar_medicamentos.py
     python scripts/cargar_medicamentos.py --archivo ruta/a/mi_archivo.xlsx
     python scripts/cargar_medicamentos.py --actualizar
+    python scripts/cargar_medicamentos.py --actualizar --sincronizar
 
 Columnas requeridas en el Excel:
     clave_cnis    : Clave CNIS del medicamento (ej. 010.000.4155.00) — PK única.
@@ -15,9 +16,14 @@ Columnas opcionales:
     tipo_clave    : Tipo de clave (ej. CUADRO BASICO, GASTOS CATASTROFICOS).
 
 Comportamiento:
-    - Sin --actualizar : registros con clave_cnis ya existente se OMITEN (solo inserta nuevos).
-    - Con --actualizar : registros existentes se ACTUALIZAN (descripcion, grupo, tipo_clave).
-    - Al final imprime un resumen: insertados / actualizados / omitidos / errores.
+    - Sin --actualizar  : registros con clave_cnis ya existente se OMITEN (solo inserta nuevos).
+    - Con --actualizar  : registros existentes se ACTUALIZAN (descripcion, grupo, tipo_clave).
+    - Con --sincronizar : además, desactiva (es_activo=False, Soft Delete) los medicamentos
+                          de la BD cuya clave_cnis NO aparece en este Excel. No los elimina
+                          físicamente — solo dejan de mostrarse en listas/dropdowns que
+                          filtran "solo activos". Usar cuando el Excel representa el catálogo
+                          completo vigente (no un incremental).
+    - Al final imprime un resumen: insertados / actualizados / omitidos / errores / desactivados.
 """
 import argparse
 import os
@@ -40,12 +46,14 @@ ARCHIVO_DEFAULT = os.path.join(os.path.dirname(__file__), "data", "medicamentos.
 COLUMNAS_REQUERIDAS = {"clave_cnis", "descripcion"}
 
 
-def cargar_medicamentos(archivo: str, actualizar: bool = False) -> None:
+def cargar_medicamentos(archivo: str, actualizar: bool = False, sincronizar: bool = False) -> None:
     print(f"\n{'='*60}")
     print(f"  CARGA MASIVA — CATÁLOGO DE MEDICAMENTOS")
     print(f"{'='*60}")
     print(f"Archivo   : {archivo}")
     print(f"Modo      : {'INSERTAR + ACTUALIZAR existentes' if actualizar else 'SOLO INSERTAR nuevos'}")
+    if sincronizar:
+        print(f"Sincronizar: SÍ — se desactivarán medicamentos no presentes en este Excel")
 
     # 1. Leer Excel
     try:
@@ -72,6 +80,7 @@ def cargar_medicamentos(archivo: str, actualizar: bool = False) -> None:
     actualizados = 0
     omitidos = 0
     errores = 0
+    claves_excel = set()
 
     print(f"\nProcesando {len(df)} filas...\n")
 
@@ -88,6 +97,8 @@ def cargar_medicamentos(archivo: str, actualizar: bool = False) -> None:
             print(f"  [OMITIDA] Fila {fila_num}: clave_cnis vacía.")
             omitidos += 1
             continue
+
+        claves_excel.add(clave)
 
         if not descripcion or descripcion == "NAN":
             print(f"  [ERROR]   Fila {fila_num} ({clave}): descripción vacía.")
@@ -129,6 +140,20 @@ def cargar_medicamentos(archivo: str, actualizar: bool = False) -> None:
             print(f"  [ERROR]   Fila {fila_num} ({clave}): {e}")
             errores += 1
 
+    desactivados = 0
+    if sincronizar:
+        print(f"\nSincronizando: desactivando medicamentos ausentes en el Excel...\n")
+        faltantes = (
+            db.query(CatMedicamento)
+            .filter(CatMedicamento.es_activo == True, ~CatMedicamento.clave_cnis.in_(claves_excel))
+            .all()
+        )
+        for m in faltantes:
+            m.es_activo = False
+            print(f"  [DESACTIVADO] '{m.clave_cnis}' — {m.descripcion[:50]}")
+            desactivados += 1
+        db.commit()
+
     db.close()
 
     print(f"\n{'='*60}")
@@ -138,6 +163,8 @@ def cargar_medicamentos(archivo: str, actualizar: bool = False) -> None:
     print(f"  Actualizados: {actualizados}")
     print(f"  Omitidos    : {omitidos}  (ya existían o fila vacía)")
     print(f"  Errores     : {errores}")
+    if sincronizar:
+        print(f"  Desactivados: {desactivados}  (no estaban en este Excel)")
     print(f"{'='*60}\n")
 
 
@@ -153,5 +180,10 @@ if __name__ == "__main__":
         action="store_true",
         help="Actualiza descripcion, grupo y tipo_clave de claves que ya existen en la BD.",
     )
+    parser.add_argument(
+        "--sincronizar",
+        action="store_true",
+        help="Desactiva (es_activo=False) los medicamentos de la BD que no aparecen en este Excel.",
+    )
     args = parser.parse_args()
-    cargar_medicamentos(args.archivo, actualizar=args.actualizar)
+    cargar_medicamentos(args.archivo, actualizar=args.actualizar, sincronizar=args.sincronizar)

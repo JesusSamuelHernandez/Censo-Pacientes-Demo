@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-22 (confirmado_mediante con 3 opciones fijas; confirmado_por oculto en form y Reporte Detallado; caso relacionado con amparo/derechos humanos; motivo de baja obligatorio en Pacientes Activos)
+> Última actualización: 2026-06-22 (listas fijas de unidad/unidad_de_medida en catálogo de medicamentos; confirmado_mediante con 3 opciones fijas; confirmado_por oculto en form y Reporte Detallado; caso relacionado con amparo/derechos humanos; motivo de baja obligatorio en Pacientes Activos)
 
 ## 1. Stack Tecnológico
 
@@ -327,6 +327,10 @@ Comportamiento por rol:
 |---|---|---|
 | Catálogo de medicamentos | `/catalogos/medicamentos` | `GET/POST/PATCH /catalogos/medicamentos` |
 | Unidades médicas | `/catalogos/unidades` | `GET/POST/PATCH /catalogos/unidades` |
+
+**Unidad / Unidad de medida (listas fijas):** En el modal de crear/editar medicamento (`MedicamentosPage.jsx`), los campos "Unidad de dosis (singular)" y "Unidad de medida (cantidad)" son `<select>` con listas fijas (`UNIDAD_OPTIONS`: 14 valores — tableta, capsula, comprimido, gragea, sobre, ml, gotas, frasco_ampula, ampolleta, inhalacion, aplicacion, parche, supositorio, ovulo; `UNIDAD_DE_MEDIDA_OPTIONS`: 29 valores — ng, mcg, mg, g, kg, mcl, ml, l, ui, u, ku, mu, ufc, dosis, y combinaciones como mg/ml, mg/dosis, %, ppm, etc.). Solo restringe el frontend — no hay validación enum en backend, para no bloquear ediciones de registros con valores legacy (ver nota siguiente). El campo sigue siendo opcional (string libre a nivel de esquema/BD), solo la UI limita las opciones seleccionables.
+
+**Valores legacy fuera de la lista:** Al editar un medicamento cuyo `unidad`/`unidad_de_medida` actual no está en la lista fija (ej. `"inyección"`, usado en 31 medicamentos del catálogo al momento de este cambio), el `<select>` inyecta una opción extra con ese valor (`"{valor} (valor actual, fuera de lista)"`) para preservarlo visualmente sin forzar al usuario a corregirlo de inmediato ni arriesgar que el navegador seleccione silenciosamente la primera opción de la lista al guardar. Decisión explícita: no se migraron automáticamente estos 31 registros — quedan pendientes de corrección manual, uno por uno, eligiendo la opción correcta del nuevo select (la mayoría corresponde a "frasco_ampula" según su descripción, uno a "ampolleta", y uno —Icatibant, "jeringa prellenada"— no tiene equivalente exacto en la lista).
 
 ---
 
