@@ -53,6 +53,7 @@ from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
 from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario
 from app.schemas import (
+    BajaPacienteRequest,
     BusquedaCurpResponse,
     BusquedaNombreItem,
     BusquedaNombreResponse,
@@ -528,6 +529,7 @@ def actualizar_paciente(
 )
 def dar_baja_paciente(
     curp_paciente: str,
+    payload: BajaPacienteRequest,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
@@ -542,6 +544,7 @@ def dar_baja_paciente(
         )
 
     paciente.es_activo = False
+    paciente.motivo_baja = payload.motivo_baja
     paciente.id_usuario_registro = current_user.id_usuario
 
     db.query(Registro).filter(
@@ -990,6 +993,7 @@ def crear_registro(
     _verificar_acceso_paciente(paciente, current_user, db)
     if not paciente.es_activo:
         paciente.es_activo = True
+        paciente.motivo_baja = None
 
     if not db.query(Medico).filter(Medico.id_medico == payload.id_medico).first():
         raise HTTPException(
@@ -1118,6 +1122,7 @@ def crear_registro_completo(
         _verificar_acceso_paciente(paciente, current_user, db)
         if not paciente.es_activo:
             paciente.es_activo = True
+            paciente.motivo_baja = None
 
     elif payload.curp_paciente:
         curp_hash = hash_sha256(payload.curp_paciente)
@@ -1130,6 +1135,7 @@ def crear_registro_completo(
             _verificar_acceso_paciente(paciente, current_user, db)
             if not paciente.es_activo:
                 paciente.es_activo = True
+                paciente.motivo_baja = None
 
     else:
         paciente = _crear_paciente_nuevo(None, None)
@@ -2297,6 +2303,7 @@ def _paciente_to_response(
         clues_unidad_adscripcion=p.clues_unidad_adscripcion,
         fecha_nacimiento=p.fecha_nacimiento,
         es_activo=p.es_activo,
+        motivo_baja=p.motivo_baja,
         estatus_evolucion=p.estatus_evolucion,
         fecha_registro=p.fecha_registro,
         id_usuario_registro=p.id_usuario_registro,

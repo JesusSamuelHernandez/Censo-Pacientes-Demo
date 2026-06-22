@@ -16,6 +16,13 @@ import { REACCIONES_ADVERSAS_HABILITADO, ESTATUS_EVOLUCION_HABILITADO } from "..
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 
+const MOTIVO_BAJA_OPTIONS = [
+  "Efecto adverso",
+  "Defunción",
+  "Cambio de tratamiento",
+  "Atención en seguridad social o medios privados",
+];
+
 export default function PacientesPage() {
   const navigate = useNavigate();
   const { rolNombre } = useAuthStore();
@@ -29,6 +36,7 @@ export default function PacientesPage() {
   const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmBaja, setConfirmBaja] = useState(null);
+  const [motivoBaja, setMotivoBaja] = useState("");
   const [pacienteReaccion, setPacienteReaccion] = useState(null);
 
   const porPagina = 20;
@@ -78,14 +86,20 @@ export default function PacientesPage() {
 
   const handleBaja = async () => {
     if (!confirmBaja) return;
+    if (!motivoBaja) {
+      toast.error("Selecciona el motivo de la baja.");
+      return;
+    }
     try {
-      await darBajaPaciente(confirmBaja);
+      await darBajaPaciente(confirmBaja, motivoBaja);
       toast.success("Paciente dado de baja correctamente.");
       setConfirmBaja(null);
+      setMotivoBaja("");
       cargar();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Error al dar de baja al paciente.");
       setConfirmBaja(null);
+      setMotivoBaja("");
     }
   };
 
@@ -349,12 +363,33 @@ export default function PacientesPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
             <h3 className="text-base font-semibold text-neutral-black mb-2">¿Dar de baja al paciente?</h3>
-            <p className="text-sm text-neutral-gray mb-6">
+            <p className="text-sm text-neutral-gray mb-4">
               Esta acción marcará al paciente como inactivo. No se eliminará de la base de datos.
             </p>
+            <div className="mb-6 space-y-2">
+              <p className="text-sm font-medium text-neutral-black">
+                Motivo de la baja <span className="text-primary">*</span>
+              </p>
+              {MOTIVO_BAJA_OPTIONS.map((op) => (
+                <label
+                  key={op}
+                  className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none"
+                >
+                  <input
+                    type="radio"
+                    name="motivo_baja"
+                    value={op}
+                    checked={motivoBaja === op}
+                    onChange={() => setMotivoBaja(op)}
+                    className="accent-primary w-4 h-4"
+                  />
+                  {op}
+                </label>
+              ))}
+            </div>
             <div className="flex gap-3">
               <button
-                onClick={() => setConfirmBaja(null)}
+                onClick={() => { setConfirmBaja(null); setMotivoBaja(""); }}
                 className="flex-1 px-4 py-2 rounded-lg border border-neutral-gray/30
                   text-sm text-neutral-gray hover:bg-neutral-light transition"
               >
@@ -362,8 +397,9 @@ export default function PacientesPage() {
               </button>
               <button
                 onClick={handleBaja}
+                disabled={!motivoBaja}
                 className="flex-1 px-4 py-2 rounded-lg bg-primary-dark hover:bg-primary
-                  text-white text-sm font-medium transition"
+                  text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Confirmar baja
               </button>

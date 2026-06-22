@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en RegistroFormPage)
+> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en RegistroFormPage; motivo de baja obligatorio en Pacientes Activos)
 
 ## 1. Stack Tecnológico
 
@@ -149,7 +149,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `obtenerPaciente(curp)` → `GET /pacientes/{curp}`
 - `crearPaciente(data)` → `POST /pacientes`
 - `actualizarPaciente(curp, data)` → `PATCH /pacientes/{curp}` (también usado por `BanderinEstado` para actualizar `estatus_evolucion`)
-- `darBajaPaciente(curp)` → `DELETE /pacientes/{curp}`
+- `darBajaPaciente(curp, motivoBaja)` → `DELETE /pacientes/{curp}` (body `{ motivo_baja }`)
 - `buscarPacientePorCurp(curp)` → `GET /pacientes/buscar?curp=`
 - `buscarPacientesPorNombre(q, limite)` → `GET /pacientes/buscar-por-nombre?q=&limite=` (para pacientes sin CURP)
 - `listarRegistrosDePaciente(curp, soloActivos)` → `GET /pacientes/{curp}/registros`
@@ -234,6 +234,8 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 | Curación | Azul (`#3b82f6`) |
 
 Al hacer clic se abre un modal con la leyenda de colores y un selector; al elegir un valor distinto llama `actualizarPaciente(curp, { estatus_evolucion })` (`PATCH /pacientes/{curp}`) y actualiza el estado local vía el callback `onChange`.
+
+**Dar de baja con motivo obligatorio:** El modal de confirmación de baja (botón `UserX` en Acciones) incluye 4 radio buttons obligatorios — "Efecto adverso", "Defunción", "Cambio de tratamiento", "Atención en seguridad social o medios privados" (constante local `MOTIVO_BAJA_OPTIONS`, espejo de `MOTIVO_BAJA_OPTIONS` en `schemas.py`). El botón "Confirmar baja" permanece deshabilitado hasta elegir una opción; se envía como `motivo_baja` en `darBajaPaciente(curp, motivoBaja)`.
 
 ---
 

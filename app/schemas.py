@@ -83,6 +83,14 @@ RolStr = Annotated[
 # "Inicia tx" es el valor por defecto para pacientes nuevos y existentes.
 ESTATUS_EVOLUCION_OPTIONS = ["Inicia tx", "Tx fase intermedia", "Recaída", "Curación"]
 
+# Motivo de baja del paciente — obligatorio al dar de baja desde Pacientes Activos.
+MOTIVO_BAJA_OPTIONS = [
+    "Efecto adverso",
+    "Defunción",
+    "Cambio de tratamiento",
+    "Atención en seguridad social o medios privados",
+]
+
 
 # ---------------------------------------------------------------------------
 # ── 0. CatDiagnostico ───────────────────────────────────────────────────────
@@ -302,6 +310,19 @@ class PacienteUpdate(BaseModel):
         return v
 
 
+class BajaPacienteRequest(BaseModel):
+    motivo_baja: str = Field(
+        ..., description=f"Motivo de la baja. Valores válidos: {MOTIVO_BAJA_OPTIONS}"
+    )
+
+    @field_validator("motivo_baja")
+    @classmethod
+    def validar_motivo_baja(cls, v: str) -> str:
+        if v not in MOTIVO_BAJA_OPTIONS:
+            raise ValueError(f"motivo_baja debe ser uno de: {MOTIVO_BAJA_OPTIONS}")
+        return v
+
+
 class PacienteResponse(BaseModel):
     """
     Los campos cifrados (curp_paciente, nombre_completo, diagnostico_actual)
@@ -315,6 +336,7 @@ class PacienteResponse(BaseModel):
     clues_unidad_adscripcion: str
     fecha_nacimiento: date | None = None
     es_activo: bool
+    motivo_baja: str | None = None
     estatus_evolucion: str
     fecha_registro: datetime
     id_usuario_registro: int | None

@@ -77,6 +77,9 @@ python scripts/migrar_confirmado_mediante.py
 # Migración caso relacionado con amparo/derechos humanos
 python scripts/migrar_amparo_derechos_humanos.py
 
+# Migración motivo de baja del paciente
+python scripts/migrar_motivo_baja.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
 ```
@@ -108,6 +111,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_reacciones_adversas.py` | Primera vez que se despliega el módulo de reacciones adversas: crea tabla `reacciones_adversas` (idempotente, `[--]` si ya existe) |
 | `migrar_confirmado_mediante.py` | Primera vez que se despliega el campo `confirmado_mediante` en `registros` |
 | `migrar_amparo_derechos_humanos.py` | Primera vez que se despliegan `registros.tratamiento_amparo` y `registros.queja_derechos_humanos` |
+| `migrar_motivo_baja.py` | Primera vez que se despliega `pacientes.motivo_baja` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |

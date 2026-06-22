@@ -225,6 +225,7 @@ class Paciente(Base):
     )
 
     es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    motivo_baja: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     estatus_evolucion: Mapped[str] = mapped_column(
         String(30), nullable=False, default="Inicia tx", server_default="Inicia tx"

@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en Registro)
+> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en Registro; motivo_baja en Paciente)
 
 ## 1. Visión General
 
@@ -159,6 +159,7 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | `fecha_nacimiento` | Date | nullable | Fecha de nacimiento del paciente |
 | `clues_unidad_adscripcion` | String(20) | FK → cat_unidades, NOT NULL, index | |
 | `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
+| `motivo_baja` | String(100) | nullable | Motivo de la baja. Valores válidos: `MOTIVO_BAJA_OPTIONS` (ver §6.4). Se limpia (`None`) automáticamente al reactivar el paciente |
 | `estatus_evolucion` | String(30) | NOT NULL, default="Inicia tx", server_default | Banderín de evolución. Valores válidos: `ESTATUS_EVOLUCION_OPTIONS` (ver §6.4) |
 | `id_usuario_ultimo_cambio_estatus` | Integer | FK → usuarios (SET NULL), nullable | Auditoría del último cambio de `estatus_evolucion` |
 | `fecha_ultimo_cambio_estatus` | DateTime(timezone=True) | nullable | Timestamp del último cambio de `estatus_evolucion` |
@@ -345,12 +346,15 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 `ESTATUS_EVOLUCION_OPTIONS = ["Inicia tx", "Tx fase intermedia", "Recaída", "Curación"]` — constante a nivel módulo en `schemas.py`, valores válidos para `estatus_evolucion`.
 
+`MOTIVO_BAJA_OPTIONS = ["Efecto adverso", "Defunción", "Cambio de tratamiento", "Atención en seguridad social o medios privados"]` — constante a nivel módulo en `schemas.py`, valores válidos para `motivo_baja`.
+
 | Schema | Campos destacados |
 |---|---|
 | `PacienteBase` | `nombre_completo` (str, 2-255), `diagnostico_actual` (opt, max 5000), `clues_unidad_adscripcion` (CluesStr, normalizado a mayúsculas), `fecha_nacimiento` (opt) |
 | `PacienteCreate` | Base + `curp_paciente` (CurpStr, validado contra regex oficial) |
 | `PacienteUpdate` | Opcionales: `nombre_completo`, `diagnostico_actual`, `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion` (validado contra `ESTATUS_EVOLUCION_OPTIONS`) |
-| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado, `str \| None` — `None` si el paciente no tiene CURP), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas), `tiene_reaccion_adversa` (bool — True si existe al menos una reacción adversa en `reacciones_adversas`) |
+| `BajaPacienteRequest` | `motivo_baja` (str, requerido, validado contra `MOTIVO_BAJA_OPTIONS`). Body de `DELETE /pacientes/{curp_paciente}` |
+| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado, `str \| None` — `None` si el paciente no tiene CURP), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `motivo_baja` (`str \| None`), `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas), `tiene_reaccion_adversa` (bool — True si existe al menos una reacción adversa en `reacciones_adversas`) |
 | `PacienteListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[PacienteResponse]) |
 | `BusquedaCurpResponse` | `existe`, `id_paciente`, `nombre_completo`, `fecha_nacimiento`, `clues_unidad_adscripcion`, `nombre_unidad`, `total_registros` |
 | `BusquedaNombreItem` | `id_paciente`, `nombre_completo`, `fecha_nacimiento` (opt), `curp_paciente` (opt, descifrado), `clues_unidad_adscripcion`, `nombre_unidad` (opt), `total_registros` |
@@ -472,7 +476,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | GET | `/pacientes/buscar-por-nombre` | Todos | Búsqueda nacional por nombre (para pacientes sin CURP). Sin filtro RBAC. Param: `q` (min 3 chars), `limite` (default 15, max 50). Descifra y normaliza (mayúsculas, sin acentos) cada `nombre_completo`; hace match si cada token de `q` es prefijo de algún token del nombre (acepta apellido-primero o nombre-primero). |
 | GET | `/pacientes/{curp_paciente}` | Todos | Detalle completo. Lectura nacional sin restricción RBAC. |
 | PATCH | `/pacientes/{curp_paciente}` | Todos (con restricciones por rol) | Actualización parcial. Si cambia `clues_unidad_adscripcion`, genera `NotificacionTransferencia` automáticamente. Si el payload incluye `estatus_evolucion`, estampa `id_usuario_ultimo_cambio_estatus` y `fecha_ultimo_cambio_estatus` antes de aplicar los cambios. |
-| DELETE | `/pacientes/{curp_paciente}` | Todos (con acceso) | Soft Delete (`es_activo = False`). |
+| DELETE | `/pacientes/{curp_paciente}` | Todos (con acceso) | Soft Delete (`es_activo = False`). Requiere body `BajaPacienteRequest` con `motivo_baja` (validado contra `MOTIVO_BAJA_OPTIONS`); se limpia automáticamente si el paciente se reactiva después. |
 | GET | `/pacientes/{curp_paciente}/registros` | Todos | Todas las prescripciones del paciente, sin filtro de unidad. Param: `solo_activos`. |
 | GET | `/pacientes/{curp_paciente}/expedientes` | Todos | Lista los expedientes (número de expediente por unidad) del paciente. |
 | POST | `/pacientes/{curp_paciente}/expedientes` | Todos (con restricciones por rol) | Crea o actualiza (upsert) el número de expediente del paciente en una unidad (`clues` + `numero_expediente`). RESPONSABLE_UNIDAD solo puede gestionar expedientes de su propia unidad (403 si no coincide). 201 Created. |
