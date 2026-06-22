@@ -71,6 +71,9 @@ python scripts/migrar_paciente_curp_opcional.py
 # Migración reacciones adversas (crea tabla reacciones_adversas si no existe)
 python scripts/migrar_reacciones_adversas.py
 
+# Migración confirmado_mediante (registros.confirmado_mediante)
+python scripts/migrar_confirmado_mediante.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
 ```
@@ -100,6 +103,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_estatus_evolucion.py` | Primera vez que se despliega el banderín de estatus de evolución: `pacientes.estatus_evolucion`, `pacientes.id_usuario_ultimo_cambio_estatus`, `pacientes.fecha_ultimo_cambio_estatus` |
 | `migrar_paciente_curp_opcional.py` | Primera vez que se despliega el registro de pacientes sin CURP: vuelve nullable `pacientes.curp_hash` y `pacientes.curp_paciente` |
 | `migrar_reacciones_adversas.py` | Primera vez que se despliega el módulo de reacciones adversas: crea tabla `reacciones_adversas` (idempotente, `[--]` si ya existe) |
+| `migrar_confirmado_mediante.py` | Primera vez que se despliega el campo `confirmado_mediante` en `registros` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |

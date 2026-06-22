@@ -46,6 +46,7 @@ const camposFormulario = {
   // Requeridos
   id_diagnostico: z.string().min(1, "Selecciona un diagnóstico."),
   confirmado_por: z.string().min(1, "Selecciona quién confirmó."),
+  confirmado_mediante: z.string().min(1, "Indica mediante qué se confirmó el diagnóstico.").max(200),
   fecha_inicio_tratamiento: z.string().min(1, "Selecciona la fecha de inicio de tratamiento."),
   fecha_primera_administracion: z.string().min(1, "Indica la fecha de primera administración."),
   peso: z.string().min(1, "Indica el peso del paciente (kg)."),
@@ -474,6 +475,7 @@ export default function RegistroFormPage() {
         reset({
           estatus_diagnostico: r.estatus_diagnostico ?? "",
           confirmado_por: r.confirmado_por ?? "",
+          confirmado_mediante: r.confirmado_mediante ?? "",
           fecha_inicio_tratamiento: r.fecha_inicio_tratamiento ?? "",
           fecha_primera_administracion: r.fecha_primera_administracion ?? "",
           id_diagnostico: r.id_diagnostico != null ? String(r.id_diagnostico) : "",
@@ -919,6 +921,19 @@ export default function RegistroFormPage() {
               {errors.confirmado_por && <p className="text-red-500 text-xs mt-1">{errors.confirmado_por.message}</p>}
             </div>
 
+            {/* Confirmado mediante */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Confirmado mediante <span className="text-primary">*</span>
+              </label>
+              <input type="text" maxLength={200} placeholder="ej. Estudio de gabinete, biopsia, laboratorio..."
+                className={`w-full px-4 py-2.5 rounded-lg border bg-neutral-light text-sm outline-none transition
+                  focus:ring-2 focus:ring-primary/20 focus:border-primary
+                  ${errors.confirmado_mediante ? "border-red-400 bg-red-50" : "border-neutral-gray/30"}`}
+                {...register("confirmado_mediante")} />
+              {errors.confirmado_mediante && <p className="text-red-500 text-xs mt-1">{errors.confirmado_mediante.message}</p>}
+            </div>
+
             {/* Fecha inicio tratamiento */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
@@ -1218,6 +1233,7 @@ export default function RegistroFormPage() {
                 )}
                 <FilaPreview label="Diagnóstico" valor={diagPreview?.nombre} span2 />
                 <FilaPreview label="Confirmado por" valor={vals.confirmado_por} />
+                <FilaPreview label="Confirmado mediante" valor={vals.confirmado_mediante} />
                 <FilaPreview label="Fecha inicio tratamiento" valor={formatFecha(vals.fecha_inicio_tratamiento)} />
                 <FilaPreview label="Peso" valor={vals.peso ? `${vals.peso} kg` : "—"} />
                 <FilaPreview label="Talla" valor={vals.talla ? `${vals.talla} cm` : "—"} />

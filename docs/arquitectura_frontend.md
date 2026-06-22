@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-15 (reacciones adversas)
+> Última actualización: 2026-06-22 (confirmado_mediante en RegistroFormPage)
 
 ## 1. Stack Tecnológico
 
@@ -284,6 +284,8 @@ Comportamiento por rol:
 **Fecha de nacimiento del paciente:** Si la búsqueda por CURP no encuentra al paciente, se muestra el campo **Fecha de nacimiento** (opcional) para capturarlo junto con el resto de datos del paciente nuevo (`fecha_nacimiento` en el payload de `POST /registros/completo`). Si el paciente ya existe y tiene `fecha_nacimiento`, se muestra como dato de solo lectura en el resumen de búsqueda.
 
 **Confirmado por (campo fijo):** El select `confirmado_por` aparece deshabilitado y fijo en `"Médico tratante"` (`CONFIRMADO_POR_FIJO` en `RegistroFormPage.jsx`). En modo creación, `defaultValues` lo precarga con ese valor; en modo edición se muestra el valor históricamente guardado. Las demás opciones (`CONFIRMADO_POR_OPTIONS`: "Consulta Externa", "Farmacia Hospitalaria", "Comité de Medicamentos", "Dirección Médica", "Trabajo Social") se conservan en el array por si se reactivan más adelante.
+
+**Confirmado mediante (texto libre):** Campo `confirmado_mediante` ubicado justo después de "Confirmado por" y antes de "Fecha inicio de tratamiento". Es un `<input type="text">` libre (máx. 200 caracteres, obligatorio) que describe el método con el que se confirmó el diagnóstico (ej. "Estudio de gabinete", "Biopsia"). Se valida en el esquema zod compartido (`camposFormulario`) y se muestra en la Vista previa junto a "Confirmado por".
 
 **Número de expediente:** El campo **Número de expediente** solo aparece al crear (no en edición); si se captura, se envía como `numero_expediente` en `POST /registros/completo`, que el backend usa para hacer upsert del expediente del paciente en la unidad de la prescripción (`POST /pacientes/{curp}/expedientes`).
 

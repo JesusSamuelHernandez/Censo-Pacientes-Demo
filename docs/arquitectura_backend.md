@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-15 (reacciones adversas)
+> Última actualización: 2026-06-22 (confirmado_mediante en Registro)
 
 ## 1. Visión General
 
@@ -237,6 +237,7 @@ La PK es autoincremental. Reemplaza al modelo `Receta` desde Blueprint v6.
 | `talla` | Numeric(5,2) | nullable | Talla en cm |
 | `estatus_diagnostico` | String(50) | nullable | "confirmado" / "por confirmar" |
 | `confirmado_por` | String(100) | nullable | Área que confirmó el diagnóstico |
+| `confirmado_mediante` | String(200) | nullable | Método mediante el cual se confirmó el diagnóstico (texto libre) |
 | `prescripcion` | Text | nullable | Auto-generado por `_aplicar_posologia()` |
 | `dosis` | Float | nullable | Unidades por toma (posología) |
 | `cantidad` | Float | nullable | Cantidad de medicamento por unidad |
@@ -389,7 +390,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Schema | Campos destacados |
 |---|---|
-| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
+| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `confirmado_mediante` (opt, str, max 200 — texto libre), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
 | `RegistroCreate` | Idéntico a Base |
 | `RegistroUpdate` | Todos opcionales, incluye `id_diagnostico` y `es_activo` (Soft Delete) |
 | `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido), `diagnostico` (DiagnosticoResponse embebido, nullable) |

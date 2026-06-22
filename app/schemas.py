@@ -454,6 +454,9 @@ class RegistroBase(BaseModel):
         description="Valores válidos: 'confirmado', 'por confirmar'.",
     )
     confirmado_por: str | None = Field(None, max_length=100, description="Área que confirmó el diagnóstico.")
+    confirmado_mediante: str | None = Field(
+        None, max_length=200, description="Método mediante el cual se confirmó el diagnóstico (texto libre)."
+    )
     prescripcion: str | None = Field(
         None,
         description="Auto-generado por el backend si se envían dosis/frecuencia/duracion/unidad_tiempo.",
@@ -484,6 +487,7 @@ class RegistroUpdate(BaseModel):
     talla: Decimal | None = None
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
+    confirmado_mediante: str | None = Field(None, max_length=200)
     prescripcion: str | None = None
     dosis: float | None = Field(None, gt=0)
     cantidad: float | None = Field(None, gt=0)
@@ -563,6 +567,7 @@ class RegistroCompletoCreate(BaseModel):
     talla: Decimal | None = None
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
+    confirmado_mediante: str | None = Field(None, max_length=200)
     prescripcion: str | None = None
     dosis: float | None = Field(None, gt=0)
     cantidad: float | None = Field(None, gt=0)

@@ -360,6 +360,7 @@ class Registro(Base):
     talla: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     estatus_diagnostico: Mapped[str | None] = mapped_column(String(50), nullable=True)
     confirmado_por: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    confirmado_mediante: Mapped[str | None] = mapped_column(String(200), nullable=True)
     prescripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Campos de posología — calculados automáticamente por el backend
