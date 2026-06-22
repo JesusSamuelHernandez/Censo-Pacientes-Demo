@@ -16,6 +16,9 @@ generador.py
 
 *.xlsx
 
+# Solicitudes de datos a entidades (PII de usuarios estatales/responsables de unidad)
+solicitudes_altas_usuarios/
+
 scripts/**
 scripts/cargar_medicamentos.py
 

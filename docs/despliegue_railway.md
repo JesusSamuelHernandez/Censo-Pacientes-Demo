@@ -53,11 +53,17 @@ DATABASE_URL=postgresql://usuario:password@host:puerto/nombre_bd
 
 ### Paso 2 — Correr los scripts necesarios
 
+> **Lección aprendida (2026-06-22):** `migrar_medico_baja.py` (columna `medicos.es_activo`, de Blueprint v5) nunca se había corrido contra producción y causó 500 en `/medicos`, `/registros` y `/reportes/resumen-detallado` por meses sin detectarse, porque el checklist de "Paso 2" solo se actualiza con las migraciones del deploy en curso. Todas estas migraciones son idempotentes (no rompen nada si ya están aplicadas) — ante cualquier sospecha de columnas faltantes, es más seguro correr **todos** los scripts de la tabla del §4, no solo los del deploy actual.
+
 Correr solo los scripts que correspondan a los cambios de este deploy:
 
 ```bash
 # Migración estructural (nueva tabla / columna)
 python scripts/migrar_diagnosticos.py
+
+# Migración Soft Delete de médicos (medicos.es_activo) — verificar SIEMPRE,
+# se detectó faltante en producción el 2026-06-22 pese a ser de Blueprint v5
+python scripts/migrar_medico_baja.py
 
 # Migración campos nuevos: fecha_nacimiento, tabla expedientes_paciente
 python scripts/migrar_campos_nuevos.py
@@ -82,6 +88,10 @@ python scripts/migrar_motivo_baja.py
 
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
+
+# Carga relación unidad-medicamento (medicamentos disponibles por unidad) —
+# verificar SIEMPRE, se detectó faltante en producción el 2026-06-22
+python scripts/cargar_unidad_medicamentos.py
 ```
 
 Otros scripts disponibles:
@@ -130,9 +140,12 @@ Verificar que los servicios de Railway tengan estas variables configuradas:
 | Variable | Valor |
 |----------|-------|
 | `DATABASE_URL` | URL de PostgreSQL de Railway (auto-generada) |
-| `SECRET_KEY` | Clave secreta para JWT (generar con `openssl rand -hex 32`) |
+| `SECRET_KEY` / `JWT_SECRET_KEY` | Clave secreta para JWT (generar con `openssl rand -hex 32`) |
 | `FERNET_KEY` | Clave de cifrado Fernet (generar con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) |
 | `FRONTEND_URL` | URL del servicio frontend en Railway |
+
+> **CRÍTICO — `FERNET_KEY` y `JWT_SECRET_KEY` deben ser valores literales fijos, NUNCA `${{secret(...)}}`.**
+> La plantilla `${{secret(...)}}` de Railway genera un valor **aleatorio nuevo en cada deploy**, y Railway no conserva historial de esos valores. Para `JWT_SECRET_KEY` esto solo desconecta a todos los usuarios en cada deploy (molesto). Para `FERNET_KEY` es **irreversible**: cualquier dato cifrado con la clave de un deploy anterior queda permanentemente ilegible en el siguiente — no hay forma de recuperarlo. Esto ya pasó una vez (2026-06-22, ver `.context/activeContext.md`) y costó perder 10 pacientes + 5 médicos de prueba. Verificar en Variables que ambas claves sean texto fijo (no una referencia `${{...}}`) y guardar una copia en un lugar seguro fuera de Railway.
 
 ### Frontend (servicio Vite/Node)
 | Variable | Valor |
