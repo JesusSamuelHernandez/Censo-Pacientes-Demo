@@ -457,6 +457,8 @@ class RegistroBase(BaseModel):
     confirmado_mediante: str | None = Field(
         None, max_length=200, description="Método mediante el cual se confirmó el diagnóstico (texto libre)."
     )
+    tratamiento_amparo: bool = Field(False, description="True si el caso está relacionado con un tratamiento por amparo.")
+    queja_derechos_humanos: bool = Field(False, description="True si el caso está relacionado con una queja de derechos humanos.")
     prescripcion: str | None = Field(
         None,
         description="Auto-generado por el backend si se envían dosis/frecuencia/duracion/unidad_tiempo.",
@@ -488,6 +490,8 @@ class RegistroUpdate(BaseModel):
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
     confirmado_mediante: str | None = Field(None, max_length=200)
+    tratamiento_amparo: bool | None = None
+    queja_derechos_humanos: bool | None = None
     prescripcion: str | None = None
     dosis: float | None = Field(None, gt=0)
     cantidad: float | None = Field(None, gt=0)
@@ -568,6 +572,8 @@ class RegistroCompletoCreate(BaseModel):
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
     confirmado_mediante: str | None = Field(None, max_length=200)
+    tratamiento_amparo: bool = False
+    queja_derechos_humanos: bool = False
     prescripcion: str | None = None
     dosis: float | None = Field(None, gt=0)
     cantidad: float | None = Field(None, gt=0)

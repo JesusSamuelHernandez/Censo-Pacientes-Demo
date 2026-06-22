@@ -361,6 +361,8 @@ class Registro(Base):
     estatus_diagnostico: Mapped[str | None] = mapped_column(String(50), nullable=True)
     confirmado_por: Mapped[str | None] = mapped_column(String(100), nullable=True)
     confirmado_mediante: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tratamiento_amparo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    queja_derechos_humanos: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     prescripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Campos de posología — calculados automáticamente por el backend

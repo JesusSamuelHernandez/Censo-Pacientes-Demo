@@ -74,6 +74,9 @@ python scripts/migrar_reacciones_adversas.py
 # Migración confirmado_mediante (registros.confirmado_mediante)
 python scripts/migrar_confirmado_mediante.py
 
+# Migración caso relacionado con amparo/derechos humanos
+python scripts/migrar_amparo_derechos_humanos.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
 ```
@@ -104,6 +107,7 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_paciente_curp_opcional.py` | Primera vez que se despliega el registro de pacientes sin CURP: vuelve nullable `pacientes.curp_hash` y `pacientes.curp_paciente` |
 | `migrar_reacciones_adversas.py` | Primera vez que se despliega el módulo de reacciones adversas: crea tabla `reacciones_adversas` (idempotente, `[--]` si ya existe) |
 | `migrar_confirmado_mediante.py` | Primera vez que se despliega el campo `confirmado_mediante` en `registros` |
+| `migrar_amparo_derechos_humanos.py` | Primera vez que se despliegan `registros.tratamiento_amparo` y `registros.queja_derechos_humanos` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |

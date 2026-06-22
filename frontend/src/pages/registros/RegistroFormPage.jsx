@@ -47,6 +47,8 @@ const camposFormulario = {
   id_diagnostico: z.string().min(1, "Selecciona un diagnóstico."),
   confirmado_por: z.string().min(1, "Selecciona quién confirmó."),
   confirmado_mediante: z.string().min(1, "Indica mediante qué se confirmó el diagnóstico.").max(200),
+  tratamiento_amparo: z.boolean().default(false),
+  queja_derechos_humanos: z.boolean().default(false),
   fecha_inicio_tratamiento: z.string().min(1, "Selecciona la fecha de inicio de tratamiento."),
   fecha_primera_administracion: z.string().min(1, "Indica la fecha de primera administración."),
   peso: z.string().min(1, "Indica el peso del paciente (kg)."),
@@ -346,11 +348,15 @@ export default function RegistroFormPage() {
     formState: { errors },
   } = useForm({
     resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear),
-    defaultValues: !esEdicion ? { confirmado_por: CONFIRMADO_POR_FIJO } : undefined,
+    defaultValues: !esEdicion
+      ? { confirmado_por: CONFIRMADO_POR_FIJO, tratamiento_amparo: false, queja_derechos_humanos: false }
+      : undefined,
   });
 
   const cluesSeleccionada = watch("clues");
   const claveCnisSeleccionada = watch("clave_cnis");
+  const tratamientoAmparo = watch("tratamiento_amparo");
+  const quejaDerechosHumanos = watch("queja_derechos_humanos");
 
   // Unidad del medicamento seleccionado (para etiqueta dinámica en posología)
   const medSeleccionado = medicamentos.find((m) => m.clave_cnis === claveCnisSeleccionada);
@@ -476,6 +482,8 @@ export default function RegistroFormPage() {
           estatus_diagnostico: r.estatus_diagnostico ?? "",
           confirmado_por: r.confirmado_por ?? "",
           confirmado_mediante: r.confirmado_mediante ?? "",
+          tratamiento_amparo: r.tratamiento_amparo ?? false,
+          queja_derechos_humanos: r.queja_derechos_humanos ?? false,
           fecha_inicio_tratamiento: r.fecha_inicio_tratamiento ?? "",
           fecha_primera_administracion: r.fecha_primera_administracion ?? "",
           id_diagnostico: r.id_diagnostico != null ? String(r.id_diagnostico) : "",
@@ -934,6 +942,51 @@ export default function RegistroFormPage() {
               {errors.confirmado_mediante && <p className="text-red-500 text-xs mt-1">{errors.confirmado_mediante.message}</p>}
             </div>
 
+            {/* Caso relacionado con amparo / queja de derechos humanos */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-2">
+                Caso relacionado con <span className="text-primary">*</span>
+              </label>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!!tratamientoAmparo}
+                    onChange={(e) => {
+                      setValue("tratamiento_amparo", e.target.checked, { shouldValidate: true, shouldDirty: true });
+                      if (e.target.checked) setValue("queja_derechos_humanos", false, { shouldDirty: true });
+                    }}
+                    className="accent-primary w-4 h-4"
+                  />
+                  Tratamiento por amparo
+                </label>
+                <label className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!!quejaDerechosHumanos}
+                    onChange={(e) => {
+                      setValue("queja_derechos_humanos", e.target.checked, { shouldValidate: true, shouldDirty: true });
+                      if (e.target.checked) setValue("tratamiento_amparo", false, { shouldDirty: true });
+                    }}
+                    className="accent-primary w-4 h-4"
+                  />
+                  Caso relacionado con queja de derechos humanos
+                </label>
+                <label className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!tratamientoAmparo && !quejaDerechosHumanos}
+                    onChange={() => {
+                      setValue("tratamiento_amparo", false, { shouldDirty: true });
+                      setValue("queja_derechos_humanos", false, { shouldValidate: true, shouldDirty: true });
+                    }}
+                    className="accent-primary w-4 h-4"
+                  />
+                  No aplica
+                </label>
+              </div>
+            </div>
+
             {/* Fecha inicio tratamiento */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
@@ -1234,6 +1287,16 @@ export default function RegistroFormPage() {
                 <FilaPreview label="Diagnóstico" valor={diagPreview?.nombre} span2 />
                 <FilaPreview label="Confirmado por" valor={vals.confirmado_por} />
                 <FilaPreview label="Confirmado mediante" valor={vals.confirmado_mediante} />
+                <FilaPreview
+                  label="Caso relacionado con"
+                  valor={
+                    vals.tratamiento_amparo
+                      ? "Tratamiento por amparo"
+                      : vals.queja_derechos_humanos
+                      ? "Caso relacionado con queja de derechos humanos"
+                      : "No aplica"
+                  }
+                />
                 <FilaPreview label="Fecha inicio tratamiento" valor={formatFecha(vals.fecha_inicio_tratamiento)} />
                 <FilaPreview label="Peso" valor={vals.peso ? `${vals.peso} kg` : "—"} />
                 <FilaPreview label="Talla" valor={vals.talla ? `${vals.talla} cm` : "—"} />

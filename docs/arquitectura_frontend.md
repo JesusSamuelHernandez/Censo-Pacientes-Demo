@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-22 (confirmado_mediante en RegistroFormPage)
+> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en RegistroFormPage)
 
 ## 1. Stack Tecnológico
 
@@ -286,6 +286,8 @@ Comportamiento por rol:
 **Confirmado por (campo fijo):** El select `confirmado_por` aparece deshabilitado y fijo en `"Médico tratante"` (`CONFIRMADO_POR_FIJO` en `RegistroFormPage.jsx`). En modo creación, `defaultValues` lo precarga con ese valor; en modo edición se muestra el valor históricamente guardado. Las demás opciones (`CONFIRMADO_POR_OPTIONS`: "Consulta Externa", "Farmacia Hospitalaria", "Comité de Medicamentos", "Dirección Médica", "Trabajo Social") se conservan en el array por si se reactivan más adelante.
 
 **Confirmado mediante (texto libre):** Campo `confirmado_mediante` ubicado justo después de "Confirmado por" y antes de "Fecha inicio de tratamiento". Es un `<input type="text">` libre (máx. 200 caracteres, obligatorio) que describe el método con el que se confirmó el diagnóstico (ej. "Estudio de gabinete", "Biopsia"). Se valida en el esquema zod compartido (`camposFormulario`) y se muestra en la Vista previa junto a "Confirmado por".
+
+**Caso relacionado con (amparo / derechos humanos):** Justo después de "Confirmado mediante", 3 checkboxes mutuamente excluyentes: "Tratamiento por amparo", "Caso relacionado con queja de derechos humanos" y "No aplica". Implementado como checkboxes controlados (`watch` + `setValue`, no `register` directo) en lugar de inputs nativos, porque marcar uno desmarca el otro automáticamente (`tratamiento_amparo`/`queja_derechos_humanos` son mutuamente excluyentes en el backend). "No aplica" es un estado derivado (`!tratamiento_amparo && !queja_derechos_humanos`), no se persiste como campo propio. Por defecto en creación ambos booleanos inician en `false` (equivalente a "No aplica" marcado). Se muestra en la Vista previa como "Caso relacionado con".
 
 **Número de expediente:** El campo **Número de expediente** solo aparece al crear (no en edición); si se captura, se envía como `numero_expediente` en `POST /registros/completo`, que el backend usa para hacer upsert del expediente del paciente en la unidad de la prescripción (`POST /pacientes/{curp}/expedientes`).
 
