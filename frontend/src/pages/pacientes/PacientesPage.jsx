@@ -12,6 +12,7 @@ import useAuthStore from "../../store/authStore";
 import BanderinEstado from "../../components/shared/BanderinEstado";
 import ReaccionAdversaIcon from "../../components/shared/ReaccionAdversaIcon";
 import ModalAgregarReaccionAdversa from "../../components/shared/ModalAgregarReaccionAdversa";
+import { REACCIONES_ADVERSAS_HABILITADO } from "../../config/featureFlags";
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 
@@ -187,7 +188,7 @@ export default function PacientesPage() {
                           />
                         )}
                         <div className="flex items-center gap-1.5">
-                          {p.tiene_reaccion_adversa && (
+                          {REACCIONES_ADVERSAS_HABILITADO && p.tiene_reaccion_adversa && (
                             <ReaccionAdversaIcon
                               identificador={p.curp_paciente ?? String(p.id_paciente)}
                             />
@@ -278,13 +279,15 @@ export default function PacientesPage() {
                         >
                           <Eye size={15} />
                         </button>
-                        <button
-                          onClick={() => setPacienteReaccion(p.curp_paciente ?? String(p.id_paciente))}
-                          className="p-1.5 rounded-lg text-neutral-gray hover:text-yellow-600 hover:bg-yellow-50 transition"
-                          title="Reacción adversa"
-                        >
-                          <TriangleAlert size={15} />
-                        </button>
+                        {REACCIONES_ADVERSAS_HABILITADO && (
+                          <button
+                            onClick={() => setPacienteReaccion(p.curp_paciente ?? String(p.id_paciente))}
+                            className="p-1.5 rounded-lg text-neutral-gray hover:text-yellow-600 hover:bg-yellow-50 transition"
+                            title="Reacción adversa"
+                          >
+                            <TriangleAlert size={15} />
+                          </button>
+                        )}
                         {ROLES_PUEDEN_CREAR.includes(rolNombre) && p.es_activo && (
                           <button
                             onClick={() => setConfirmBaja(p.curp_paciente)}
@@ -332,12 +335,14 @@ export default function PacientesPage() {
       </div>
 
       {/* Modal de reacción adversa */}
-      <ModalAgregarReaccionAdversa
-        identificador={pacienteReaccion}
-        isOpen={!!pacienteReaccion}
-        onClose={() => setPacienteReaccion(null)}
-        onGuardado={() => { setPacienteReaccion(null); cargar(); }}
-      />
+      {REACCIONES_ADVERSAS_HABILITADO && (
+        <ModalAgregarReaccionAdversa
+          identificador={pacienteReaccion}
+          isOpen={!!pacienteReaccion}
+          onClose={() => setPacienteReaccion(null)}
+          onGuardado={() => { setPacienteReaccion(null); cargar(); }}
+        />
+      )}
 
       {/* Modal de confirmación de baja */}
       {confirmBaja && (
