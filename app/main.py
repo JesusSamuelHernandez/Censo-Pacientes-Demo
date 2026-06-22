@@ -1733,7 +1733,15 @@ def reporte_resumen_detallado(
                 "id_paciente": r.id_paciente,
                 "curp_paciente": descifrar_o_none(r.paciente.curp_paciente) if r.paciente else None,
                 "nombre_paciente": descifrar(r.paciente.nombre_completo) if r.paciente else None,
-                "diagnostico": descifrar_o_none(r.paciente.diagnostico_actual) if r.paciente else None,
+                "diagnostico": r.diagnostico.nombre if r.diagnostico else None,
+                "estatus_diagnostico": r.estatus_diagnostico,
+                "confirmado_por": r.confirmado_por,
+                "confirmado_mediante": r.confirmado_mediante,
+                "caso_relacionado_con": (
+                    "Tratamiento por amparo" if r.tratamiento_amparo
+                    else "Caso relacionado con queja de derechos humanos" if r.queja_derechos_humanos
+                    else "No aplica"
+                ),
                 "clues_unidad": r.clues,
                 "medico": descifrar(r.medico.nombre_medico) if r.medico else None,
                 "cedula_medico": descifrar(r.medico.cedula) if r.medico else None,
@@ -1744,9 +1752,15 @@ def reporte_resumen_detallado(
                 "clave_cnis": r.clave_cnis,
                 "descripcion_medicamento": r.medicamento.descripcion if r.medicamento else None,
                 "prescripcion": r.prescripcion,
+                "peso": float(r.peso) if r.peso is not None else None,
+                "talla": float(r.talla) if r.talla is not None else None,
                 "fecha_inicio_tratamiento": (
                     r.fecha_inicio_tratamiento.isoformat()
                     if r.fecha_inicio_tratamiento else None
+                ),
+                "fecha_fin_tratamiento": (
+                    r.fecha_fin_tratamiento.isoformat()
+                    if r.fecha_fin_tratamiento else None
                 ),
                 "fecha_primera_administracion": (
                     r.fecha_primera_administracion.isoformat()

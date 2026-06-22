@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en Registro; motivo_baja en Paciente)
+> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en Registro; motivo_baja en Paciente; Reporte Detallado actualizado con campos nuevos)
 
 ## 1. Visión General
 
@@ -528,7 +528,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
-| GET | `/reportes/resumen-detallado` | Todos | Datos crudos para Excel/PDF. Params: `fecha_inicio`, `fecha_fin`, `solo_activos`. Filtro RBAC por unidad actual del paciente. |
+| GET | `/reportes/resumen-detallado` | Todos | Datos crudos para Excel/PDF. Params: `fecha_inicio`, `fecha_fin`, `solo_activos`. Filtro RBAC por unidad actual del paciente. Cada fila incluye: `diagnostico` (de la prescripción vía `Registro.diagnostico`/`id_diagnostico`, no del paciente — más preciso que el legacy `paciente.diagnostico_actual`), `estatus_diagnostico`, `confirmado_por`, `confirmado_mediante`, `caso_relacionado_con` (computado: "Tratamiento por amparo" / "Caso relacionado con queja de derechos humanos" / "No aplica"), `peso`, `talla`, `fecha_fin_tratamiento`, además de los campos previos. |
 | GET | `/reportes/estatal` | ADMIN_ESTATAL, SUPER_ADMIN | Agrupados por unidad: total pacientes activos + total registros activos. Scope por entidad para ADMIN_ESTATAL. |
 | GET | `/reportes/rtm` | Solo SUPER_ADMIN | Requerimiento Teórico Mensual. Params: `clues` (req), `meses` (1-24, default 7). Calcula consumo mensual proporcional por medicamento usando overlap de fechas con límites exclusivos. Solo prescripciones con posología completa. |
 

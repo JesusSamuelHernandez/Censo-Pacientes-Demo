@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en RegistroFormPage; motivo de baja obligatorio en Pacientes Activos)
+> Última actualización: 2026-06-22 (confirmado_mediante + caso relacionado con amparo/derechos humanos en RegistroFormPage; motivo de baja obligatorio en Pacientes Activos; Reporte Detallado con campos nuevos)
 
 ## 1. Stack Tecnológico
 
@@ -316,6 +316,8 @@ Comportamiento por rol:
 - Muestra tabla de medicamentos × meses con cantidades calculadas.
 
 **Exportar a Excel:** Botón disponible en Reporte Detallado. Usa SheetJS en el cliente para convertir el JSON de la API a `.xlsx` descargable.
+
+**Columnas del Reporte Detallado (tabla y Excel, 17 columnas):** Folio, Paciente, CURP, Diagnóstico (de la prescripción), Estatus Diagnóstico, Confirmado por, Confirmado mediante, Caso relacionado con (amparo/derechos humanos), Unidad, Médico, Días Adh., Medicamento, Prescripción, Peso, Talla, Inicio Trat., Fin Trat. El backend ya entrega estos campos calculados (incluyendo `caso_relacionado_con` como texto legible); el frontend solo los muestra sin transformación adicional. Aplica igual para los 3 niveles RBAC — el filtrado de filas ocurre en el backend (`apply_rbac_filter`), no hay lógica de roles en este componente.
 
 ---
 

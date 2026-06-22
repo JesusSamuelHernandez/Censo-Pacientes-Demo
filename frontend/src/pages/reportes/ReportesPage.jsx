@@ -96,6 +96,10 @@ function ReporteDetallado() {
       "CURP": r.curp_paciente,
       "Nombre Paciente": r.nombre_paciente,
       "Diagnóstico": r.diagnostico,
+      "Estatus Diagnóstico": r.estatus_diagnostico,
+      "Confirmado por": r.confirmado_por,
+      "Confirmado mediante": r.confirmado_mediante,
+      "Caso relacionado con": r.caso_relacionado_con,
       "CLUES Unidad": r.clues_unidad,
       "Médico": r.medico,
       "Cédula Médico": r.cedula_medico,
@@ -103,7 +107,10 @@ function ReporteDetallado() {
       "Clave CNIS": r.clave_cnis,
       "Medicamento": r.descripcion_medicamento,
       "Prescripción": r.prescripcion,
+      "Peso (kg)": r.peso,
+      "Talla (cm)": r.talla,
       "Fecha Inicio Tratamiento": r.fecha_inicio_tratamiento,
+      "Fecha Fin Tratamiento": r.fecha_fin_tratamiento,
       "Fecha Primera Adm.": r.fecha_primera_administracion,
       "Fecha Registro": r.fecha_registro_sistema,
       "Activo": r.es_activo ? "Sí" : "No",
@@ -164,20 +171,20 @@ function ReporteDetallado() {
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-neutral-light border-b border-neutral-gray/20">
-                {["Folio", "Paciente", "CURP", "Diagnóstico", "Unidad", "Médico", "Días Adh.", "Medicamento", "Prescripción", "Inicio Trat."].map((h) => (
+                {["Folio", "Paciente", "CURP", "Diagnóstico", "Estatus Diagnóstico", "Confirmado por", "Confirmado mediante", "Caso relacionado con", "Unidad", "Médico", "Días Adh.", "Medicamento", "Prescripción", "Peso", "Talla", "Inicio Trat.", "Fin Trat."].map((h) => (
                   <th key={h} className="text-left px-3 py-3 font-semibold text-neutral-black whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="text-center py-12">
+                <tr><td colSpan={17} className="text-center py-12">
                   <div className="flex justify-center">
                     <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                   </div>
                 </td></tr>
               ) : datos.length === 0 ? (
-                <tr><td colSpan={10} className="text-center py-12 text-neutral-gray">Sin registros.</td></tr>
+                <tr><td colSpan={17} className="text-center py-12 text-neutral-gray">Sin registros.</td></tr>
               ) : (
                 datos.map((r) => (
                   <tr key={r.id_registro} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
@@ -185,6 +192,10 @@ function ReporteDetallado() {
                     <td className="px-3 py-2 font-medium text-neutral-black max-w-[160px] truncate" title={r.nombre_paciente}>{r.nombre_paciente}</td>
                     <td className="px-3 py-2 font-mono text-neutral-gray">{r.curp_paciente}</td>
                     <td className="px-3 py-2 text-neutral-gray max-w-[160px] truncate" title={r.diagnostico ?? undefined}>{r.diagnostico ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray whitespace-nowrap">{r.estatus_diagnostico ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray max-w-[140px] truncate" title={r.confirmado_por ?? undefined}>{r.confirmado_por ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray max-w-[160px] truncate" title={r.confirmado_mediante ?? undefined}>{r.confirmado_mediante ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray max-w-[180px] truncate" title={r.caso_relacionado_con ?? undefined}>{r.caso_relacionado_con ?? "—"}</td>
                     <td className="px-3 py-2 font-mono text-neutral-gray">{r.clues_unidad}</td>
                     <td className="px-3 py-2 text-neutral-black max-w-[140px] truncate" title={r.medico ?? undefined}>{r.medico ?? "—"}</td>
                     <td className="px-3 py-2 text-center">
@@ -194,7 +205,10 @@ function ReporteDetallado() {
                     </td>
                     <td className="px-3 py-2 text-neutral-gray max-w-[180px] truncate" title={r.descripcion_medicamento ?? r.clave_cnis}>{r.descripcion_medicamento ?? r.clave_cnis}</td>
                     <td className="px-3 py-2 text-neutral-gray max-w-[200px] truncate" title={r.prescripcion ?? undefined}>{r.prescripcion ?? "—"}</td>
-                    <td className="px-3 py-2 text-neutral-gray">{r.fecha_inicio_tratamiento ?? "—"}</td>
+                    <td className="px-3 py-2 text-center text-neutral-gray whitespace-nowrap">{r.peso != null ? `${r.peso} kg` : "—"}</td>
+                    <td className="px-3 py-2 text-center text-neutral-gray whitespace-nowrap">{r.talla != null ? `${r.talla} cm` : "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray whitespace-nowrap">{r.fecha_inicio_tratamiento ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray whitespace-nowrap">{r.fecha_fin_tratamiento ?? "—"}</td>
                   </tr>
                 ))
               )}
