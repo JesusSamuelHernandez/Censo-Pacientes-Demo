@@ -12,7 +12,7 @@ import useAuthStore from "../../store/authStore";
 import BanderinEstado from "../../components/shared/BanderinEstado";
 import ReaccionAdversaIcon from "../../components/shared/ReaccionAdversaIcon";
 import ModalAgregarReaccionAdversa from "../../components/shared/ModalAgregarReaccionAdversa";
-import { REACCIONES_ADVERSAS_HABILITADO } from "../../config/featureFlags";
+import { REACCIONES_ADVERSAS_HABILITADO, ESTATUS_EVOLUCION_HABILITADO } from "../../config/featureFlags";
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 
@@ -179,8 +179,8 @@ export default function PacientesPage() {
                 pacientesFiltrados.map((p) => (
                   <tr key={p.id_paciente} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-4 py-3 font-medium text-neutral-black">
-                      <div className={`relative ${soloActivos ? "pl-5" : ""}`}>
-                        {soloActivos && (
+                      <div className={`relative ${ESTATUS_EVOLUCION_HABILITADO && soloActivos ? "pl-5" : ""}`}>
+                        {ESTATUS_EVOLUCION_HABILITADO && soloActivos && (
                           <BanderinEstado
                             curp={p.curp_paciente}
                             estatus={p.estatus_evolucion}

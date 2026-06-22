@@ -104,6 +104,7 @@ from app.schemas import (
 # Feature flags
 # ---------------------------------------------------------------------------
 REACCIONES_ADVERSAS_HABILITADO = False  # Reactivar para volver a habilitar el módulo de reacciones adversas.
+ESTATUS_EVOLUCION_HABILITADO = False  # Reactivar para volver a habilitar el cambio de estatus de evolución.
 
 # ---------------------------------------------------------------------------
 # Inicialización
@@ -486,6 +487,9 @@ def actualizar_paciente(
     if "diagnostico_actual" in datos:
         val = datos.pop("diagnostico_actual")
         paciente.diagnostico_actual = cifrar(val) if val else None
+    if not ESTATUS_EVOLUCION_HABILITADO:
+        # Módulo oculto temporalmente: se descarta sin error ni auditoría.
+        datos.pop("estatus_evolucion", None)
     if "estatus_evolucion" in datos:
         paciente.id_usuario_ultimo_cambio_estatus = current_user.id_usuario
         paciente.fecha_ultimo_cambio_estatus = datetime.now(timezone.utc)
