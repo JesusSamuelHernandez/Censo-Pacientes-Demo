@@ -312,6 +312,8 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 **Carga:** Script `scripts/cargar_unidad_medicamentos.py` lee `scripts/data/unidad_medicamentos.xlsx` (columnas: `clues`, `clave_cnis`). Idempotente — omite duplicados.
 
+**Restricción desactivada vía feature flag (2026-06-23):** `UNIDAD_MEDICAMENTOS_HABILITADO = False` en `app/main.py` — la tabla solo tenía cargadas algunas unidades, así que se desactivó el JOIN en `listar_medicamentos()` (`if UNIDAD_MEDICAMENTOS_HABILITADO and clues:`) para que todas las unidades puedan usar todo el catálogo activo sin restricción. Los datos de la tabla y el script de carga se conservan intactos — para reactivar la restricción basta con poner el flag en `True` (y su espejo `UNIDAD_MEDICAMENTOS_HABILITADO` en `frontend/src/config/featureFlags.js`).
+
 ---
 
 ## 6. Schemas Pydantic (v2)
@@ -566,7 +568,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | GET | `/catalogos/diagnosticos` | Todos | Lista diagnósticos. Param: `solo_activos` (default True). |
 | POST | `/catalogos/diagnosticos` | Solo SUPER_ADMIN | Crear nuevo diagnóstico. Conflicto 409 si nombre duplicado. |
 | PATCH | `/catalogos/diagnosticos/{id_diagnostico}` | Solo SUPER_ADMIN | Actualizar o desactivar diagnóstico. |
-| GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Params: `solo_activos` (default True), `clues` (opcional — filtra solo medicamentos asignados a esa unidad vía JOIN con `unidad_medicamentos`). |
+| GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Params: `solo_activos` (default True), `clues` (opcional — filtra solo medicamentos asignados a esa unidad vía JOIN con `unidad_medicamentos`; **sin efecto** mientras `UNIDAD_MEDICAMENTOS_HABILITADO = False`). |
 | POST | `/catalogos/medicamentos` | Solo SUPER_ADMIN | Crear nueva clave CNIS. Conflicto 409 si duplicada. |
 | PATCH | `/catalogos/medicamentos/{clave_cnis}` | Solo SUPER_ADMIN | Actualizar o desactivar medicamento. |
 | GET | `/catalogos/unidades` | Todos | Lista de unidades. Param: `id_entidad`. |

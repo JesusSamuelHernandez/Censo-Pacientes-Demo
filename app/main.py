@@ -109,6 +109,7 @@ from app.schemas import (
 # ---------------------------------------------------------------------------
 REACCIONES_ADVERSAS_HABILITADO = False  # Reactivar para volver a habilitar el módulo de reacciones adversas.
 ESTATUS_EVOLUCION_HABILITADO = False  # Reactivar para volver a habilitar el cambio de estatus de evolución.
+UNIDAD_MEDICAMENTOS_HABILITADO = False  # Reactivar para volver a restringir qué medicamentos puede usar cada unidad (tabla unidad_medicamentos). Desactivado: todas las unidades pueden usar todo el catálogo activo.
 
 # ---------------------------------------------------------------------------
 # Inicialización
@@ -2075,7 +2076,7 @@ def listar_medicamentos(
     query = db.query(CatMedicamento)
     if solo_activos:
         query = query.filter(CatMedicamento.es_activo == True)
-    if clues:
+    if UNIDAD_MEDICAMENTOS_HABILITADO and clues:
         query = query.join(
             UnidadMedicamento,
             UnidadMedicamento.clave_cnis == CatMedicamento.clave_cnis,

@@ -10,3 +10,9 @@ export const ESTATUS_EVOLUCION_HABILITADO = false;
 
 // Reactivar para volver a mostrar "Confirmado por" en Registrar Paciente y en el Reporte Detallado.
 export const CONFIRMADO_POR_HABILITADO = false;
+
+// Reactivar para que el dropdown de medicamentos en Registrar Paciente vuelva a
+// filtrarse por la unidad seleccionada (tabla unidad_medicamentos). Desactivado:
+// todas las unidades pueden usar todo el catálogo activo. Debe coincidir con
+// UNIDAD_MEDICAMENTOS_HABILITADO en app/main.py.
+export const UNIDAD_MEDICAMENTOS_HABILITADO = false;

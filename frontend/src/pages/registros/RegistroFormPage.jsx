@@ -17,7 +17,7 @@ import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos, listarDiagnosticos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
 import useAuthStore from "../../store/authStore";
-import { CONFIRMADO_POR_HABILITADO } from "../../config/featureFlags";
+import { CONFIRMADO_POR_HABILITADO, UNIDAD_MEDICAMENTOS_HABILITADO } from "../../config/featureFlags";
 
 // ---------------------------------------------------------------------------
 // Constantes
@@ -476,7 +476,9 @@ export default function RegistroFormPage() {
     }
     prevCluesRef.current = cluesSeleccionada;
 
-    listarMedicamentos(cluesSeleccionada)
+    // Con UNIDAD_MEDICAMENTOS_HABILITADO desactivado, todas las unidades ven
+    // el catálogo activo completo (sin pasar clues, sin filtrar por unidad_medicamentos).
+    listarMedicamentos(UNIDAD_MEDICAMENTOS_HABILITADO ? cluesSeleccionada : undefined)
       .then(setMedicamentos)
       .catch(() => toast.error("Error al cargar medicamentos de la unidad."));
   }, [cluesSeleccionada]);
