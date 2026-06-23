@@ -51,7 +51,8 @@ from app.auth import (
 )
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
-from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario
+from app.email_service import enviar_correo_acceso
+from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario, UsuarioPreautorizado
 from app.schemas import (
     BajaPacienteRequest,
     BusquedaCurpResponse,
@@ -90,6 +91,8 @@ from app.schemas import (
     RegistroListResponse,
     RegistroResponse,
     RegistroUpdate,
+    SolicitarAccesoRequest,
+    SolicitarAccesoResponse,
     TokenResponse,
     UnidadMedicaCreate,
     UnidadMedicaResponse,
@@ -181,6 +184,58 @@ def login(
         ),
         id_entidad=usuario.id_entidad,
     )
+
+
+@app.post(
+    "/auth/solicitar-acceso",
+    response_model=SolicitarAccesoResponse,
+    tags=["Autenticación"],
+    summary="Autoservicio de alta — envía password temporal por correo si el email está preautorizado.",
+)
+def solicitar_acceso(
+    payload: SolicitarAccesoRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Sin autenticación, como /auth/login. Responde siempre el mismo mensaje
+    genérico, sin importar el caso (no revela qué correos están
+    preautorizados ni si una cuenta ya existe — evita enumeración).
+    """
+    email = str(payload.email).strip().lower()
+
+    preautorizado = (
+        db.query(UsuarioPreautorizado)
+        .filter(func.lower(UsuarioPreautorizado.email) == email)
+        .first()
+    )
+
+    if preautorizado:
+        usuario = db.query(Usuario).filter(func.lower(Usuario.email) == email).first()
+
+        if usuario is None:
+            password_temporal = _generar_password_temporal()
+            usuario = Usuario(
+                nombre_usuario=None,
+                email=email,
+                hashed_password=hash_password(password_temporal),
+                rol_nombre=preautorizado.rol_nombre,
+                clues_unidad_asignada=preautorizado.clues_unidad_asignada,
+                id_entidad=preautorizado.id_entidad,
+                debe_cambiar_password=True,
+            )
+            db.add(usuario)
+            db.commit()
+            enviar_correo_acceso(email, password_temporal)
+        elif usuario.debe_cambiar_password:
+            # Cuenta creada pero pendiente de primer login — reenvía un nuevo
+            # password temporal (por si la persona perdió el correo original).
+            password_temporal = _generar_password_temporal()
+            usuario.hashed_password = hash_password(password_temporal)
+            db.commit()
+            enviar_correo_acceso(email, password_temporal)
+        # Si la cuenta ya está activa (debe_cambiar_password=False), no se hace nada.
+
+    return SolicitarAccesoResponse()
 
 
 # ===========================================================================
@@ -2176,15 +2231,16 @@ def crear_usuario(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_super_admin),
 ):
-    if db.query(Usuario).filter(Usuario.email == payload.email).first():
+    email = str(payload.email).strip().lower()
+    if db.query(Usuario).filter(func.lower(Usuario.email) == email).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ya existe un usuario con email '{payload.email}'.",
+            detail=f"Ya existe un usuario con email '{email}'.",
         )
     password_temporal = _generar_password_temporal()
     nuevo = Usuario(
-        nombre_usuario=payload.nombre_usuario,
-        email=str(payload.email),
+        nombre_usuario=None,
+        email=email,
         hashed_password=hash_password(password_temporal),
         rol_nombre=payload.rol_nombre,
         clues_unidad_asignada=payload.clues_unidad_asignada,
@@ -2194,6 +2250,7 @@ def crear_usuario(
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
+    enviar_correo_acceso(nuevo.email, password_temporal)
     return UsuarioCreateResponse(
         id_usuario=nuevo.id_usuario,
         nombre_usuario=nuevo.nombre_usuario,
@@ -2223,6 +2280,16 @@ def cambiar_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La contraseña actual es incorrecta.",
         )
+    if usuario.nombre_usuario is None:
+        if not payload.nombre_usuario or not payload.nombre_usuario.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Debes indicar tu nombre de usuario.",
+            )
+        usuario.nombre_usuario = payload.nombre_usuario.strip()
+    elif payload.nombre_usuario and payload.nombre_usuario.strip():
+        usuario.nombre_usuario = payload.nombre_usuario.strip()
+
     usuario.hashed_password = hash_password(payload.password_nueva)
     usuario.debe_cambiar_password = False
     db.commit()

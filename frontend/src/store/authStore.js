@@ -39,8 +39,11 @@ const useAuthStore = create(
         });
       },
 
-      marcarPasswordCambiado: () => {
-        set({ debeCambiarPassword: false });
+      marcarPasswordCambiado: (nombreUsuario) => {
+        set((state) => ({
+          debeCambiarPassword: false,
+          nombreUsuario: nombreUsuario || state.nombreUsuario,
+        }));
       },
 
       logout: () => {

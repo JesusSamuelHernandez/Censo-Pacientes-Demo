@@ -188,7 +188,8 @@ class UnidadMedicaResponse(UnidadMedicaBase):
 # ---------------------------------------------------------------------------
 
 class UsuarioBase(BaseModel):
-    nombre_usuario: str = Field(..., min_length=2, max_length=150)
+    # nombre_usuario ya no lo define quien da de alta — lo captura la propia
+    # persona al cambiar su contraseña (ver CambiarPasswordRequest).
     email: EmailStr
     rol_nombre: RolStr
     clues_unidad_asignada: str | None = Field(
@@ -248,7 +249,7 @@ class UsuarioUpdate(BaseModel):
 
 class UsuarioResponse(BaseModel):
     id_usuario: int
-    nombre_usuario: str
+    nombre_usuario: str | None
     email: str
     rol_nombre: str
     clues_unidad_asignada: str | None
@@ -260,8 +261,21 @@ class UsuarioResponse(BaseModel):
 
 class UsuarioCreateResponse(UsuarioResponse):
     """Respuesta exclusiva de POST /usuarios. Incluye la contraseña temporal en texto plano.
-    Solo el SUPER_ADMIN que crea la cuenta puede verla — no se almacena en BD."""
+    Solo el SUPER_ADMIN que crea la cuenta puede verla — no se almacena en BD.
+    También se envía por correo al usuario."""
     password_temporal: str
+
+
+class SolicitarAccesoRequest(BaseModel):
+    """POST /auth/solicitar-acceso — autoservicio desde la pantalla de login."""
+    email: EmailStr
+
+
+class SolicitarAccesoResponse(BaseModel):
+    mensaje: str = (
+        "Si tu correo está autorizado, recibirás un correo con tus "
+        "credenciales de acceso en unos minutos."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -814,7 +828,7 @@ class TokenResponse(BaseModel):
     id_usuario: int
     debe_cambiar_password: bool
     email: str
-    nombre_usuario: str
+    nombre_usuario: str | None = None
     clues_unidad_asignada: str | None = None
     nombre_unidad: str | None = None
     id_entidad: str | None = None
@@ -830,4 +844,13 @@ class CambiarPasswordRequest(BaseModel):
         ...,
         min_length=8,
         description="Nueva contraseña (mínimo 8 caracteres).",
+    )
+    nombre_usuario: str | None = Field(
+        None,
+        min_length=2,
+        max_length=150,
+        description=(
+            "Requerido solo si la cuenta aún no tiene nombre_usuario "
+            "(autoservicio por correo o alta vía 'Nuevo usuario')."
+        ),
     )

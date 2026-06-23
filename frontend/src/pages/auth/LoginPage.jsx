@@ -7,15 +7,19 @@ import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Eye, EyeOff, Mail, Lock, LogIn } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, LogIn, Send } from "lucide-react";
 import { toast } from "sonner";
 
-import { login } from "../../api/auth";
+import { login, solicitarAcceso } from "../../api/auth";
 import useAuthStore from "../../store/authStore";
 
 const schema = z.object({
   email: z.string().email("Ingresa un correo electrónico válido."),
   password: z.string().min(1, "La contraseña es requerida."),
+});
+
+const schemaSolicitarAcceso = z.object({
+  email: z.string().email("Ingresa un correo electrónico válido."),
 });
 
 const ROJO_OSCURO = "#611232";     // PANTONE 7421 C — header barra superior
@@ -26,12 +30,21 @@ export default function LoginPage() {
   const loginStore = useAuthStore((s) => s.login);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [modo, setModo] = useState("login"); // "login" | "solicitar-acceso"
+  const [loadingSolicitar, setLoadingSolicitar] = useState(false);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm({ resolver: zodResolver(schema) });
+
+  const {
+    register: registerSolicitar,
+    handleSubmit: handleSubmitSolicitar,
+    reset: resetSolicitar,
+    formState: { errors: errorsSolicitar },
+  } = useForm({ resolver: zodResolver(schemaSolicitarAcceso) });
 
   const onSubmit = async ({ email, password }) => {
     setLoading(true);
@@ -46,9 +59,24 @@ export default function LoginPage() {
     } catch (err) {
       const msg =
         err.response?.data?.detail || "Error al iniciar sesión. Verifica tus credenciales.";
-      toast.error(msg);
+      toast.error(msg, { duration: 8000 });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onSubmitSolicitar = async ({ email }) => {
+    setLoadingSolicitar(true);
+    try {
+      const data = await solicitarAcceso(email);
+      toast.success(data.mensaje);
+      resetSolicitar();
+      setModo("login");
+    } catch (err) {
+      const msg = err.response?.data?.detail || "No se pudo procesar la solicitud.";
+      toast.error(msg);
+    } finally {
+      setLoadingSolicitar(false);
     }
   };
 
@@ -107,86 +135,169 @@ export default function LoginPage() {
               className="text-center text-sm font-bold tracking-widest mb-6 uppercase"
               style={{ color: ROJO_OSCURO }}
             >
-              Inicio Sesión
+              {modo === "login" ? "Inicio Sesión" : "Solicitar acceso"}
             </h2>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {modo === "login" ? (
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 
-              {/* Email */}
-              <div>
-                <div className={`flex items-center border-b-2 pb-1 transition
-                  ${errors.email ? "border-red-400" : "border-gray-300 focus-within:border-[#006847]"}`}>
-                  <Mail size={15} className="mr-2 flex-shrink-0" style={{ color: ROJO_OSCURO }} />
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold tracking-wider uppercase mb-0.5" style={{ color: ROJO_OSCURO }}>
-                      Correo Institucional
-                    </p>
-                    <input
-                      type="email"
-                      autoComplete="email"
-                      placeholder="usuario@imssbienestar.gob.mx"
-                      className="w-full text-sm outline-none bg-transparent text-gray-700 placeholder:text-gray-400"
-                      {...register("email")}
-                    />
+                {/* Email */}
+                <div>
+                  <div className={`flex items-center border-b-2 pb-1 transition
+                    ${errors.email ? "border-red-400" : "border-gray-300 focus-within:border-[#006847]"}`}>
+                    <Mail size={15} className="mr-2 flex-shrink-0" style={{ color: ROJO_OSCURO }} />
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold tracking-wider uppercase mb-0.5" style={{ color: ROJO_OSCURO }}>
+                        Correo Institucional
+                      </p>
+                      <input
+                        type="email"
+                        autoComplete="email"
+                        placeholder="usuario@imssbienestar.gob.mx"
+                        className="w-full text-sm outline-none bg-transparent text-gray-700 placeholder:text-gray-400"
+                        {...register("email")}
+                      />
+                    </div>
                   </div>
+                  {errors.email && (
+                    <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>
+                  )}
                 </div>
-                {errors.email && (
-                  <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>
-                )}
-              </div>
 
-              {/* Password */}
-              <div>
-                <div className={`flex items-center border-b-2 pb-1 transition
-                  ${errors.password ? "border-red-400" : "border-gray-300 focus-within:border-[#006847]"}`}>
-                  <Lock size={15} className="mr-2 flex-shrink-0" style={{ color: ROJO_OSCURO }} />
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold tracking-wider uppercase mb-0.5" style={{ color: ROJO_OSCURO }}>
-                      Contraseña
-                    </p>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
-                      placeholder="••••••••"
-                      className="w-full text-sm outline-none bg-transparent text-gray-700 placeholder:text-gray-400"
-                      {...register("password")}
-                    />
+                {/* Password */}
+                <div>
+                  <div className={`flex items-center border-b-2 pb-1 transition
+                    ${errors.password ? "border-red-400" : "border-gray-300 focus-within:border-[#006847]"}`}>
+                    <Lock size={15} className="mr-2 flex-shrink-0" style={{ color: ROJO_OSCURO }} />
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold tracking-wider uppercase mb-0.5" style={{ color: ROJO_OSCURO }}>
+                        Contraseña
+                      </p>
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        placeholder="••••••••"
+                        className="w-full text-sm outline-none bg-transparent text-gray-700 placeholder:text-gray-400"
+                        {...register("password")}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="ml-2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
                   </div>
+                  {errors.password && (
+                    <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
+                  )}
+                </div>
+
+                {/* Botón */}
+                <div className="pt-3">
                   <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="ml-2 text-gray-400 hover:text-gray-600"
+                    type="submit"
+                    disabled={loading}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded
+                      text-white text-sm font-semibold tracking-wide transition
+                      disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: ROJO_OSCURO }}
+                    onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = "#004d34"; }}
+                    onMouseLeave={(e) => { if (!loading) e.currentTarget.style.backgroundColor = ROJO_OSCURO; }}
                   >
-                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    {loading ? (
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <LogIn size={16} />
+                    )}
+                    {loading ? "Iniciando sesión..." : "INGRESAR"}
                   </button>
                 </div>
-                {errors.password && (
-                  <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
-                )}
-              </div>
 
-              {/* Botón */}
-              <div className="pt-3">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded
-                    text-white text-sm font-semibold tracking-wide transition
-                    disabled:opacity-60 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: ROJO_OSCURO }}
-                  onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = "#004d34"; }}
-                  onMouseLeave={(e) => { if (!loading) e.currentTarget.style.backgroundColor = ROJO_OSCURO; }}
-                >
-                  {loading ? (
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <LogIn size={16} />
+              </form>
+            ) : (
+              <form onSubmit={handleSubmitSolicitar(onSubmitSolicitar)} className="space-y-4">
+
+                <p className="text-xs text-gray-500 -mt-2 mb-2">
+                  Si tu correo institucional está autorizado, recibirás tus credenciales de acceso por correo.
+                </p>
+
+                {/* Email */}
+                <div>
+                  <div className={`flex items-center border-b-2 pb-1 transition
+                    ${errorsSolicitar.email ? "border-red-400" : "border-gray-300 focus-within:border-[#006847]"}`}>
+                    <Mail size={15} className="mr-2 flex-shrink-0" style={{ color: ROJO_OSCURO }} />
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold tracking-wider uppercase mb-0.5" style={{ color: ROJO_OSCURO }}>
+                        Correo Institucional
+                      </p>
+                      <input
+                        type="email"
+                        autoComplete="email"
+                        placeholder="usuario@imssbienestar.gob.mx"
+                        className="w-full text-sm outline-none bg-transparent text-gray-700 placeholder:text-gray-400"
+                        {...registerSolicitar("email")}
+                      />
+                    </div>
+                  </div>
+                  {errorsSolicitar.email && (
+                    <p className="text-red-500 text-xs mt-1">{errorsSolicitar.email.message}</p>
                   )}
-                  {loading ? "Iniciando sesión..." : "INGRESAR"}
-                </button>
-              </div>
+                </div>
 
-            </form>
+                {/* Botón */}
+                <div className="pt-3">
+                  <button
+                    type="submit"
+                    disabled={loadingSolicitar}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded
+                      text-white text-sm font-semibold tracking-wide transition
+                      disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: ROJO_OSCURO }}
+                    onMouseEnter={(e) => { if (!loadingSolicitar) e.currentTarget.style.backgroundColor = "#004d34"; }}
+                    onMouseLeave={(e) => { if (!loadingSolicitar) e.currentTarget.style.backgroundColor = ROJO_OSCURO; }}
+                  >
+                    {loadingSolicitar ? (
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Send size={16} />
+                    )}
+                    {loadingSolicitar ? "Enviando..." : "SOLICITAR ACCESO"}
+                  </button>
+                </div>
+
+              </form>
+            )}
+
+            {/* Enlace para alternar entre login y solicitar acceso */}
+            <p className="text-center text-xs text-gray-500 mt-5">
+              {modo === "login" ? (
+                <>
+                  ¿Primera vez?{" "}
+                  <button
+                    type="button"
+                    onClick={() => setModo("solicitar-acceso")}
+                    className="font-semibold hover:underline"
+                    style={{ color: ROJO_OSCURO }}
+                  >
+                    Solicita tu acceso
+                  </button>
+                </>
+              ) : (
+                <>
+                  ¿Ya tienes cuenta?{" "}
+                  <button
+                    type="button"
+                    onClick={() => setModo("login")}
+                    className="font-semibold hover:underline"
+                    style={{ color: ROJO_OSCURO }}
+                  >
+                    Inicia sesión
+                  </button>
+                </>
+              )}
+            </p>
           </div>
         </div>
       </main>

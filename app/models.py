@@ -167,7 +167,9 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     id_usuario: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    nombre_usuario: Mapped[str] = mapped_column(String(150), nullable=False)
+    # Nullable: las cuentas creadas por autoservicio (correo) o por "Nuevo usuario"
+    # nacen sin nombre — lo completa la propia persona al cambiar su contraseña.
+    nombre_usuario: Mapped[str | None] = mapped_column(String(150), nullable=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     rol_nombre: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -194,6 +196,30 @@ class Usuario(Base):
 
     def __repr__(self) -> str:
         return f"<Usuario id={self.id_usuario} email={self.email!r} rol={self.rol_nombre!r}>"
+
+
+class UsuarioPreautorizado(Base):
+    """
+    Lista de correos institucionales con rol y unidad/entidad ya definidos por el
+    equipo central. Un correo en esta tabla puede autoservirse desde la pantalla
+    de login (POST /auth/solicitar-acceso) para recibir su password temporal por
+    correo y crear su cuenta en `usuarios`, sin que el SUPER_ADMIN tenga que dar
+    de alta a cada persona manualmente.
+    """
+    __tablename__ = "usuarios_preautorizados"
+
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    rol_nombre: Mapped[str] = mapped_column(String(30), nullable=False)
+    clues_unidad_asignada: Mapped[str | None] = mapped_column(
+        String(20), ForeignKey("cat_unidades.clues", ondelete="RESTRICT"), nullable=True
+    )
+    id_entidad: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    fecha_registro: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<UsuarioPreautorizado email={self.email!r} rol={self.rol_nombre!r}>"
 
 
 # ---------------------------------------------------------------------------

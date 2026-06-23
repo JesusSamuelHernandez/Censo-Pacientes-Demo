@@ -65,14 +65,17 @@ El modelo `Registro` amplía el concepto de "receta" con posología completa (do
 ```
 app/
 ├── database.py          → Conexión a PostgreSQL, pool de conexiones, get_db().
-├── models.py            → 11 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
-│                          Usuario, Paciente, Medico, Registro, NotificacionTransferencia,
+├── models.py            → 12 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
+│                          Usuario, UsuarioPreautorizado (usuarios_preautorizados), Paciente, Medico,
+│                          Registro, NotificacionTransferencia,
 │                          UnidadMedicamento (unidad_medicamentos — relación N:M unidad↔medicamento),
 │                          ExpedientePaciente (expedientes_paciente),
 │                          ReaccionAdversa (reacciones_adversas).
 ├── schemas.py           → Validación de entrada/salida con Pydantic v2.
 ├── auth.py              → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
 ├── crypto.py            → cifrar(), descifrar(), descifrar_o_none(), hash_sha256() con Fernet.
+├── email_service.py     → Envío de correos institucionales (SMTP/SendGrid): enviar_correo(),
+│                          enviar_correo_acceso(). Nunca bloquea al llamador si SMTP falla.
 └── main.py              → Todos los endpoints de la API (versión 3.0.0).
 ```
 
@@ -135,7 +138,7 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | Campo | Tipo SQLAlchemy | Restricciones | Notas |
 |---|---|---|---|
 | `id_usuario` | Integer | PK, autoincrement | |
-| `nombre_usuario` | String(150) | NOT NULL | |
+| `nombre_usuario` | String(150) | nullable | `None` hasta que la propia persona lo captura al cambiar su contraseña (cuentas creadas por autoservicio o por "Nuevo usuario") |
 | `email` | String(255) | unique, NOT NULL, index | |
 | `hashed_password` | String(255) | NOT NULL | bcrypt hash |
 | `rol_nombre` | String(30) | NOT NULL | SUPER_ADMIN / ADMIN_ESTATAL / RESPONSABLE_UNIDAD |
@@ -144,6 +147,22 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | `debe_cambiar_password` | Boolean | NOT NULL, default=True | Forzar cambio en primer login |
 
 **Relaciones:** `unidad_asignada`, `pacientes_registrados`, `registros_registrados`
+
+---
+
+### 5.3b UsuarioPreautorizado — `usuarios_preautorizados`
+
+Lista de correos institucionales con rol (y CLUES/entidad) ya definidos por el equipo central. Habilita el autoservicio de alta desde la pantalla de login (`POST /auth/solicitar-acceso`): si el correo está aquí, el sistema crea la cuenta en `usuarios` y envía el password temporal por correo, sin que el SUPER_ADMIN tenga que dar de alta a cada persona manualmente.
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `email` | String(255) | PK | Normalizado a minúsculas |
+| `rol_nombre` | String(30) | NOT NULL | |
+| `clues_unidad_asignada` | String(20) | FK → cat_unidades, nullable | Solo RESPONSABLE_UNIDAD |
+| `id_entidad` | String(100) | nullable | Solo ADMIN_ESTATAL |
+| `fecha_registro` | DateTime(timezone=True) | NOT NULL, server_default=now() | |
+
+Se carga vía `scripts/cargar_usuarios_preautorizados.py` desde los Excel de `solicitudes_altas_usuarios/` (no versionados en git), o se inserta directo en BD para casos puntuales.
 
 ---
 
@@ -334,11 +353,14 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Schema | Campos destacados |
 |---|---|
-| `UsuarioBase` | `nombre_usuario`, `email` (EmailStr), `rol_nombre` (validado), `clues_unidad_asignada` (req. si RESPONSABLE_UNIDAD), `id_entidad` (req. si ADMIN_ESTATAL). Validadores: `rol_debe_ser_valido`, `validar_contexto_por_rol` |
+| `UsuarioBase` | `email` (EmailStr), `rol_nombre` (validado), `clues_unidad_asignada` (req. si RESPONSABLE_UNIDAD), `id_entidad` (req. si ADMIN_ESTATAL). Ya no incluye `nombre_usuario` — lo captura la propia persona al cambiar su contraseña. Validadores: `rol_debe_ser_valido`, `validar_contexto_por_rol` |
 | `UsuarioCreate` | Extiende `UsuarioBase`. La contraseña la genera el backend. |
 | `UsuarioUpdate` | Opcionales: `nombre_usuario`, `rol_nombre`, `clues_unidad_asignada`, `id_entidad`, `password` (min 8) |
-| `UsuarioResponse` | `id_usuario`, `nombre_usuario`, `email`, `rol_nombre`, `clues_unidad_asignada`, `id_entidad`, `debe_cambiar_password` |
-| `UsuarioCreateResponse` | Extiende `UsuarioResponse` + `password_temporal` (solo en POST /usuarios) |
+| `UsuarioResponse` | `id_usuario`, `nombre_usuario` (`str \| None`), `email`, `rol_nombre`, `clues_unidad_asignada`, `id_entidad`, `debe_cambiar_password` |
+| `UsuarioCreateResponse` | Extiende `UsuarioResponse` + `password_temporal` (solo en POST /usuarios; también se envía por correo) |
+| `SolicitarAccesoRequest` | `email` (EmailStr) — body de `POST /auth/solicitar-acceso` |
+| `SolicitarAccesoResponse` | `mensaje` genérico, igual sin importar si el correo está o no preautorizado |
+| `CambiarPasswordRequest` | `password_actual`, `password_nueva` (min 8), `nombre_usuario` (opcional; requerido solo si la cuenta aún no tiene uno) |
 
 ---
 
@@ -464,7 +486,8 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
-| POST | `/auth/login` | Público | Login. Recibe `OAuth2PasswordRequestForm` (form-data). Devuelve JWT + rol + `debe_cambiar_password`. |
+| POST | `/auth/login` | Público | Login. Recibe `OAuth2PasswordRequestForm` (form-data). Devuelve JWT + rol + `debe_cambiar_password`. La comparación de email es insensible a mayúsculas/minúsculas (`func.lower(...)`). |
+| POST | `/auth/solicitar-acceso` | Público | Autoservicio de alta desde el login. Si el correo está en `usuarios_preautorizados`: crea la cuenta (o regenera el password si quedó pendiente) y envía el password temporal por correo. Responde siempre el mismo mensaje genérico, sin importar el caso (anti-enumeración). |
 
 ---
 
@@ -557,8 +580,8 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
 | GET | `/usuarios` | Solo SUPER_ADMIN | Lista completa de usuarios. |
-| POST | `/usuarios` | Solo SUPER_ADMIN | Crear usuario. Genera `password_temporal` aleatoria (12 chars alfanuméricos). La devuelve una sola vez en la respuesta. |
-| POST | `/usuarios/me/cambiar-password` | Todos (sin require_password_cambiado) | Cambiar contraseña propia. Verifica contraseña actual. Pone `debe_cambiar_password = False`. |
+| POST | `/usuarios` | Solo SUPER_ADMIN | Crear usuario (sin `nombre_usuario` — lo captura la propia persona después). Genera `password_temporal` aleatoria (12 chars alfanuméricos): la devuelve una sola vez en la respuesta y además la envía por correo. |
+| POST | `/usuarios/me/cambiar-password` | Todos (sin require_password_cambiado) | Cambiar contraseña propia. Verifica contraseña actual. Si `nombre_usuario` de la cuenta es `None`, exige `nombre_usuario` en el body (422 si falta) y lo guarda. Pone `debe_cambiar_password = False`. |
 | PATCH | `/usuarios/{id_usuario}` | Solo SUPER_ADMIN | Actualizar datos. Si incluye `password`, la hashea con bcrypt. |
 | DELETE | `/usuarios/{id_usuario}` | Solo SUPER_ADMIN | Eliminación física. No puede eliminar la propia cuenta. |
 
@@ -650,6 +673,14 @@ JWT_SECRET_KEY=<mínimo 32 caracteres aleatorios>
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_HOURS=8
 FERNET_KEY=<clave Fernet base64 generada con Fernet.generate_key()>
+
+# Envío de correos institucionales (SendGrid SMTP) — autoservicio de usuarios
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASSWORD=<API key de SendGrid>
+SMTP_FROM=<remitente verificado en SendGrid>
+APP_BASE_URL=<URL del frontend, para el enlace en el correo de acceso>
 ```
 
 En Railway (producción), `DATABASE_URL` apunta al servicio PostgreSQL interno:

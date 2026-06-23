@@ -101,11 +101,15 @@ Estado de autenticación global. Persiste en `localStorage` (o memoria, según c
   idUsuario: null,              // integer
   debeCambiarPassword: false,
   email: null,                  // email del usuario autenticado
-  nombreUsuario: null,          // nombre completo del usuario
+  nombreUsuario: null,          // nombre completo del usuario; null hasta que la propia
+                                 // persona lo captura en CambiarPasswordPage (cuentas de
+                                 // autoservicio o creadas por "Nuevo usuario")
   cluesUnidadAsignada: null,    // solo RESPONSABLE_UNIDAD
   nombreUnidad: null,           // nombre de la unidad (solo RESPONSABLE_UNIDAD)
   idEntidad: null,              // clave de estado (solo ADMIN_ESTATAL)
   login: (data) => ...,         // guarda todos los campos al iniciar sesión
+  marcarPasswordCambiado: (nombreUsuario) => ..., // limpia debeCambiarPassword;
+                                 // si se pasa nombreUsuario, también lo guarda
   logout: () => ...
 }
 ```
@@ -208,10 +212,14 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 
 | Página | Ruta | Endpoints consumidos |
 |---|---|---|
-| Login | `/login` | `POST /auth/login` |
+| Login | `/login` | `POST /auth/login`, `POST /auth/solicitar-acceso` |
 | Cambiar contraseña | `/cambiar-password` | `POST /usuarios/me/cambiar-password` |
 
 **Flujo:** Al hacer login, si `debe_cambiar_password = true`, la app redirige automáticamente a `/cambiar-password` y bloquea el resto de rutas hasta completarlo.
+
+**Autoservicio de alta ("Solicita tu acceso"):** `LoginPage.jsx` alterna (estado local `modo`, sin ruta nueva) entre el formulario de login y un formulario de una sola pregunta (correo institucional) que llama `solicitarAcceso(email)`. Siempre muestra el mismo mensaje genérico de respuesta — no revela si el correo está o no preautorizado. Si el correo coincide con la tabla `usuarios_preautorizados`, el usuario recibe su password temporal por correo y puede iniciar sesión normalmente.
+
+**Nombre de usuario al cambiar contraseña:** `CambiarPasswordPage.jsx` muestra un campo adicional "Nombre de usuario" (requerido) solo cuando `authStore.nombreUsuario` está vacío — esto ocurre en cuentas creadas por autoservicio o por "Nuevo usuario" (ya no se les asigna nombre al crearlas). Se envía junto con el cambio de contraseña; al terminar, `marcarPasswordCambiado(nombreUsuario)` lo guarda en el store. Para cuentas que ya tienen nombre (legacy), el campo no aparece.
 
 ---
 
@@ -342,7 +350,7 @@ Comportamiento por rol:
 | Crear | `/usuarios/nuevo` | `POST /usuarios` |
 | Editar | `/usuarios/:id/editar` | `PATCH /usuarios/:id` |
 
-**Flujo de creación:** El backend devuelve `password_temporal`. El frontend la muestra en un modal con advertencia "copia esta contraseña, no se volverá a mostrar".
+**Flujo de creación:** El formulario de alta ya no pide nombre — solo correo, rol y CLUES/entidad (lo captura la propia persona al cambiar su contraseña). El backend devuelve `password_temporal` y además la envía por correo. El frontend la muestra en un modal con advertencia "copia esta contraseña, no se volverá a mostrar" + nota de que también se envió por correo. El campo "Nombre completo" solo aparece en el formulario de **edición**, para corregir el nombre de una cuenta existente.
 
 ---
 
