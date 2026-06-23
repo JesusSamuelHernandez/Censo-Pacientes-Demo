@@ -43,6 +43,7 @@ export default function MedicosPage() {
     busqueda
       ? m.nombre_medico.toLowerCase().includes(busqueda.toLowerCase()) ||
         m.cedula.toLowerCase().includes(busqueda.toLowerCase()) ||
+        (m.curp ?? "").toLowerCase().includes(busqueda.toLowerCase()) ||
         m.clues_adscripcion.toLowerCase().includes(busqueda.toLowerCase())
       : true
   );
@@ -73,7 +74,7 @@ export default function MedicosPage() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-gray" />
           <input
             type="text"
-            placeholder="Buscar por nombre, cédula o CLUES..."
+            placeholder="Buscar por nombre, cédula, CURP o CLUES..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-neutral-gray/30
@@ -90,6 +91,8 @@ export default function MedicosPage() {
               <tr className="bg-neutral-light border-b border-neutral-gray/20">
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Nombre</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Cédula</th>
+                <th className="text-left px-4 py-3 font-semibold text-neutral-black">CURP</th>
+                <th className="text-left px-4 py-3 font-semibold text-neutral-black">Puesto</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Correo</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Unidad (CLUES)</th>
                 <th className="text-left px-4 py-3 font-semibold text-neutral-black">Acciones</th>
@@ -98,7 +101,7 @@ export default function MedicosPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12">
+                  <td colSpan={7} className="text-center py-12">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
@@ -106,7 +109,7 @@ export default function MedicosPage() {
                 </tr>
               ) : medicosFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-neutral-gray">
+                  <td colSpan={7} className="text-center py-12 text-neutral-gray">
                     No se encontraron médicos.
                   </td>
                 </tr>
@@ -115,6 +118,8 @@ export default function MedicosPage() {
                   <tr key={m.id_medico} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-4 py-3 font-medium text-neutral-black">{m.nombre_medico}</td>
                     <td className="px-4 py-3 font-mono text-xs text-neutral-gray">{m.cedula}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-neutral-gray">{m.curp ?? "—"}</td>
+                    <td className="px-4 py-3 text-neutral-gray">{m.denominacion_puesto ?? "—"}</td>
                     <td className="px-4 py-3 text-neutral-gray">{m.email ?? "—"}</td>
                     <td className="px-4 py-3 text-neutral-gray font-mono text-xs">{m.clues_adscripcion}</td>
                     <td className="px-4 py-3">

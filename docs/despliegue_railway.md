@@ -95,8 +95,15 @@ python scripts/migrar_usuario_nombre_nullable.py
 # Migración autoservicio de usuarios (crea tabla usuarios_preautorizados)
 python scripts/migrar_usuarios_preautorizados.py
 
+# Migración CURP y Puesto del médico (crea cat_puestos; agrega medicos.curp_hash/curp/id_puesto)
+python scripts/migrar_medicos_curp_puesto.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
+
+# Carga del catálogo de puestos/especialidades médicas — primera vez, o si se
+# actualiza scripts/data/Especialidades_puesto.xlsx
+python scripts/cargar_puestos.py
 
 # Carga relación unidad-medicamento (medicamentos disponibles por unidad) —
 # verificar SIEMPRE, se detectó faltante en producción el 2026-06-22
@@ -140,7 +147,9 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_motivo_baja_multiple.py` | Primera vez que se despliega la selección múltiple de motivo de baja (amplía la columna a VARCHAR(300)) |
 | `migrar_usuario_nombre_nullable.py` | Primera vez que se despliega el autoservicio de alta de usuarios: vuelve nullable `usuarios.nombre_usuario` |
 | `migrar_usuarios_preautorizados.py` | Primera vez que se despliega el autoservicio de alta de usuarios: crea tabla `usuarios_preautorizados` |
+| `migrar_medicos_curp_puesto.py` | Primera vez que se despliegan CURP y Puesto del médico: crea tabla `cat_puestos`; agrega `medicos.curp_hash`, `medicos.curp`, `medicos.id_puesto` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
+| `cargar_puestos.py` | Primera vez que se despliega CURP y Puesto del médico, o cuando se actualiza `scripts/data/Especialidades_puesto.xlsx` |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |
 | `cargar_unidad_medicamentos.py` | Cada vez que se actualice el Excel `scripts/data/unidad_medicamentos.xlsx` |
@@ -222,4 +231,12 @@ Verificar que los servicios de Railway tengan estas variables configuradas:
    - Con un correo NO preautorizado, confirmar que se muestra el mismo mensaje genérico (no debe crear cuenta).
    - Crear un usuario con el botón "Nuevo usuario" (SUPER_ADMIN) y confirmar que el formulario ya no pide nombre, y que llega el correo con el password temporal.
    - Confirmar que un usuario YA EXISTENTE de antes de este deploy sigue iniciando sesión normal, sin que se le pida nombre de usuario.
-9. Revisar los logs del backend en Railway si hay errores 500.
+9. Verificar CURP y Puesto del médico (junio 2026):
+   - Ir a **Médicos → Registrar médico**: deben aparecer los campos **CURP** y **Puesto** (ambos obligatorios al crear).
+   - Probar una CURP con formato inválido → debe rechazarla antes de enviar el formulario.
+   - El campo Puesto debe mostrar el combobox con las 154 especialidades cargadas; seleccionar una y guardar.
+   - Intentar registrar un médico con una CURP ya usada por otro médico → debe rechazarlo (409).
+   - En la tabla de Médicos deben verse las columnas **CURP** y **Puesto**; los médicos previos a este deploy deben mostrar "—" en ambas hasta que se editen.
+10. Revisar los logs del backend en Railway si hay errores 500.
+
+> **Nota — `cargar_puestos.py`:** requiere que `scripts/data/Especialidades_puesto.xlsx` exista en la máquina desde donde se corre el script (no se versiona en git, igual que el resto de `scripts/data/`). Si no lo tienes, pide el archivo antes de intentar correr la carga contra Railway.

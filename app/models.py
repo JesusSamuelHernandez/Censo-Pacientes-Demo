@@ -74,6 +74,26 @@ class CatDiagnostico(Base):
 
 
 # ---------------------------------------------------------------------------
+# 0b. Catálogo de Puestos / Especialidades médicas
+# ---------------------------------------------------------------------------
+class CatPuesto(Base):
+    """
+    Catálogo de puestos/especialidades del personal médico (ej. "ESPECIALISTA
+    EN ANESTESIOLOGIA"). Cargado desde scripts/data/Especialidades_puesto.xlsx.
+    """
+    __tablename__ = "cat_puestos"
+
+    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
+    denominacion_puesto: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    medicos: Mapped[list["Medico"]] = relationship(back_populates="puesto")
+
+    def __repr__(self) -> str:
+        return f"<CatPuesto codigo={self.codigo!r} denominacion={self.denominacion_puesto!r}>"
+
+
+# ---------------------------------------------------------------------------
 # 1. Catálogo Maestro de Medicamentos
 # ---------------------------------------------------------------------------
 class CatMedicamento(Base):
@@ -316,6 +336,15 @@ class Medico(Base):
     cedula: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Nullable: los médicos ya registrados antes de este campo no tienen CURP.
+    # Para médicos nuevos, el schema de creación la exige.
+    curp_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
+    curp: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+
+    id_puesto: Mapped[str | None] = mapped_column(
+        String(20), ForeignKey("cat_puestos.codigo", ondelete="RESTRICT"), nullable=True
+    )
+
     clues_adscripcion: Mapped[str] = mapped_column(
         String(20),
         ForeignKey("cat_unidades.clues", ondelete="RESTRICT"),
@@ -326,6 +355,7 @@ class Medico(Base):
     es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     unidad_adscripcion: Mapped["UnidadMedica"] = relationship(back_populates="medicos")
+    puesto: Mapped["CatPuesto | None"] = relationship(back_populates="medicos")
     registros: Mapped[list["Registro"]] = relationship(back_populates="medico")
 
     def __repr__(self) -> str:

@@ -52,7 +52,7 @@ from app.auth import (
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
 from app.database import engine, get_db
 from app.email_service import enviar_correo_acceso
-from app.models import Base, CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario, UsuarioPreautorizado
+from app.models import Base, CatDiagnostico, CatMedicamento, CatPuesto, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario, UsuarioPreautorizado
 from app.schemas import (
     BajaPacienteRequest,
     BusquedaCurpResponse,
@@ -85,6 +85,7 @@ from app.schemas import (
     PacienteListResponse,
     PacienteResponse,
     PacienteUpdate,
+    PuestoResponse,
     ReaccionAdversaCreate,
     ReaccionAdversaResponse,
     RegistroCreate,
@@ -864,10 +865,26 @@ def crear_medico(
             detail=f"Ya existe un médico con cédula '{payload.cedula}'.",
         )
 
+    curp_hash = hash_sha256(payload.curp)
+    if db.query(Medico).filter(Medico.curp_hash == curp_hash).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Ya existe un médico con CURP '{payload.curp}'.",
+        )
+
+    if not db.query(CatPuesto).filter(CatPuesto.codigo == payload.id_puesto).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Puesto '{payload.id_puesto}' no encontrado en el catálogo.",
+        )
+
     nuevo = Medico(
         cedula_hash=cedula_hash,
         nombre_medico=cifrar(payload.nombre_medico),
         cedula=cifrar(payload.cedula),
+        curp_hash=curp_hash,
+        curp=cifrar(payload.curp),
+        id_puesto=payload.id_puesto,
         email=payload.email,
         clues_adscripcion=payload.clues_adscripcion,
     )
@@ -932,6 +949,27 @@ def actualizar_medico(
         nueva_cedula = datos.pop("cedula")
         medico.cedula = cifrar(nueva_cedula)
         medico.cedula_hash = hash_sha256(nueva_cedula)
+    if "curp" in datos:
+        nueva_curp = datos.pop("curp")
+        nueva_curp_hash = hash_sha256(nueva_curp)
+        duplicado = (
+            db.query(Medico)
+            .filter(Medico.curp_hash == nueva_curp_hash, Medico.id_medico != medico.id_medico)
+            .first()
+        )
+        if duplicado:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ya existe un médico con CURP '{nueva_curp}'.",
+            )
+        medico.curp = cifrar(nueva_curp)
+        medico.curp_hash = nueva_curp_hash
+    if "id_puesto" in datos:
+        if not db.query(CatPuesto).filter(CatPuesto.codigo == datos["id_puesto"]).first():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Puesto '{datos['id_puesto']}' no encontrado en el catálogo.",
+            )
     for campo, valor in datos.items():
         setattr(medico, campo, valor)
     db.commit()
@@ -2011,6 +2049,23 @@ def listar_diagnosticos(
     return query.order_by(CatDiagnostico.nombre).all()
 
 
+@app.get(
+    "/catalogos/puestos",
+    response_model=list[PuestoResponse],
+    tags=["Catálogos"],
+    summary="Lista del catálogo de puestos/especialidades médicas.",
+)
+def listar_puestos(
+    solo_activos: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    query = db.query(CatPuesto)
+    if solo_activos:
+        query = query.filter(CatPuesto.es_activo == True)
+    return query.order_by(CatPuesto.denominacion_puesto).all()
+
+
 @app.post(
     "/catalogos/diagnosticos",
     response_model=DiagnosticoResponse,
@@ -2471,6 +2526,9 @@ def _medico_to_response(m: Medico) -> MedicoResponse:
         id_medico=m.id_medico,
         nombre_medico=descifrar(m.nombre_medico),
         cedula=descifrar(m.cedula),
+        curp=descifrar_o_none(m.curp),
+        id_puesto=m.id_puesto,
+        denominacion_puesto=m.puesto.denominacion_puesto if m.puesto else None,
         email=m.email,
         clues_adscripcion=m.clues_adscripcion,
         es_activo=m.es_activo,

@@ -12,11 +12,19 @@ import { toast } from "sonner";
 
 import { crearMedico, actualizarMedico, obtenerMedico } from "../../api/medicos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
+import PuestoCombobox from "../../components/shared/PuestoCombobox";
 import useAuthStore from "../../store/authStore";
+
+const CURP_REGEX = /^[A-Z]{4}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d$/;
 
 const schemaCrear = z.object({
   nombre_medico: z.string().min(2, "El nombre es requerido.").max(255),
   cedula: z.string().min(1, "La cédula es requerida.").max(30),
+  curp: z
+    .string()
+    .length(18, "La CURP debe tener exactamente 18 caracteres.")
+    .regex(CURP_REGEX, "Formato de CURP inválido."),
+  id_puesto: z.string().min(1, "Selecciona el puesto."),
   email: z.string().email("Correo inválido.").optional().or(z.literal("")),
   clues_adscripcion: z.string().min(1, "Selecciona una unidad médica."),
 });
@@ -24,6 +32,13 @@ const schemaCrear = z.object({
 const schemaEditar = z.object({
   nombre_medico: z.string().min(2).max(255).optional(),
   cedula: z.string().min(1).max(30).optional(),
+  curp: z
+    .string()
+    .length(18, "La CURP debe tener exactamente 18 caracteres.")
+    .regex(CURP_REGEX, "Formato de CURP inválido.")
+    .optional()
+    .or(z.literal("")),
+  id_puesto: z.string().optional(),
   email: z.string().email("Correo inválido.").optional().or(z.literal("")),
   clues_adscripcion: z.string().min(1).optional(),
 });
@@ -50,6 +65,7 @@ export default function MedicoFormPage() {
   });
 
   const cluesSeleccionada = watch("clues_adscripcion");
+  const puestoSeleccionado = watch("id_puesto");
 
   // RESPONSABLE_UNIDAD ya no puede registrar médicos nuevos
   useEffect(() => {
@@ -64,6 +80,8 @@ export default function MedicoFormPage() {
         .then((m) => reset({
           nombre_medico: m.nombre_medico,
           cedula: m.cedula,
+          curp: m.curp ?? "",
+          id_puesto: m.id_puesto ?? "",
           email: m.email ?? "",
           clues_adscripcion: m.clues_adscripcion,
         }))
@@ -149,6 +167,42 @@ export default function MedicoFormPage() {
             />
             {errors.cedula && (
               <p className="text-red-500 text-xs mt-1">{errors.cedula.message}</p>
+            )}
+          </div>
+
+          {/* CURP */}
+          <div>
+            <label className="block text-sm font-medium text-neutral-black mb-1">
+              CURP {!esEdicion && <span className="text-primary">*</span>}
+            </label>
+            <input
+              type="text"
+              placeholder="LOOA890101HDFPRS09"
+              maxLength={18}
+              className={`w-full px-4 py-2.5 rounded-lg border text-sm font-mono uppercase outline-none transition
+                focus:ring-2 focus:ring-primary/20 focus:border-primary
+                ${errors.curp ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
+              {...register("curp", {
+                setValueAs: (v) => v.trim().toUpperCase(),
+              })}
+            />
+            {errors.curp && (
+              <p className="text-red-500 text-xs mt-1">{errors.curp.message}</p>
+            )}
+          </div>
+
+          {/* Puesto */}
+          <div>
+            <label className="block text-sm font-medium text-neutral-black mb-1">
+              Puesto {!esEdicion && <span className="text-primary">*</span>}
+            </label>
+            <PuestoCombobox
+              value={puestoSeleccionado}
+              onChange={(codigo) => setValue("id_puesto", codigo, { shouldValidate: true })}
+              error={errors.id_puesto}
+            />
+            {errors.id_puesto && (
+              <p className="text-red-500 text-xs mt-1">{errors.id_puesto.message}</p>
             )}
           </div>
 

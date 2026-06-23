@@ -230,11 +230,32 @@ Registro histórico de reacciones adversas a medicamentos reportadas para un pac
 | `cedula_hash` | String(64) | unique, NOT NULL, index | SHA-256 de cédula para búsquedas |
 | `nombre_medico` | LargeBinary | NOT NULL | Nombre cifrado con Fernet |
 | `cedula` | LargeBinary | NOT NULL | Cédula cifrada con Fernet |
+| `curp_hash` | String(64) | unique, nullable, index | SHA-256 de CURP para búsquedas/unicidad (2026-06-23). Nullable: médicos previos a este campo no la tienen |
+| `curp` | LargeBinary | nullable | CURP cifrada con Fernet (2026-06-23). Exigida en `MedicoCreate`, opcional en BD |
+| `id_puesto` | String(20) | FK → cat_puestos (RESTRICT), nullable | Puesto/especialidad (2026-06-23). Exigido en `MedicoCreate`, opcional en BD |
 | `email` | String(255) | nullable | Texto plano |
 | `clues_adscripcion` | String(20) | FK → cat_unidades, NOT NULL, index | |
 | `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
 
-**Relaciones:** `unidad_adscripcion`, `registros`
+**Relaciones:** `unidad_adscripcion`, `puesto` (→ `CatPuesto`), `registros`
+
+**Validación de CURP:** mismo regex oficial SEP/RENAPO que `Paciente.curp_paciente` (`_CURP_REGEX` en `app/schemas.py`), aplicado en `MedicoCreate`/`MedicoUpdate`. Unicidad verificada vía `curp_hash` (409 si ya existe, igual que `cedula_hash`).
+
+---
+
+### 5.5b CatPuesto — `cat_puestos`
+
+Catálogo de puestos/especialidades del personal médico (ej. "ESPECIALISTA EN ANESTESIOLOGIA"). Cargado desde `scripts/data/Especialidades_puesto.xlsx` (columnas `CODIGO`, `DENOMINACIÓN DE PUESTO`).
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `codigo` | String(20) | PK | ej. "ME001" |
+| `denominacion_puesto` | String(255) | NOT NULL, unique | ej. "ESPECIALISTA EN ANESTESIOLOGIA" |
+| `es_activo` | Boolean | NOT NULL, default=True | |
+
+**Uso:** `GET /catalogos/puestos` alimenta el combobox de "Puesto" en el formulario de Médicos. Se exige (`id_puesto`) al registrar un médico nuevo; los médicos existentes quedan con `id_puesto=NULL` hasta que se edite su registro.
+
+**Carga:** Script `scripts/cargar_puestos.py` (mismo patrón que `cargar_diagnosticos.py`). Idempotente.
 
 ---
 
@@ -410,9 +431,10 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Schema | Campos destacados |
 |---|---|
 | `MedicoBase` | `nombre_medico` (str, 2-255), `cedula` (str, 1-30), `email` (opt), `clues_adscripcion` (CluesStr) |
-| `MedicoCreate` | Idéntico a Base |
-| `MedicoUpdate` | Todos opcionales: `nombre_medico`, `cedula`, `email`, `clues_adscripcion`, `es_activo` (Soft Delete) |
-| `MedicoResponse` | `id_medico`, `nombre_medico` (descifrado), `cedula` (descifrada), `email`, `clues_adscripcion`, `es_activo` |
+| `MedicoCreate` | Base + `curp` (18 chars, regex SEP/RENAPO, requerida) + `id_puesto` (requerido, código de `cat_puestos`) |
+| `MedicoUpdate` | Todos opcionales: `nombre_medico`, `cedula`, `curp`, `id_puesto`, `email`, `clues_adscripcion`, `es_activo` (Soft Delete) |
+| `MedicoResponse` | `id_medico`, `nombre_medico` (descifrado), `cedula` (descifrada), `curp` (descifrada, opt), `id_puesto` (opt), `denominacion_puesto` (opt, join con `cat_puestos`), `email`, `clues_adscripcion`, `es_activo` |
+| `PuestoResponse` | `codigo`, `denominacion_puesto`, `es_activo` |
 
 ---
 
@@ -519,9 +541,9 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
 | GET | `/medicos` | Todos | Lista activos (`es_activo=True`) con filtro RBAC geográfico automático. Param opcional: `clues_adscripcion`. |
-| POST | `/medicos` | ADMIN_ESTATAL, SUPER_ADMIN | Crear médico. RESPONSABLE_UNIDAD: 403 (ya no puede registrar médicos). ADMIN_ESTATAL: unidades de su estado. SUPER_ADMIN: sin restricción. Nombre y cédula cifrados. |
+| POST | `/medicos` | ADMIN_ESTATAL, SUPER_ADMIN | Crear médico. RESPONSABLE_UNIDAD: 403 (ya no puede registrar médicos). ADMIN_ESTATAL: unidades de su estado. SUPER_ADMIN: sin restricción. Nombre, cédula y CURP cifrados; CURP y `id_puesto` requeridos (2026-06-23) — 409 si la CURP ya existe, 404 si el puesto no existe en `cat_puestos`. |
 | GET | `/medicos/{id_medico}` | Todos | Perfil de un médico. |
-| PATCH | `/medicos/{id_medico}` | Todos con RBAC | Actualizar datos o dar de baja (`es_activo=False`). RBAC geográfico: RESPONSABLE_UNIDAD solo su unidad, ADMIN_ESTATAL solo su estado. Re-cifra nombre/cédula si cambian. |
+| PATCH | `/medicos/{id_medico}` | Todos con RBAC | Actualizar datos o dar de baja (`es_activo=False`). RBAC geográfico: RESPONSABLE_UNIDAD solo su unidad, ADMIN_ESTATAL solo su estado. Re-cifra nombre/cédula/CURP si cambian (con las mismas validaciones 409/404 que el alta). |
 | DELETE | `/medicos/{id_medico}` | Solo SUPER_ADMIN | Eliminación física (204 No Content). |
 
 ---
@@ -566,6 +588,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
 | GET | `/catalogos/diagnosticos` | Todos | Lista diagnósticos. Param: `solo_activos` (default True). |
+| GET | `/catalogos/puestos` | Todos | Lista puestos/especialidades médicas (`cat_puestos`). Param: `solo_activos` (default True). Alimenta el combobox de "Puesto" en Médicos. |
 | POST | `/catalogos/diagnosticos` | Solo SUPER_ADMIN | Crear nuevo diagnóstico. Conflicto 409 si nombre duplicado. |
 | PATCH | `/catalogos/diagnosticos/{id_diagnostico}` | Solo SUPER_ADMIN | Actualizar o desactivar diagnóstico. |
 | GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Params: `solo_activos` (default True), `clues` (opcional — filtra solo medicamentos asignados a esa unidad vía JOIN con `unidad_medicamentos`; **sin efecto** mientras `UNIDAD_MEDICAMENTOS_HABILITADO = False`). |

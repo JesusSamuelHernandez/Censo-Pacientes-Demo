@@ -45,6 +45,7 @@ frontend/
 │   │       ├── ConfirmDialog.jsx
 │   │       ├── LoadingSpinner.jsx
 │   │       ├── UnidadCombobox.jsx     # Combobox de búsqueda de unidades; onChange(clues, nombre)
+│   │       ├── PuestoCombobox.jsx     # Combobox de puestos/especialidades médicas; onChange(codigo)
 │   │       ├── RegistrarMedicoModal.jsx # Modal para registrar médico sin salir del form de prescripción
 │   │       ├── BanderinEstado.jsx     # Banderín de color (estatus_evolucion) en Pacientes Activos
 │   │       ├── ReaccionAdversaIcon.jsx    # Icono TriangleAlert amarillo; lazy-load y modal de reacciones
@@ -256,6 +257,8 @@ Al hacer clic se abre un modal con la leyenda de colores y un selector; al elegi
 | Editar | `/medicos/:id/editar` | `PATCH /medicos/:id` | Todos (RBAC geográfico en backend) |
 
 **Dar de baja:** botón disponible en la tabla de lista para todos los roles. Llama a `darBajaMedico()` con confirmación. El médico desaparece del listado y del dropdown de prescripciones (`GET /medicos` filtra `es_activo=True`).
+
+**CURP y Puesto (2026-06-23):** `MedicoFormPage.jsx` agrega dos campos al registrar un médico: **CURP** (input mayúsculas con `maxLength={18}`, mismo regex `CURP_REGEX` y patrón `setValueAs` que `PacienteFormPage.jsx`, requerida solo al crear) y **Puesto** (`PuestoCombobox.jsx`, nuevo componente — mismo patrón que `UnidadCombobox.jsx`: carga el catálogo completo una vez vía `listarPuestos()` y filtra localmente por `denominacion_puesto`). En edición, ambos campos son opcionales (se puede completar CURP/Puesto de médicos que no la tenían). La tabla de `MedicosPage.jsx` muestra columnas **CURP** y **Puesto** (`denominacion_puesto`), con "—" si el médico no las tiene capturadas. El buscador de la lista también filtra por CURP.
 
 ---
 

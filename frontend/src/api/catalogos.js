@@ -12,6 +12,15 @@ export const listarDiagnosticos = async (soloActivos = true) => {
   return data;
 };
 
+// ── Puestos / especialidades médicas ────────────────────────────────────────────
+
+export const listarPuestos = async (soloActivos = true) => {
+  const { data } = await axiosClient.get("/catalogos/puestos", {
+    params: { solo_activos: soloActivos },
+  });
+  return data;
+};
+
 // ── Medicamentos ──────────────────────────────────────────────────────────────
 
 export const listarMedicamentos = async (clues = null, soloActivos = true) => {
