@@ -28,3 +28,6 @@ build/
 .vscode/
 .DS_Store
 *.log
+
+solicitudes_altas_usuarios\envio_correo\email.py
+solicitudes_altas_usuarios\envio_correo\.env
