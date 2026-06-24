@@ -24,6 +24,9 @@ python-multipart==0.0.20         # Requerido por FastAPI para parsear form-data
 # ── Variables de entorno ───────────────────────────────────────────────────────
 python-dotenv==1.0.1             # Carga .env en desarrollo local
 
+# ── Pruebas ──────────────────────────────────────────────────────────────────
+pytest==8.3.4                    # Runner de pruebas automatizadas
+
 # ── Scripts de carga masiva ────────────────────────────────────────────────────
 pandas==2.2.3                    # Lectura de archivos Excel (.xlsx)
 openpyxl==3.1.5                  # Motor de lectura/escritura Excel requerido por pandas

@@ -366,7 +366,7 @@ def _normalizar_texto(texto: str) -> str:
     "/pacientes/buscar-por-nombre",
     response_model=BusquedaNombreResponse,
     tags=["Pacientes"],
-    summary="Búsqueda nacional de pacientes por nombre (pacientes sin CURP). Sin filtro RBAC — todos los roles.",
+    summary="Búsqueda de pacientes por nombre filtrada automáticamente por rol.",
 )
 def buscar_pacientes_por_nombre(
     q: str = Query(..., min_length=3, description="Texto a buscar en el nombre completo del paciente."),
@@ -375,9 +375,18 @@ def buscar_pacientes_por_nombre(
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     tokens_busqueda = _normalizar_texto(q).split()
+    filtro = apply_rbac_filter(current_user)
+
+    query = db.query(Paciente)
+    if filtro.filtrar_por_clues:
+        query = query.filter(Paciente.clues_unidad_adscripcion == filtro.valor_clues)
+    elif filtro.filtrar_por_entidad:
+        query = query.join(UnidadMedica).filter(
+            UnidadMedica.id_entidad == filtro.valor_entidad
+        )
 
     candidatos: list[tuple[Paciente, str, str]] = []
-    for paciente in db.query(Paciente).all():
+    for paciente in query.order_by(Paciente.id_paciente).all():
         nombre = descifrar(paciente.nombre_completo)
         nombre_normalizado = _normalizar_texto(nombre)
         tokens_nombre = nombre_normalizado.split()
@@ -391,6 +400,15 @@ def buscar_pacientes_por_nombre(
     candidatos = candidatos[:limite]
 
     unidades = {u.clues: u.nombre_de_la_unidad for u in db.query(UnidadMedica).all()}
+    totales_por_paciente: dict[int, int] = {}
+    if candidatos:
+        ids_pacientes = [paciente.id_paciente for paciente, _, _ in candidatos]
+        totales_por_paciente = dict(
+            db.query(Registro.id_paciente, func.count(Registro.id_registro))
+            .filter(Registro.id_paciente.in_(ids_pacientes))
+            .group_by(Registro.id_paciente)
+            .all()
+        )
 
     resultados = [
         BusquedaNombreItem(
@@ -400,7 +418,7 @@ def buscar_pacientes_por_nombre(
             curp_paciente=descifrar_o_none(paciente.curp_paciente),
             clues_unidad_adscripcion=paciente.clues_unidad_adscripcion,
             nombre_unidad=unidades.get(paciente.clues_unidad_adscripcion),
-            total_registros=db.query(Registro).filter(Registro.id_paciente == paciente.id_paciente).count(),
+            total_registros=totales_por_paciente.get(paciente.id_paciente, 0),
         )
         for paciente, nombre, _ in candidatos
     ]
@@ -1656,6 +1674,8 @@ def reporte_resumen_detallado(
     fecha_inicio: date | None = Query(None),
     fecha_fin: date | None = Query(None),
     solo_activos: bool = Query(True),
+    pagina: int = Query(1, ge=1),
+    por_pagina: int = Query(500, ge=1, le=2000),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
@@ -1688,15 +1708,27 @@ def reporte_resumen_detallado(
     if fecha_fin:
         query = query.filter(Registro.fecha_primera_administracion <= fecha_fin)
 
-    registros = query.all()
+    total_registros = query.count()
+    registros = (
+        query.order_by(Registro.id_registro.desc())
+        .offset((pagina - 1) * por_pagina)
+        .limit(por_pagina)
+        .all()
+    )
 
     return {
         "generado_en": datetime.now(timezone.utc).isoformat(),
-        "total_registros": len(registros),
+        "total_registros": total_registros,
+        "registros_devueltos": len(registros),
+        "pagina": pagina,
+        "por_pagina": por_pagina,
+        "hay_mas": pagina * por_pagina < total_registros,
         "filtros_aplicados": {
             "fecha_inicio": str(fecha_inicio) if fecha_inicio else None,
             "fecha_fin": str(fecha_fin) if fecha_fin else None,
             "solo_activos": solo_activos,
+            "pagina": pagina,
+            "por_pagina": por_pagina,
             "rbac_clues": filtro.valor_clues,
             "rbac_entidad": filtro.valor_entidad,
         },

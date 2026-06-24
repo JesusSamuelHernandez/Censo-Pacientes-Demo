@@ -20,7 +20,7 @@ const schemaCrear = z.object({
     .string()
     .min(1, "La clave CNIS es requerida.")
     .max(20)
-    .regex(/^[A-Z0-9\-]+$/i, "Solo letras, números y guiones."),
+    .regex(/^[A-Z0-9-]+$/i, "Solo letras, números y guiones."),
   descripcion: z.string().min(1, "La descripción es requerida.").max(3000),
   grupo: z.string().max(150).optional().or(z.literal("")),
   tipo_clave: z.string().max(100).optional().or(z.literal("")),

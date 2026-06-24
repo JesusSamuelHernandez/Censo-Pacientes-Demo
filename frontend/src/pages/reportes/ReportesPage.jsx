@@ -3,7 +3,7 @@
  * Incluye exportación a Excel desde el cliente con la librería xlsx.
  */
 import { useEffect, useState } from "react";
-import { Download, RefreshCw, BarChart2, ClipboardList, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, RefreshCw, BarChart2, ClipboardList, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
@@ -50,14 +50,16 @@ export default function ReportesPage() {
 }
 
 // ── Botón de pestaña ──────────────────────────────────────────────────────────
-function TabBtn({ activo, onClick, icon: Icon, children }) {
+function TabBtn({ activo, onClick, icon, children }) {
+  const TabIcon = icon;
+
   return (
     <button
       onClick={onClick}
       className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition
         ${activo ? "bg-primary text-white" : "text-neutral-gray hover:text-neutral-black hover:bg-neutral-light"}`}
     >
-      <Icon size={15} />
+      <TabIcon size={15} />
       {children}
     </button>
   );
@@ -71,13 +73,16 @@ function ReporteDetallado() {
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
   const [soloActivos, setSoloActivos] = useState(true);
+  const [pagina, setPagina] = useState(1);
+  const porPagina = 500;
 
-  const cargar = async () => {
+  const cargar = async (paginaObjetivo = pagina) => {
     setLoading(true);
     try {
-      const res = await getReporteDetallado({ fechaInicio, fechaFin, soloActivos });
+      const res = await getReporteDetallado({ fechaInicio, fechaFin, soloActivos, pagina: paginaObjetivo, porPagina });
       setDatos(res.datos);
       setMeta(res);
+      setPagina(paginaObjetivo);
     } catch {
       toast.error("Error al cargar el reporte.");
     } finally {
@@ -137,7 +142,7 @@ function ReporteDetallado() {
             className="accent-primary w-4 h-4" />
           Solo activos
         </label>
-        <button onClick={cargar}
+        <button onClick={() => cargar(1)}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neutral-light hover:bg-neutral-gray/20
             text-sm text-neutral-black border border-neutral-gray/30 transition">
           <RefreshCw size={14} />
@@ -153,9 +158,30 @@ function ReporteDetallado() {
 
       {/* Contador */}
       {meta && (
-        <p className="text-xs text-neutral-gray">
-          {meta.total_registros} registro(s) — generado el {new Date(meta.generado_en).toLocaleString("es-MX")}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-gray">
+          <p>
+            Mostrando {meta.registros_devueltos ?? datos.length} de {meta.total_registros} registro(s) — generado el {new Date(meta.generado_en).toLocaleString("es-MX")}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => cargar(Math.max(1, pagina - 1))}
+              disabled={loading || pagina <= 1}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-gray/30 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neutral-light"
+            >
+              <ChevronLeft size={13} />
+              Anterior
+            </button>
+            <span>Página {pagina}</span>
+            <button
+              onClick={() => cargar(pagina + 1)}
+              disabled={loading || !meta.hay_mas}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-gray/30 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neutral-light"
+            >
+              Siguiente
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Tabla */}
@@ -230,8 +256,8 @@ function ReporteRTM() {
   // Nunca limpia unidadSeleccionada aquí: esa responsabilidad está en el handler
   // del <select>, de modo que la restauración del store no provoque limpiezas.
   useEffect(() => {
-    if (!entidad) { setUnidades([]); return; }
-    setLoadingUnidades(true);
+    if (!entidad) { return; }
+    queueMicrotask(() => setLoadingUnidades(true));
     listarUnidades(entidad)
       .then(setUnidades)
       .catch(() => toast.error("Error al cargar unidades."))
@@ -240,24 +266,27 @@ function ReporteRTM() {
 
   // Genera el RTM al seleccionar una unidad (también al restaurar del store al montar)
   useEffect(() => {
-    if (!unidadSeleccionada) { setDatos(null); return; }
-    setLoading(true);
+    if (!unidadSeleccionada) { return; }
+    queueMicrotask(() => setLoading(true));
     getRtm(unidadSeleccionada.clues)
       .then(setDatos)
       .catch(() => toast.error("Error al generar el reporte RTM."))
       .finally(() => setLoading(false));
   }, [unidadSeleccionada]);
 
+  const unidadesDisponibles = entidad ? unidades : [];
+  const datosRtm = unidadSeleccionada ? datos : null;
+
   const filtradas = busqueda.length < 2
-    ? unidades
-    : unidades.filter((u) =>
+    ? unidadesDisponibles
+    : unidadesDisponibles.filter((u) =>
         u.clues.toLowerCase().includes(busqueda.toLowerCase()) ||
         u.nombre_de_la_unidad.toLowerCase().includes(busqueda.toLowerCase())
       );
 
   const exportarExcel = () => {
-    if (!datos || datos.filas.length === 0) { toast.error("No hay datos para exportar."); return; }
-    const filas = datos.filas.map((f) => {
+    if (!datosRtm || datosRtm.filas.length === 0) { toast.error("No hay datos para exportar."); return; }
+    const filas = datosRtm.filas.map((f) => {
       const row = {
         "Clave CNIS": f.clave_cnis,
         "Descripción": f.descripcion,
@@ -358,7 +387,7 @@ function ReporteRTM() {
             <p className="text-xs font-mono text-neutral-gray">{unidadSeleccionada.clues}</p>
           </div>
           <div className="flex items-center gap-2">
-            {datos && datos.filas.length > 0 && (
+            {datosRtm && datosRtm.filas.length > 0 && (
               <button
                 onClick={exportarExcel}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary-dark
@@ -380,9 +409,9 @@ function ReporteRTM() {
       )}
 
       {/* Metadata */}
-      {datos && unidadSeleccionada && (
+      {datosRtm && unidadSeleccionada && (
         <p className="text-xs text-neutral-gray">
-          Generado el {new Date(datos.generado_en).toLocaleString("es-MX")}
+          Generado el {new Date(datosRtm.generado_en).toLocaleString("es-MX")}
           {" · "}Solo prescripciones activas con posología completa
         </p>
       )}
@@ -399,12 +428,12 @@ function ReporteRTM() {
         <div className="flex justify-center items-center h-48">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : datos && datos.filas.length === 0 ? (
+      ) : datosRtm && datosRtm.filas.length === 0 ? (
         <div className="bg-white rounded-xl border border-neutral-gray/20 p-16 flex flex-col items-center gap-3">
           <TrendingUp size={40} className="text-neutral-gray/30" />
           <p className="text-sm text-neutral-gray">No hay prescripciones activas con posología en esta unidad.</p>
         </div>
-      ) : datos ? (
+      ) : datosRtm ? (
         <div className="bg-white rounded-xl border border-neutral-gray/20 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -422,7 +451,7 @@ function ReporteRTM() {
                   <th className="text-center px-3 py-3 font-semibold text-neutral-black whitespace-nowrap">
                     U. Medida
                   </th>
-                  {datos.cabeceras.map((cab, idx) => (
+                  {datosRtm.cabeceras.map((cab, idx) => (
                     <th
                       key={cab}
                       className={`text-center px-3 py-3 font-semibold whitespace-nowrap
@@ -441,7 +470,7 @@ function ReporteRTM() {
                 </tr>
               </thead>
               <tbody>
-                {datos.filas.map((f) => (
+                {datosRtm.filas.map((f) => (
                   <tr key={f.clave_cnis} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-3 py-2.5 font-mono font-semibold text-neutral-black whitespace-nowrap sticky left-0 bg-white z-10">
                       {f.clave_cnis}

@@ -4,26 +4,46 @@ Este documento describe lo que debe quedar listo en la aplicacion antes de que e
 
 ## Base de datos externa
 
-La aplicacion espera una base PostgreSQL accesible mediante `DATABASE_URL`.
+La aplicacion espera una base PostgreSQL externa. La forma recomendada es usar variables separadas para evitar errores cuando la contrasena contiene caracteres especiales.
 
-Formato base:
+Formato recomendado:
 
 ```env
-DATABASE_URL=postgresql://usuario:password@host:5432/censo_pacientes
+DB_HOST=host
+DB_PORT=5432
+DB_NAME=censo_pacientes
+DB_USER=usuario
+DB_PASSWORD=password
 ```
+
+Alternativa si infraestructura entrega una URL ya codificada:
+
+```env
+DATABASE_URL=postgresql://usuario:password-codificado@host:5432/censo_pacientes
+```
+
+Si `DB_HOST`, `DB_NAME`, `DB_USER` o `DB_PASSWORD` estan definidas, la aplicacion usa el modo de variables separadas y no depende de `DATABASE_URL`.
 
 Si el servidor requiere SSL, definir tambien:
 
 ```env
 DATABASE_SSL_MODE=require
+DATABASE_SSL_ROOT_CERT=/ruta/segura/ca.crt
+DATABASE_CONNECT_TIMEOUT=10
 ```
 
-Valores comunes de `DATABASE_SSL_MODE`: `prefer`, `require`, `verify-ca`, `verify-full`. Si infraestructura requiere certificado CA, debe montarlo fuera del repositorio y definir el mecanismo de conexion correspondiente.
+Valores comunes de `DATABASE_SSL_MODE`: `prefer`, `require`, `verify-ca`, `verify-full`. Si infraestructura requiere certificado CA, debe montarlo fuera del repositorio y apuntar `DATABASE_SSL_ROOT_CERT` a esa ruta.
+
+Si el usuario o contrasena de PostgreSQL contiene caracteres especiales como `/`, `?`, `#`, `@`, `%`, espacios o comas, usa variables separadas o codifica esos caracteres antes de formar `DATABASE_URL`.
 
 ## Variables requeridas
 
 ```env
-DATABASE_URL=postgresql://usuario:password@host:5432/censo_pacientes
+DB_HOST=host
+DB_PORT=5432
+DB_NAME=censo_pacientes
+DB_USER=usuario
+DB_PASSWORD=password
 JWT_SECRET_KEY=<clave-aleatoria-minimo-32-caracteres>
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_HOURS=8
@@ -38,10 +58,13 @@ VITE_API_BASE_URL=https://api.dominio.gob.mx
 
 ```env
 DATABASE_SSL_MODE=prefer
+DATABASE_SSL_ROOT_CERT=
+DATABASE_CONNECT_TIMEOUT=10
 DB_POOL_SIZE=10
 DB_MAX_OVERFLOW=20
 DB_POOL_TIMEOUT=30
 DB_POOL_RECYCLE=1800
+WEB_CONCURRENCY=2
 RUN_MIGRATIONS=false
 CREATE_ADMIN_ON_STARTUP=false
 ```
@@ -60,18 +83,34 @@ alembic upgrade head
 
 La configuracion de Alembic lee `DATABASE_URL` desde variables de entorno. No editar `alembic.ini` para guardar credenciales.
 
+## Validacion segura de configuracion
+
+Antes de entregar variables a infraestructura, ejecutar:
+
+```bash
+python tools/validate_production_config.py
+```
+
+Para validar tambien conectividad real a PostgreSQL:
+
+```bash
+python tools/validate_production_config.py --check-db
+```
+
+El validador no imprime credenciales ni secretos. Solo indica si las variables estan presentes, tienen formato esperado y, con `--check-db`, si `SELECT 1` responde correctamente.
+
 ## Arranque backend
 
-Comando simple compatible con el contenedor actual:
+Comando simple para desarrollo o validacion puntual:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
 ```
 
-Opcion productiva si infraestructura usa Gunicorn:
+Comando recomendado para produccion si infraestructura usa Gunicorn:
 
 ```bash
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8000}
+gunicorn -w ${WEB_CONCURRENCY:-2} -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8000}
 ```
 
 El numero de workers debe ajustarse segun CPU/RAM disponibles y limite de conexiones de PostgreSQL.
@@ -88,17 +127,43 @@ npm run build
 
 El resultado `frontend/dist` puede servirse con Nginx u otro servidor estatico definido por infraestructura.
 
+El `frontend/Dockerfile.prod` ya genera el build con Node y lo sirve desde Nginx. Si se usa Docker, `VITE_API_BASE_URL` debe enviarse como build arg para que Vite lo incorpore al build estatico.
+
+El cliente frontend falla de forma explicita si `VITE_API_BASE_URL` no esta definida, para evitar llamadas a un backend `undefined`.
+
+## Empaquetado Docker
+
+Existen `.dockerignore` en la raiz y en `frontend/` para evitar copiar secretos, entornos virtuales, `node_modules`, builds previos y caches dentro de las imagenes.
+
+## Reportes y volumen de datos
+
+El endpoint `/reportes/resumen-detallado` esta paginado para evitar respuestas enormes en memoria. Parametros disponibles:
+
+```text
+pagina=1
+por_pagina=500
+```
+
+`por_pagina` acepta hasta 2000 registros por respuesta. La respuesta incluye `total_registros`, `registros_devueltos` y `hay_mas`. Para exportaciones muy grandes, infraestructura o producto debe definir si se permite paginar manualmente o si se implementara una exportacion asincrona posterior.
+
+La busqueda por nombre respeta RBAC: responsables de unidad solo buscan en su unidad, administradores estatales solo en su entidad y super administradores en todo el padron.
+
 ## Checklist de entrega
 
 - `DATABASE_URL` valida contra el servidor PostgreSQL externo.
+- `python tools/validate_production_config.py` termina correctamente sin imprimir secretos.
 - `FERNET_KEY` generada, respaldada y no expuesta en el repo.
 - `JWT_SECRET_KEY` generada con minimo 32 caracteres.
 - `FRONTEND_URL` contiene solo dominios permitidos para CORS.
 - `VITE_API_BASE_URL` apunta a la API productiva.
 - `alembic upgrade head` ejecuta correctamente.
+- `python -m pytest tests` ejecuta las pruebas smoke.
+- `npm run build` ejecuta correctamente en `frontend/` con `VITE_API_BASE_URL` definido.
 - `/health` responde `status: ok` y `database: ok`.
 - Login y cambio de password temporal funcionan.
 - RBAC validado para `SUPER_ADMIN`, `ADMIN_ESTATAL` y `RESPONSABLE_UNIDAD`.
+- Busqueda por nombre validada para que respete el alcance de cada rol.
+- Reporte detallado validado con paginacion y volumen de datos realista.
 - Datos sensibles se guardan cifrados en PostgreSQL.
 
 ## Fuera de alcance de la aplicacion

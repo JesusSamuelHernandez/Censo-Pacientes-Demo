@@ -30,18 +30,14 @@ import bcrypt
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
+from app.config import require_env
 from app.database import get_db
 from app.models import Rol, Usuario
 
 # ---------------------------------------------------------------------------
 # Configuración desde variables de entorno
 # ---------------------------------------------------------------------------
-JWT_SECRET_KEY: str | None = os.getenv("JWT_SECRET_KEY")
-if not JWT_SECRET_KEY or len(JWT_SECRET_KEY) < 32:
-    raise RuntimeError(
-        "Variable de entorno JWT_SECRET_KEY no definida o demasiado corta. "
-        "Usa una clave aleatoria de al menos 32 caracteres."
-    )
+JWT_SECRET_KEY: str = require_env("JWT_SECRET_KEY", min_length=32)
 JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS: int = int(os.getenv("JWT_EXPIRE_HOURS", "8"))
 
