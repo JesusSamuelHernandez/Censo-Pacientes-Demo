@@ -13,22 +13,28 @@ import { toast } from "sonner";
 import { cambiarPassword } from "../../api/auth";
 import useAuthStore from "../../store/authStore";
 
-const schema = z
-  .object({
-    password_actual: z.string().min(1, "Ingresa tu contraseña actual."),
-    password_nueva: z
-      .string()
-      .min(8, "La nueva contraseña debe tener al menos 8 caracteres."),
-    password_confirmar: z.string().min(1, "Confirma tu nueva contraseña."),
-  })
-  .refine((d) => d.password_nueva === d.password_confirmar, {
-    message: "Las contraseñas no coinciden.",
-    path: ["password_confirmar"],
-  });
+const construirSchema = (requiereNombre) =>
+  z
+    .object({
+      nombre_usuario: requiereNombre
+        ? z.string().min(2, "Ingresa tu nombre de usuario.").max(150)
+        : z.string().optional(),
+      password_actual: z.string().min(1, "Ingresa tu contraseña actual."),
+      password_nueva: z
+        .string()
+        .min(8, "La nueva contraseña debe tener al menos 8 caracteres."),
+      password_confirmar: z.string().min(1, "Confirma tu nueva contraseña."),
+    })
+    .refine((d) => d.password_nueva === d.password_confirmar, {
+      message: "Las contraseñas no coinciden.",
+      path: ["password_confirmar"],
+    });
 
 export default function CambiarPasswordPage() {
   const navigate = useNavigate();
   const marcarPasswordCambiado = useAuthStore((s) => s.marcarPasswordCambiado);
+  const nombreUsuarioActual = useAuthStore((s) => s.nombreUsuario);
+  const requiereNombre = !nombreUsuarioActual;
   const [loading, setLoading] = useState(false);
   const [show, setShow] = useState({ actual: false, nueva: false, confirmar: false });
 
@@ -36,7 +42,7 @@ export default function CambiarPasswordPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm({ resolver: zodResolver(schema) });
+  } = useForm({ resolver: zodResolver(construirSchema(requiereNombre)) });
 
   const toggleShow = (field) => setShow((prev) => ({ ...prev, [field]: !prev[field] }));
 
@@ -46,8 +52,9 @@ export default function CambiarPasswordPage() {
       await cambiarPassword({
         password_actual: values.password_actual,
         password_nueva: values.password_nueva,
+        nombre_usuario: requiereNombre ? values.nombre_usuario : undefined,
       });
-      marcarPasswordCambiado();
+      marcarPasswordCambiado(requiereNombre ? values.nombre_usuario : undefined);
       toast.success("Contraseña actualizada correctamente.");
       navigate("/pacientes", { replace: true });
     } catch (err) {
@@ -101,6 +108,24 @@ export default function CambiarPasswordPage() {
         {/* Formulario */}
         <div className="bg-white rounded-b-2xl shadow-lg px-8 py-8">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            {requiereNombre && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Nombre de usuario
+                </label>
+                <input
+                  type="text"
+                  placeholder="Tu nombre completo"
+                  className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                    focus:ring-2 focus:ring-primary/30 focus:border-primary
+                    ${errors.nombre_usuario ? "border-red-400 bg-red-50" : "border-neutral-gray/40 bg-neutral-light"}`}
+                  {...register("nombre_usuario")}
+                />
+                {errors.nombre_usuario && (
+                  <p className="text-red-500 text-xs mt-1">{errors.nombre_usuario.message}</p>
+                )}
+              </div>
+            )}
             <InputPassword
               name="password_actual"
               label="Contraseña temporal actual"

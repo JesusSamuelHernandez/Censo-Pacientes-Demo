@@ -1,6 +1,6 @@
 # Arquitectura del Frontend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-15 (reacciones adversas)
+> Última actualización: 2026-06-22 (listas fijas de unidad/unidad_de_medida en catálogo de medicamentos; confirmado_mediante con 3 opciones fijas; confirmado_por oculto en form y Reporte Detallado; caso relacionado con amparo/derechos humanos; motivo de baja obligatorio en Pacientes Activos)
 
 ## 1. Stack Tecnológico
 
@@ -45,6 +45,7 @@ frontend/
 │   │       ├── ConfirmDialog.jsx
 │   │       ├── LoadingSpinner.jsx
 │   │       ├── UnidadCombobox.jsx     # Combobox de búsqueda de unidades; onChange(clues, nombre)
+│   │       ├── PuestoCombobox.jsx     # Combobox de puestos/especialidades médicas; onChange(codigo)
 │   │       ├── RegistrarMedicoModal.jsx # Modal para registrar médico sin salir del form de prescripción
 │   │       ├── BanderinEstado.jsx     # Banderín de color (estatus_evolucion) en Pacientes Activos
 │   │       ├── ReaccionAdversaIcon.jsx    # Icono TriangleAlert amarillo; lazy-load y modal de reacciones
@@ -101,11 +102,15 @@ Estado de autenticación global. Persiste en `localStorage` (o memoria, según c
   idUsuario: null,              // integer
   debeCambiarPassword: false,
   email: null,                  // email del usuario autenticado
-  nombreUsuario: null,          // nombre completo del usuario
+  nombreUsuario: null,          // nombre completo del usuario; null hasta que la propia
+                                 // persona lo captura en CambiarPasswordPage (cuentas de
+                                 // autoservicio o creadas por "Nuevo usuario")
   cluesUnidadAsignada: null,    // solo RESPONSABLE_UNIDAD
   nombreUnidad: null,           // nombre de la unidad (solo RESPONSABLE_UNIDAD)
   idEntidad: null,              // clave de estado (solo ADMIN_ESTATAL)
   login: (data) => ...,         // guarda todos los campos al iniciar sesión
+  marcarPasswordCambiado: (nombreUsuario) => ..., // limpia debeCambiarPassword;
+                                 // si se pasa nombreUsuario, también lo guarda
   logout: () => ...
 }
 ```
@@ -149,7 +154,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `obtenerPaciente(curp)` → `GET /pacientes/{curp}`
 - `crearPaciente(data)` → `POST /pacientes`
 - `actualizarPaciente(curp, data)` → `PATCH /pacientes/{curp}` (también usado por `BanderinEstado` para actualizar `estatus_evolucion`)
-- `darBajaPaciente(curp)` → `DELETE /pacientes/{curp}`
+- `darBajaPaciente(curp, motivosBaja)` → `DELETE /pacientes/{curp}` (body `{ motivo_baja }`, arreglo de 1 o más valores)
 - `buscarPacientePorCurp(curp)` → `GET /pacientes/buscar?curp=`
 - `buscarPacientesPorNombre(q, limite)` → `GET /pacientes/buscar-por-nombre?q=&limite=` (para pacientes sin CURP)
 - `listarRegistrosDePaciente(curp, soloActivos)` → `GET /pacientes/{curp}/registros`
@@ -208,10 +213,14 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 
 | Página | Ruta | Endpoints consumidos |
 |---|---|---|
-| Login | `/login` | `POST /auth/login` |
+| Login | `/login` | `POST /auth/login`, `POST /auth/solicitar-acceso` |
 | Cambiar contraseña | `/cambiar-password` | `POST /usuarios/me/cambiar-password` |
 
 **Flujo:** Al hacer login, si `debe_cambiar_password = true`, la app redirige automáticamente a `/cambiar-password` y bloquea el resto de rutas hasta completarlo.
+
+**Autoservicio de alta ("Solicita tu acceso"):** `LoginPage.jsx` alterna (estado local `modo`, sin ruta nueva) entre el formulario de login y un formulario de una sola pregunta (correo institucional) que llama `solicitarAcceso(email)`. Siempre muestra el mismo mensaje genérico de respuesta — no revela si el correo está o no preautorizado. Si el correo coincide con la tabla `usuarios_preautorizados`, el usuario recibe su password temporal por correo y puede iniciar sesión normalmente.
+
+**Nombre de usuario al cambiar contraseña:** `CambiarPasswordPage.jsx` muestra un campo adicional "Nombre de usuario" (requerido) solo cuando `authStore.nombreUsuario` está vacío — esto ocurre en cuentas creadas por autoservicio o por "Nuevo usuario" (ya no se les asigna nombre al crearlas). Se envía junto con el cambio de contraseña; al terminar, `marcarPasswordCambiado(nombreUsuario)` lo guarda en el store. Para cuentas que ya tienen nombre (legacy), el campo no aparece.
 
 ---
 
@@ -235,6 +244,8 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 
 Al hacer clic se abre un modal con la leyenda de colores y un selector; al elegir un valor distinto llama `actualizarPaciente(curp, { estatus_evolucion })` (`PATCH /pacientes/{curp}`) y actualiza el estado local vía el callback `onChange`.
 
+**Dar de baja con motivo(s) obligatorio(s):** El modal de confirmación de baja (botón `UserX` en Acciones) incluye 4 checkboxes — "Efecto adverso", "Defunción", "Cambio de tratamiento", "Atención en seguridad social o medios privados" (constante local `MOTIVO_BAJA_OPTIONS`, espejo de `MOTIVO_BAJA_OPTIONS` en `schemas.py`). Se puede seleccionar más de uno. El botón "Confirmar baja" permanece deshabilitado hasta elegir al menos una opción; se envía como arreglo `motivo_baja` en `darBajaPaciente(curp, motivosBaja)`.
+
 ---
 
 ### 5.3 Médicos
@@ -246,6 +257,8 @@ Al hacer clic se abre un modal con la leyenda de colores y un selector; al elegi
 | Editar | `/medicos/:id/editar` | `PATCH /medicos/:id` | Todos (RBAC geográfico en backend) |
 
 **Dar de baja:** botón disponible en la tabla de lista para todos los roles. Llama a `darBajaMedico()` con confirmación. El médico desaparece del listado y del dropdown de prescripciones (`GET /medicos` filtra `es_activo=True`).
+
+**CURP y Puesto (2026-06-23):** `MedicoFormPage.jsx` agrega dos campos al registrar un médico: **CURP** (input mayúsculas con `maxLength={18}`, mismo regex `CURP_REGEX` y patrón `setValueAs` que `PacienteFormPage.jsx`, requerida solo al crear) y **Puesto** (`PuestoCombobox.jsx`, nuevo componente — mismo patrón que `UnidadCombobox.jsx`: carga el catálogo completo una vez vía `listarPuestos()` y filtra localmente por `denominacion_puesto`). En edición, ambos campos son opcionales (se puede completar CURP/Puesto de médicos que no la tenían). La tabla de `MedicosPage.jsx` muestra columnas **CURP** y **Puesto** (`denominacion_puesto`), con "—" si el médico no las tiene capturadas. El buscador de la lista también filtra por CURP.
 
 ---
 
@@ -283,7 +296,13 @@ Comportamiento por rol:
 
 **Fecha de nacimiento del paciente:** Si la búsqueda por CURP no encuentra al paciente, se muestra el campo **Fecha de nacimiento** (opcional) para capturarlo junto con el resto de datos del paciente nuevo (`fecha_nacimiento` en el payload de `POST /registros/completo`). Si el paciente ya existe y tiene `fecha_nacimiento`, se muestra como dato de solo lectura en el resumen de búsqueda.
 
-**Confirmado por (campo fijo):** El select `confirmado_por` aparece deshabilitado y fijo en `"Médico tratante"` (`CONFIRMADO_POR_FIJO` en `RegistroFormPage.jsx`). En modo creación, `defaultValues` lo precarga con ese valor; en modo edición se muestra el valor históricamente guardado. Las demás opciones (`CONFIRMADO_POR_OPTIONS`: "Consulta Externa", "Farmacia Hospitalaria", "Comité de Medicamentos", "Dirección Médica", "Trabajo Social") se conservan en el array por si se reactivan más adelante.
+**Confirmado por (oculto):** El bloque completo del campo `confirmado_por` (select, label, nota, fila de Vista previa) está envuelto en `{CONFIRMADO_POR_HABILITADO && (...)}` (flag en `featureFlags.js`, actualmente `false`) — ya no se usa. La validación zod se vuelve condicional al flag: requerida si está habilitado, opcional si no. `defaultValues` solo precarga `CONFIRMADO_POR_FIJO` cuando el flag está activo. Constantes `CONFIRMADO_POR_FIJO`/`CONFIRMADO_POR_OPTIONS` se conservan sin uso por si se reactiva.
+
+**Confirmado mediante (select de 3 opciones fijas):** Campo `confirmado_mediante` ubicado justo después de "Confirmado por" y antes de "Fecha inicio de tratamiento". Cambió de texto libre a `<select>` obligatorio con 3 opciones fijas (`CONFIRMADO_MEDIANTE_OPTIONS` en `RegistroFormPage.jsx`, espejo de la constante homónima en `schemas.py`): "Médico tratante (Clínico)", "Estudios de laboratorio especializados", "Confirmación por centro de referencia o especialista". Validado también en backend (`field_validator` en los 3 schemas que usan el campo). Se muestra en la Vista previa.
+
+**Medicamentos sin restricción por unidad (`UNIDAD_MEDICAMENTOS_HABILITADO`, flag en `featureFlags.js`, actualmente `false`):** El dropdown de medicamentos antes se filtraba por la unidad seleccionada (tabla `unidad_medicamentos`, que solo tenía cargadas algunas unidades). Con el flag desactivado, la carga de medicamentos (al elegir una unidad) ya no pasa `clues` a `listarMedicamentos()`, devolviendo el catálogo activo completo para cualquier unidad. El backend tiene el mismo flag en `app/main.py` (`UNIDAD_MEDICAMENTOS_HABILITADO`) — ignora el filtro aunque el frontend mandara `clues`, como defensa adicional. Para reactivar la restricción: poner ambos flags en `true`.
+
+**Caso relacionado con (amparo / derechos humanos):** Justo después de "Confirmado mediante", 3 checkboxes mutuamente excluyentes: "Tratamiento por amparo", "Caso relacionado con queja de derechos humanos" y "No aplica". Implementado como checkboxes controlados (`watch` + `setValue`, no `register` directo) en lugar de inputs nativos, porque marcar uno desmarca el otro automáticamente (`tratamiento_amparo`/`queja_derechos_humanos` son mutuamente excluyentes en el backend). "No aplica" es un estado derivado (`!tratamiento_amparo && !queja_derechos_humanos`), no se persiste como campo propio. Por defecto en creación ambos booleanos inician en `false` (equivalente a "No aplica" marcado). Se muestra en la Vista previa como "Caso relacionado con".
 
 **Número de expediente:** El campo **Número de expediente** solo aparece al crear (no en edición); si se captura, se envía como `numero_expediente` en `POST /registros/completo`, que el backend usa para hacer upsert del expediente del paciente en la unidad de la prescripción (`POST /pacientes/{curp}/expedientes`).
 
@@ -311,6 +330,8 @@ Comportamiento por rol:
 
 **Exportar a Excel:** Botón disponible en Reporte Detallado. Usa SheetJS en el cliente para convertir el JSON de la API a `.xlsx` descargable.
 
+**Columnas del Reporte Detallado (tabla y Excel, idénticas en ambos):** Folio, ID Paciente, Paciente, CURP, Diagnóstico (de la prescripción), Estatus Diagnóstico, ~~Confirmado por~~ (oculto), Confirmado mediante, Caso relacionado con (amparo/derechos humanos), Unidad, Médico, Cédula Médico, Días Adh., Clave CNIS, Medicamento, Prescripción, Peso, Talla, Inicio Trat., Fin Trat., Fecha Primera Adm., Fecha Registro, Activo (22 columnas visibles con `CONFIRMADO_POR_HABILITADO = false`, 23 si se reactiva). El backend ya entrega estos campos calculados (incluyendo `caso_relacionado_con` como texto legible); el frontend solo los muestra sin transformación adicional. La lista de columnas (`COLUMNAS_DETALLADO`) y el `colSpan` de los estados de carga/vacío se computan a partir del mismo flag, evitando números mágicos. Aplica igual para los 3 niveles RBAC — el filtrado de filas ocurre en el backend (`apply_rbac_filter`), no hay lógica de roles en este componente.
+
 ---
 
 ### 5.6 Catálogos *(Solo SUPER_ADMIN)*
@@ -319,6 +340,10 @@ Comportamiento por rol:
 |---|---|---|
 | Catálogo de medicamentos | `/catalogos/medicamentos` | `GET/POST/PATCH /catalogos/medicamentos` |
 | Unidades médicas | `/catalogos/unidades` | `GET/POST/PATCH /catalogos/unidades` |
+
+**Unidad / Unidad de medida (listas fijas):** En el modal de crear/editar medicamento (`MedicamentosPage.jsx`), los campos "Unidad de dosis (singular)" y "Unidad de medida (cantidad)" son `<select>` con listas fijas (`UNIDAD_OPTIONS`: 14 valores — tableta, capsula, comprimido, gragea, sobre, ml, gotas, frasco_ampula, ampolleta, inhalacion, aplicacion, parche, supositorio, ovulo; `UNIDAD_DE_MEDIDA_OPTIONS`: 29 valores — ng, mcg, mg, g, kg, mcl, ml, l, ui, u, ku, mu, ufc, dosis, y combinaciones como mg/ml, mg/dosis, %, ppm, etc.). Solo restringe el frontend — no hay validación enum en backend, para no bloquear ediciones de registros con valores legacy (ver nota siguiente). El campo sigue siendo opcional (string libre a nivel de esquema/BD), solo la UI limita las opciones seleccionables.
+
+**Valores legacy fuera de la lista:** Al editar un medicamento cuyo `unidad`/`unidad_de_medida` actual no está en la lista fija (ej. `"inyección"`, usado en 31 medicamentos del catálogo al momento de este cambio), el `<select>` inyecta una opción extra con ese valor (`"{valor} (valor actual, fuera de lista)"`) para preservarlo visualmente sin forzar al usuario a corregirlo de inmediato ni arriesgar que el navegador seleccione silenciosamente la primera opción de la lista al guardar. Decisión explícita: no se migraron automáticamente estos 31 registros — quedan pendientes de corrección manual, uno por uno, eligiendo la opción correcta del nuevo select (la mayoría corresponde a "frasco_ampula" según su descripción, uno a "ampolleta", y uno —Icatibant, "jeringa prellenada"— no tiene equivalente exacto en la lista).
 
 ---
 
@@ -330,7 +355,7 @@ Comportamiento por rol:
 | Crear | `/usuarios/nuevo` | `POST /usuarios` |
 | Editar | `/usuarios/:id/editar` | `PATCH /usuarios/:id` |
 
-**Flujo de creación:** El backend devuelve `password_temporal`. El frontend la muestra en un modal con advertencia "copia esta contraseña, no se volverá a mostrar".
+**Flujo de creación:** El formulario de alta ya no pide nombre — solo correo, rol y CLUES/entidad (lo captura la propia persona al cambiar su contraseña). El backend devuelve `password_temporal` y además la envía por correo. El frontend la muestra en un modal con advertencia "copia esta contraseña, no se volverá a mostrar" + nota de que también se envió por correo. El campo "Nombre completo" solo aparece en el formulario de **edición**, para corregir el nombre de una cuenta existente.
 
 ---
 

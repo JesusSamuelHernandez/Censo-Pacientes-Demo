@@ -12,8 +12,16 @@ import useAuthStore from "../../store/authStore";
 import BanderinEstado from "../../components/shared/BanderinEstado";
 import ReaccionAdversaIcon from "../../components/shared/ReaccionAdversaIcon";
 import ModalAgregarReaccionAdversa from "../../components/shared/ModalAgregarReaccionAdversa";
+import { REACCIONES_ADVERSAS_HABILITADO, ESTATUS_EVOLUCION_HABILITADO } from "../../config/featureFlags";
 
 const ROLES_PUEDEN_CREAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
+
+const MOTIVO_BAJA_OPTIONS = [
+  "Efecto adverso",
+  "Defunción",
+  "Cambio de tratamiento",
+  "Atención en seguridad social o medios privados",
+];
 
 export default function PacientesPage() {
   const navigate = useNavigate();
@@ -28,6 +36,7 @@ export default function PacientesPage() {
   const [medicamentos, setMedicamentos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmBaja, setConfirmBaja] = useState(null);
+  const [motivosBaja, setMotivosBaja] = useState([]);
   const [pacienteReaccion, setPacienteReaccion] = useState(null);
 
   const porPagina = 20;
@@ -75,16 +84,28 @@ export default function PacientesPage() {
     );
   };
 
+  const toggleMotivoBaja = (op) => {
+    setMotivosBaja((prev) =>
+      prev.includes(op) ? prev.filter((m) => m !== op) : [...prev, op]
+    );
+  };
+
   const handleBaja = async () => {
     if (!confirmBaja) return;
+    if (motivosBaja.length === 0) {
+      toast.error("Selecciona al menos un motivo de la baja.");
+      return;
+    }
     try {
-      await darBajaPaciente(confirmBaja);
+      await darBajaPaciente(confirmBaja, motivosBaja);
       toast.success("Paciente dado de baja correctamente.");
       setConfirmBaja(null);
+      setMotivosBaja([]);
       cargar();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Error al dar de baja al paciente.");
       setConfirmBaja(null);
+      setMotivosBaja([]);
     }
   };
 
@@ -178,8 +199,8 @@ export default function PacientesPage() {
                 pacientesFiltrados.map((p) => (
                   <tr key={p.id_paciente} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-4 py-3 font-medium text-neutral-black">
-                      <div className={`relative ${soloActivos ? "pl-5" : ""}`}>
-                        {soloActivos && (
+                      <div className={`relative ${ESTATUS_EVOLUCION_HABILITADO && soloActivos ? "pl-5" : ""}`}>
+                        {ESTATUS_EVOLUCION_HABILITADO && soloActivos && (
                           <BanderinEstado
                             curp={p.curp_paciente}
                             estatus={p.estatus_evolucion}
@@ -187,7 +208,7 @@ export default function PacientesPage() {
                           />
                         )}
                         <div className="flex items-center gap-1.5">
-                          {p.tiene_reaccion_adversa && (
+                          {REACCIONES_ADVERSAS_HABILITADO && p.tiene_reaccion_adversa && (
                             <ReaccionAdversaIcon
                               identificador={p.curp_paciente ?? String(p.id_paciente)}
                             />
@@ -278,13 +299,15 @@ export default function PacientesPage() {
                         >
                           <Eye size={15} />
                         </button>
-                        <button
-                          onClick={() => setPacienteReaccion(p.curp_paciente ?? String(p.id_paciente))}
-                          className="p-1.5 rounded-lg text-neutral-gray hover:text-yellow-600 hover:bg-yellow-50 transition"
-                          title="Reacción adversa"
-                        >
-                          <TriangleAlert size={15} />
-                        </button>
+                        {REACCIONES_ADVERSAS_HABILITADO && (
+                          <button
+                            onClick={() => setPacienteReaccion(p.curp_paciente ?? String(p.id_paciente))}
+                            className="p-1.5 rounded-lg text-neutral-gray hover:text-yellow-600 hover:bg-yellow-50 transition"
+                            title="Reacción adversa"
+                          >
+                            <TriangleAlert size={15} />
+                          </button>
+                        )}
                         {ROLES_PUEDEN_CREAR.includes(rolNombre) && p.es_activo && (
                           <button
                             onClick={() => setConfirmBaja(p.curp_paciente)}
@@ -332,24 +355,46 @@ export default function PacientesPage() {
       </div>
 
       {/* Modal de reacción adversa */}
-      <ModalAgregarReaccionAdversa
-        identificador={pacienteReaccion}
-        isOpen={!!pacienteReaccion}
-        onClose={() => setPacienteReaccion(null)}
-        onGuardado={() => { setPacienteReaccion(null); cargar(); }}
-      />
+      {REACCIONES_ADVERSAS_HABILITADO && (
+        <ModalAgregarReaccionAdversa
+          identificador={pacienteReaccion}
+          isOpen={!!pacienteReaccion}
+          onClose={() => setPacienteReaccion(null)}
+          onGuardado={() => { setPacienteReaccion(null); cargar(); }}
+        />
+      )}
 
       {/* Modal de confirmación de baja */}
       {confirmBaja && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
             <h3 className="text-base font-semibold text-neutral-black mb-2">¿Dar de baja al paciente?</h3>
-            <p className="text-sm text-neutral-gray mb-6">
+            <p className="text-sm text-neutral-gray mb-4">
               Esta acción marcará al paciente como inactivo. No se eliminará de la base de datos.
             </p>
+            <div className="mb-6 space-y-2">
+              <p className="text-sm font-medium text-neutral-black">
+                Motivo de la baja <span className="text-primary">*</span>
+                <span className="text-xs text-neutral-gray font-normal"> (puedes elegir más de uno)</span>
+              </p>
+              {MOTIVO_BAJA_OPTIONS.map((op) => (
+                <label
+                  key={op}
+                  className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={motivosBaja.includes(op)}
+                    onChange={() => toggleMotivoBaja(op)}
+                    className="accent-primary w-4 h-4"
+                  />
+                  {op}
+                </label>
+              ))}
+            </div>
             <div className="flex gap-3">
               <button
-                onClick={() => setConfirmBaja(null)}
+                onClick={() => { setConfirmBaja(null); setMotivosBaja([]); }}
                 className="flex-1 px-4 py-2 rounded-lg border border-neutral-gray/30
                   text-sm text-neutral-gray hover:bg-neutral-light transition"
               >
@@ -357,8 +402,9 @@ export default function PacientesPage() {
               </button>
               <button
                 onClick={handleBaja}
+                disabled={motivosBaja.length === 0}
                 className="flex-1 px-4 py-2 rounded-lg bg-primary-dark hover:bg-primary
-                  text-white text-sm font-medium transition"
+                  text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Confirmar baja
               </button>

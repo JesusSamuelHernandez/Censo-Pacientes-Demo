@@ -11,6 +11,7 @@ import { getReporteDetallado, getReporteEstatal, getRtm } from "../../api/report
 import { listarUnidades } from "../../api/catalogos";
 import useAuthStore from "../../store/authStore";
 import useRtmStore from "../../store/rtmStore";
+import { CONFIRMADO_POR_HABILITADO } from "../../config/featureFlags";
 
 const ROLES_ESTATAL = ["SUPER_ADMIN", "ADMIN_ESTATAL"];
 
@@ -66,6 +67,14 @@ function TabBtn({ activo, onClick, icon, children }) {
 }
 
 // ── Reporte Detallado ─────────────────────────────────────────────────────────
+const COLUMNAS_DETALLADO = [
+  "Folio", "ID Paciente", "Paciente", "CURP", "Diagnóstico", "Estatus Diagnóstico",
+  ...(CONFIRMADO_POR_HABILITADO ? ["Confirmado por"] : []),
+  "Confirmado mediante", "Caso relacionado con", "Unidad", "Médico", "Cédula Médico",
+  "Días Adh.", "Clave CNIS", "Medicamento", "Prescripción", "Peso", "Talla",
+  "Inicio Trat.", "Fin Trat.", "Fecha Primera Adm.", "Fecha Registro", "Activo",
+];
+
 function ReporteDetallado() {
   const [datos, setDatos] = useState([]);
   const [meta, setMeta] = useState(null);
@@ -101,6 +110,10 @@ function ReporteDetallado() {
       "CURP": r.curp_paciente,
       "Nombre Paciente": r.nombre_paciente,
       "Diagnóstico": r.diagnostico,
+      "Estatus Diagnóstico": r.estatus_diagnostico,
+      ...(CONFIRMADO_POR_HABILITADO ? { "Confirmado por": r.confirmado_por } : {}),
+      "Confirmado mediante": r.confirmado_mediante,
+      "Caso relacionado con": r.caso_relacionado_con,
       "CLUES Unidad": r.clues_unidad,
       "Médico": r.medico,
       "Cédula Médico": r.cedula_medico,
@@ -108,7 +121,10 @@ function ReporteDetallado() {
       "Clave CNIS": r.clave_cnis,
       "Medicamento": r.descripcion_medicamento,
       "Prescripción": r.prescripcion,
+      "Peso (kg)": r.peso,
+      "Talla (cm)": r.talla,
       "Fecha Inicio Tratamiento": r.fecha_inicio_tratamiento,
+      "Fecha Fin Tratamiento": r.fecha_fin_tratamiento,
       "Fecha Primera Adm.": r.fecha_primera_administracion,
       "Fecha Registro": r.fecha_registro_sistema,
       "Activo": r.es_activo ? "Sí" : "No",
@@ -126,13 +142,17 @@ function ReporteDetallado() {
       {/* Filtros */}
       <div className="bg-white rounded-xl border border-neutral-gray/20 px-4 py-3 flex flex-wrap items-end gap-4">
         <div>
-          <label className="block text-xs font-medium text-neutral-gray mb-1">Fecha inicio</label>
+          <label className="block text-xs font-medium text-neutral-gray mb-1" title="Filtra por fecha de inicio de tratamiento">
+            Fecha inicio (tratamiento)
+          </label>
           <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)}
             className="px-3 py-2 rounded-lg border border-neutral-gray/30 bg-neutral-light text-sm outline-none
               focus:ring-2 focus:ring-primary/20 focus:border-primary" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-neutral-gray mb-1">Fecha fin</label>
+          <label className="block text-xs font-medium text-neutral-gray mb-1" title="Filtra por fecha de inicio de tratamiento">
+            Fecha fin (tratamiento)
+          </label>
           <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)}
             className="px-3 py-2 rounded-lg border border-neutral-gray/30 bg-neutral-light text-sm outline-none
               focus:ring-2 focus:ring-primary/20 focus:border-primary" />
@@ -190,37 +210,57 @@ function ReporteDetallado() {
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-neutral-light border-b border-neutral-gray/20">
-                {["Folio", "Paciente", "CURP", "Diagnóstico", "Unidad", "Médico", "Días Adh.", "Medicamento", "Prescripción", "Inicio Trat."].map((h) => (
+                {COLUMNAS_DETALLADO.map((h) => (
                   <th key={h} className="text-left px-3 py-3 font-semibold text-neutral-black whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="text-center py-12">
+                <tr><td colSpan={COLUMNAS_DETALLADO.length} className="text-center py-12">
                   <div className="flex justify-center">
                     <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                   </div>
                 </td></tr>
               ) : datos.length === 0 ? (
-                <tr><td colSpan={10} className="text-center py-12 text-neutral-gray">Sin registros.</td></tr>
+                <tr><td colSpan={COLUMNAS_DETALLADO.length} className="text-center py-12 text-neutral-gray">Sin registros.</td></tr>
               ) : (
                 datos.map((r) => (
                   <tr key={r.id_registro} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-3 py-2 font-mono text-neutral-gray">#{r.id_registro}</td>
+                    <td className="px-3 py-2 font-mono text-neutral-gray">{r.id_paciente}</td>
                     <td className="px-3 py-2 font-medium text-neutral-black max-w-[160px] truncate" title={r.nombre_paciente}>{r.nombre_paciente}</td>
                     <td className="px-3 py-2 font-mono text-neutral-gray">{r.curp_paciente}</td>
                     <td className="px-3 py-2 text-neutral-gray max-w-[160px] truncate" title={r.diagnostico ?? undefined}>{r.diagnostico ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray whitespace-nowrap">{r.estatus_diagnostico ?? "—"}</td>
+                    {CONFIRMADO_POR_HABILITADO && (
+                      <td className="px-3 py-2 text-neutral-gray max-w-[140px] truncate" title={r.confirmado_por ?? undefined}>{r.confirmado_por ?? "—"}</td>
+                    )}
+                    <td className="px-3 py-2 text-neutral-gray max-w-[160px] truncate" title={r.confirmado_mediante ?? undefined}>{r.confirmado_mediante ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray max-w-[180px] truncate" title={r.caso_relacionado_con ?? undefined}>{r.caso_relacionado_con ?? "—"}</td>
                     <td className="px-3 py-2 font-mono text-neutral-gray">{r.clues_unidad}</td>
                     <td className="px-3 py-2 text-neutral-black max-w-[140px] truncate" title={r.medico ?? undefined}>{r.medico ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-neutral-gray max-w-[140px] truncate" title={r.cedula_medico ?? undefined}>{r.cedula_medico ?? "—"}</td>
                     <td className="px-3 py-2 text-center">
                       {r.dias_adherencia != null
                         ? <span className="text-secondary font-semibold">{r.dias_adherencia}</span>
                         : "—"}
                     </td>
+                    <td className="px-3 py-2 font-mono text-neutral-gray whitespace-nowrap">{r.clave_cnis}</td>
                     <td className="px-3 py-2 text-neutral-gray max-w-[180px] truncate" title={r.descripcion_medicamento ?? r.clave_cnis}>{r.descripcion_medicamento ?? r.clave_cnis}</td>
                     <td className="px-3 py-2 text-neutral-gray max-w-[200px] truncate" title={r.prescripcion ?? undefined}>{r.prescripcion ?? "—"}</td>
-                    <td className="px-3 py-2 text-neutral-gray">{r.fecha_inicio_tratamiento ?? "—"}</td>
+                    <td className="px-3 py-2 text-center text-neutral-gray whitespace-nowrap">{r.peso != null ? `${r.peso} kg` : "—"}</td>
+                    <td className="px-3 py-2 text-center text-neutral-gray whitespace-nowrap">{r.talla != null ? `${r.talla} cm` : "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray whitespace-nowrap">{r.fecha_inicio_tratamiento ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray whitespace-nowrap">{r.fecha_fin_tratamiento ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray whitespace-nowrap">{r.fecha_primera_administracion ?? "—"}</td>
+                    <td className="px-3 py-2 text-neutral-gray whitespace-nowrap">{new Date(r.fecha_registro_sistema).toLocaleDateString("es-MX")}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                        ${r.es_activo ? "bg-secondary/10 text-secondary" : "bg-neutral-gray/10 text-neutral-gray"}`}>
+                        {r.es_activo ? "Sí" : "No"}
+                      </span>
+                    </td>
                   </tr>
                 ))
               )}

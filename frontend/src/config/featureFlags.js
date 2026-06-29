@@ -1,0 +1,18 @@
+/**
+ * featureFlags.js — Banderas para ocultar/mostrar módulos sin eliminar código.
+ */
+
+// Reactivar para volver a mostrar el módulo de reacciones adversas (icono, botón y etiqueta).
+export const REACCIONES_ADVERSAS_HABILITADO = false;
+
+// Reactivar para volver a mostrar el banderín de estatus de evolución en Pacientes Activos.
+export const ESTATUS_EVOLUCION_HABILITADO = false;
+
+// Reactivar para volver a mostrar "Confirmado por" en Registrar Paciente y en el Reporte Detallado.
+export const CONFIRMADO_POR_HABILITADO = false;
+
+// Reactivar para que el dropdown de medicamentos en Registrar Paciente vuelva a
+// filtrarse por la unidad seleccionada (tabla unidad_medicamentos). Desactivado:
+// todas las unidades pueden usar todo el catálogo activo. Debe coincidir con
+// UNIDAD_MEDICAMENTOS_HABILITADO en app/main.py.
+export const UNIDAD_MEDICAMENTOS_HABILITADO = false;

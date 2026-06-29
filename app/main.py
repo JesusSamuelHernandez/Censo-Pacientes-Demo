@@ -51,9 +51,11 @@ from app.auth import (
     verify_password,
 )
 from app.crypto import cifrar, descifrar, descifrar_o_none, hash_sha256
-from app.database import get_db
-from app.models import CatDiagnostico, CatMedicamento, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario
+from app.database import engine, get_db
+from app.email_service import enviar_correo_acceso
+from app.models import Base, CatDiagnostico, CatMedicamento, CatPuesto, ExpedientePaciente, Medico, NotificacionTransferencia, Paciente, ReaccionAdversa, Registro, UnidadMedica, UnidadMedicamento, Usuario, UsuarioPreautorizado
 from app.schemas import (
+    BajaPacienteRequest,
     BusquedaCurpResponse,
     BusquedaNombreItem,
     BusquedaNombreResponse,
@@ -84,12 +86,15 @@ from app.schemas import (
     PacienteListResponse,
     PacienteResponse,
     PacienteUpdate,
+    PuestoResponse,
     ReaccionAdversaCreate,
     ReaccionAdversaResponse,
     RegistroCreate,
     RegistroListResponse,
     RegistroResponse,
     RegistroUpdate,
+    SolicitarAccesoRequest,
+    SolicitarAccesoResponse,
     TokenResponse,
     UnidadMedicaCreate,
     UnidadMedicaResponse,
@@ -100,6 +105,13 @@ from app.schemas import (
     UsuarioUpdate,
     ValidarContinuidadRequest,
 )
+
+# ---------------------------------------------------------------------------
+# Feature flags
+# ---------------------------------------------------------------------------
+REACCIONES_ADVERSAS_HABILITADO = False  # Reactivar para volver a habilitar el módulo de reacciones adversas.
+ESTATUS_EVOLUCION_HABILITADO = False  # Reactivar para volver a habilitar el cambio de estatus de evolución.
+UNIDAD_MEDICAMENTOS_HABILITADO = False  # Reactivar para volver a restringir qué medicamentos puede usar cada unidad (tabla unidad_medicamentos). Desactivado: todas las unidades pueden usar todo el catálogo activo.
 
 # ---------------------------------------------------------------------------
 # Inicialización
@@ -177,6 +189,58 @@ def login(
         ),
         id_entidad=usuario.id_entidad,
     )
+
+
+@app.post(
+    "/auth/solicitar-acceso",
+    response_model=SolicitarAccesoResponse,
+    tags=["Autenticación"],
+    summary="Autoservicio de alta — envía password temporal por correo si el email está preautorizado.",
+)
+def solicitar_acceso(
+    payload: SolicitarAccesoRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Sin autenticación, como /auth/login. Responde siempre el mismo mensaje
+    genérico, sin importar el caso (no revela qué correos están
+    preautorizados ni si una cuenta ya existe — evita enumeración).
+    """
+    email = str(payload.email).strip().lower()
+
+    preautorizado = (
+        db.query(UsuarioPreautorizado)
+        .filter(func.lower(UsuarioPreautorizado.email) == email)
+        .first()
+    )
+
+    if preautorizado:
+        usuario = db.query(Usuario).filter(func.lower(Usuario.email) == email).first()
+
+        if usuario is None:
+            password_temporal = _generar_password_temporal()
+            usuario = Usuario(
+                nombre_usuario=None,
+                email=email,
+                hashed_password=hash_password(password_temporal),
+                rol_nombre=preautorizado.rol_nombre,
+                clues_unidad_asignada=preautorizado.clues_unidad_asignada,
+                id_entidad=preautorizado.id_entidad,
+                debe_cambiar_password=True,
+            )
+            db.add(usuario)
+            db.commit()
+            enviar_correo_acceso(email, password_temporal)
+        elif usuario.debe_cambiar_password:
+            # Cuenta creada pero pendiente de primer login — reenvía un nuevo
+            # password temporal (por si la persona perdió el correo original).
+            password_temporal = _generar_password_temporal()
+            usuario.hashed_password = hash_password(password_temporal)
+            db.commit()
+            enviar_correo_acceso(email, password_temporal)
+        # Si la cuenta ya está activa (debe_cambiar_password=False), no se hace nada.
+
+    return SolicitarAccesoResponse()
 
 
 # ===========================================================================
@@ -502,6 +566,9 @@ def actualizar_paciente(
     if "diagnostico_actual" in datos:
         val = datos.pop("diagnostico_actual")
         paciente.diagnostico_actual = cifrar(val) if val else None
+    if not ESTATUS_EVOLUCION_HABILITADO:
+        # Módulo oculto temporalmente: se descarta sin error ni auditoría.
+        datos.pop("estatus_evolucion", None)
     if "estatus_evolucion" in datos:
         paciente.id_usuario_ultimo_cambio_estatus = current_user.id_usuario
         paciente.fecha_ultimo_cambio_estatus = datetime.now(timezone.utc)
@@ -540,6 +607,7 @@ def actualizar_paciente(
 )
 def dar_baja_paciente(
     curp_paciente: str,
+    payload: BajaPacienteRequest,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
@@ -554,6 +622,7 @@ def dar_baja_paciente(
         )
 
     paciente.es_activo = False
+    paciente.motivo_baja = _serializar_motivo_baja(payload.motivo_baja)
     paciente.id_usuario_registro = current_user.id_usuario
 
     db.query(Registro).filter(
@@ -632,71 +701,77 @@ def upsert_expediente_paciente(
 
 # ---------------------------------------------------------------------------
 # Reacciones Adversas
+#
+# Módulo oculto temporalmente: REACCIONES_ADVERSAS_HABILITADO = False arriba
+# desactiva por completo estos endpoints (404, no quedan registrados en la
+# app) y la columna tiene_reaccion_adversa en _paciente_to_response. Para
+# reactivar, cambiar el flag a True. El modelo, la tabla y los datos ya
+# capturados no se ven afectados.
 # ---------------------------------------------------------------------------
 
-def _reaccion_to_response(r: ReaccionAdversa) -> ReaccionAdversaResponse:
-    return ReaccionAdversaResponse(
-        id_reaccion=r.id_reaccion,
-        clave_cnis=r.clave_cnis,
-        nombre_medicamento=r.medicamento.descripcion if r.medicamento else r.clave_cnis,
-        comentario=r.comentario,
-        nombre_usuario_registro=r.usuario_registro.nombre_usuario if r.usuario_registro else None,
-        email_usuario_registro=r.usuario_registro.email if r.usuario_registro else None,
-        fecha_registro=r.fecha_registro,
+if REACCIONES_ADVERSAS_HABILITADO:
+
+    def _reaccion_to_response(r: ReaccionAdversa) -> ReaccionAdversaResponse:
+        return ReaccionAdversaResponse(
+            id_reaccion=r.id_reaccion,
+            clave_cnis=r.clave_cnis,
+            nombre_medicamento=r.medicamento.descripcion if r.medicamento else r.clave_cnis,
+            comentario=r.comentario,
+            nombre_usuario_registro=r.usuario_registro.nombre_usuario if r.usuario_registro else None,
+            email_usuario_registro=r.usuario_registro.email if r.usuario_registro else None,
+            fecha_registro=r.fecha_registro,
+        )
+
+    @app.get(
+        "/pacientes/{curp_paciente}/reacciones-adversas",
+        response_model=list[ReaccionAdversaResponse],
+        tags=["Pacientes"],
+        summary="Lista las reacciones adversas registradas para un paciente.",
     )
+    def listar_reacciones_adversas(
+        curp_paciente: str,
+        db: Session = Depends(get_db),
+        current_user: UsuarioActivo = Depends(require_password_cambiado),
+    ):
+        paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+        reacciones = (
+            db.query(ReaccionAdversa)
+            .filter(ReaccionAdversa.id_paciente == paciente.id_paciente)
+            .options(joinedload(ReaccionAdversa.medicamento), joinedload(ReaccionAdversa.usuario_registro))
+            .order_by(ReaccionAdversa.fecha_registro.desc())
+            .all()
+        )
+        return [_reaccion_to_response(r) for r in reacciones]
 
-
-@app.get(
-    "/pacientes/{curp_paciente}/reacciones-adversas",
-    response_model=list[ReaccionAdversaResponse],
-    tags=["Pacientes"],
-    summary="Lista las reacciones adversas registradas para un paciente.",
-)
-def listar_reacciones_adversas(
-    curp_paciente: str,
-    db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_password_cambiado),
-):
-    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
-    reacciones = (
-        db.query(ReaccionAdversa)
-        .filter(ReaccionAdversa.id_paciente == paciente.id_paciente)
-        .options(joinedload(ReaccionAdversa.medicamento), joinedload(ReaccionAdversa.usuario_registro))
-        .order_by(ReaccionAdversa.fecha_registro.desc())
-        .all()
+    @app.post(
+        "/pacientes/{curp_paciente}/reacciones-adversas",
+        response_model=ReaccionAdversaResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["Pacientes"],
+        summary="Registra una reacción adversa a un medicamento para un paciente.",
     )
-    return [_reaccion_to_response(r) for r in reacciones]
+    def agregar_reaccion_adversa(
+        curp_paciente: str,
+        payload: ReaccionAdversaCreate,
+        db: Session = Depends(get_db),
+        current_user: UsuarioActivo = Depends(require_password_cambiado),
+    ):
+        paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+        _verificar_acceso_paciente(paciente, current_user, db)
 
+        if not db.query(CatMedicamento).filter(CatMedicamento.clave_cnis == payload.clave_cnis).first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicamento no encontrado.")
 
-@app.post(
-    "/pacientes/{curp_paciente}/reacciones-adversas",
-    response_model=ReaccionAdversaResponse,
-    status_code=status.HTTP_201_CREATED,
-    tags=["Pacientes"],
-    summary="Registra una reacción adversa a un medicamento para un paciente.",
-)
-def agregar_reaccion_adversa(
-    curp_paciente: str,
-    payload: ReaccionAdversaCreate,
-    db: Session = Depends(get_db),
-    current_user: UsuarioActivo = Depends(require_password_cambiado),
-):
-    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
-    _verificar_acceso_paciente(paciente, current_user, db)
-
-    if not db.query(CatMedicamento).filter(CatMedicamento.clave_cnis == payload.clave_cnis).first():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicamento no encontrado.")
-
-    reaccion = ReaccionAdversa(
-        id_paciente=paciente.id_paciente,
-        clave_cnis=payload.clave_cnis,
-        comentario=payload.comentario,
-        id_usuario_registro=current_user.id_usuario,
-    )
-    db.add(reaccion)
-    db.commit()
-    db.refresh(reaccion)
-    return _reaccion_to_response(reaccion)
+        reaccion = ReaccionAdversa(
+            id_paciente=paciente.id_paciente,
+            clave_cnis=payload.clave_cnis,
+            comentario=payload.comentario,
+            id_usuario_registro=current_user.id_usuario,
+        )
+        db.add(reaccion)
+        db.commit()
+        db.refresh(reaccion)
+        return _reaccion_to_response(reaccion)
 
 
 @app.get(
@@ -811,10 +886,26 @@ def crear_medico(
             detail=f"Ya existe un médico con cédula '{payload.cedula}'.",
         )
 
+    curp_hash = hash_sha256(payload.curp)
+    if db.query(Medico).filter(Medico.curp_hash == curp_hash).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Ya existe un médico con CURP '{payload.curp}'.",
+        )
+
+    if not db.query(CatPuesto).filter(CatPuesto.codigo == payload.id_puesto).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Puesto '{payload.id_puesto}' no encontrado en el catálogo.",
+        )
+
     nuevo = Medico(
         cedula_hash=cedula_hash,
         nombre_medico=cifrar(payload.nombre_medico),
         cedula=cifrar(payload.cedula),
+        curp_hash=curp_hash,
+        curp=cifrar(payload.curp),
+        id_puesto=payload.id_puesto,
         email=payload.email,
         clues_adscripcion=payload.clues_adscripcion,
     )
@@ -879,6 +970,27 @@ def actualizar_medico(
         nueva_cedula = datos.pop("cedula")
         medico.cedula = cifrar(nueva_cedula)
         medico.cedula_hash = hash_sha256(nueva_cedula)
+    if "curp" in datos:
+        nueva_curp = datos.pop("curp")
+        nueva_curp_hash = hash_sha256(nueva_curp)
+        duplicado = (
+            db.query(Medico)
+            .filter(Medico.curp_hash == nueva_curp_hash, Medico.id_medico != medico.id_medico)
+            .first()
+        )
+        if duplicado:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ya existe un médico con CURP '{nueva_curp}'.",
+            )
+        medico.curp = cifrar(nueva_curp)
+        medico.curp_hash = nueva_curp_hash
+    if "id_puesto" in datos:
+        if not db.query(CatPuesto).filter(CatPuesto.codigo == datos["id_puesto"]).first():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Puesto '{datos['id_puesto']}' no encontrado en el catálogo.",
+            )
     for campo, valor in datos.items():
         setattr(medico, campo, valor)
     db.commit()
@@ -996,6 +1108,7 @@ def crear_registro(
     _verificar_acceso_paciente(paciente, current_user, db)
     if not paciente.es_activo:
         paciente.es_activo = True
+        paciente.motivo_baja = None
 
     if not db.query(Medico).filter(Medico.id_medico == payload.id_medico).first():
         raise HTTPException(
@@ -1033,6 +1146,9 @@ def crear_registro(
         talla=payload.talla,
         estatus_diagnostico=payload.estatus_diagnostico,
         confirmado_por=payload.confirmado_por,
+        confirmado_mediante=payload.confirmado_mediante,
+        tratamiento_amparo=payload.tratamiento_amparo,
+        queja_derechos_humanos=payload.queja_derechos_humanos,
         prescripcion=payload.prescripcion,
         dosis=payload.dosis,
         cantidad=payload.cantidad,
@@ -1121,6 +1237,7 @@ def crear_registro_completo(
         _verificar_acceso_paciente(paciente, current_user, db)
         if not paciente.es_activo:
             paciente.es_activo = True
+            paciente.motivo_baja = None
 
     elif payload.curp_paciente:
         curp_hash = hash_sha256(payload.curp_paciente)
@@ -1133,6 +1250,7 @@ def crear_registro_completo(
             _verificar_acceso_paciente(paciente, current_user, db)
             if not paciente.es_activo:
                 paciente.es_activo = True
+                paciente.motivo_baja = None
 
     else:
         paciente = _crear_paciente_nuevo(None, None)
@@ -1178,6 +1296,9 @@ def crear_registro_completo(
         talla=payload.talla,
         estatus_diagnostico=payload.estatus_diagnostico,
         confirmado_por=payload.confirmado_por,
+        confirmado_mediante=payload.confirmado_mediante,
+        tratamiento_amparo=payload.tratamiento_amparo,
+        queja_derechos_humanos=payload.queja_derechos_humanos,
         prescripcion=payload.prescripcion,
         dosis=payload.dosis,
         cantidad=payload.cantidad,
@@ -1455,6 +1576,9 @@ def reemplazar_registro(
         "talla": original.talla,
         "estatus_diagnostico": original.estatus_diagnostico,
         "confirmado_por": original.confirmado_por,
+        "confirmado_mediante": original.confirmado_mediante,
+        "tratamiento_amparo": original.tratamiento_amparo,
+        "queja_derechos_humanos": original.queja_derechos_humanos,
         "prescripcion": original.prescripcion,
         "dosis": original.dosis,
         "cantidad": original.cantidad,
@@ -1704,9 +1828,9 @@ def reporte_resumen_detallado(
         ).filter(UnidadMedica.id_entidad == filtro.valor_entidad)
 
     if fecha_inicio:
-        query = query.filter(Registro.fecha_primera_administracion >= fecha_inicio)
+        query = query.filter(Registro.fecha_inicio_tratamiento >= fecha_inicio)
     if fecha_fin:
-        query = query.filter(Registro.fecha_primera_administracion <= fecha_fin)
+        query = query.filter(Registro.fecha_inicio_tratamiento <= fecha_fin)
 
     total_registros = query.count()
     registros = (
@@ -1738,7 +1862,15 @@ def reporte_resumen_detallado(
                 "id_paciente": r.id_paciente,
                 "curp_paciente": descifrar_o_none(r.paciente.curp_paciente) if r.paciente else None,
                 "nombre_paciente": descifrar(r.paciente.nombre_completo) if r.paciente else None,
-                "diagnostico": descifrar_o_none(r.paciente.diagnostico_actual) if r.paciente else None,
+                "diagnostico": r.diagnostico.nombre if r.diagnostico else None,
+                "estatus_diagnostico": r.estatus_diagnostico,
+                "confirmado_por": r.confirmado_por,
+                "confirmado_mediante": r.confirmado_mediante,
+                "caso_relacionado_con": (
+                    "Tratamiento por amparo" if r.tratamiento_amparo
+                    else "Caso relacionado con queja de derechos humanos" if r.queja_derechos_humanos
+                    else "No aplica"
+                ),
                 "clues_unidad": r.clues,
                 "medico": descifrar(r.medico.nombre_medico) if r.medico else None,
                 "cedula_medico": descifrar(r.medico.cedula) if r.medico else None,
@@ -1749,9 +1881,15 @@ def reporte_resumen_detallado(
                 "clave_cnis": r.clave_cnis,
                 "descripcion_medicamento": r.medicamento.descripcion if r.medicamento else None,
                 "prescripcion": r.prescripcion,
+                "peso": float(r.peso) if r.peso is not None else None,
+                "talla": float(r.talla) if r.talla is not None else None,
                 "fecha_inicio_tratamiento": (
                     r.fecha_inicio_tratamiento.isoformat()
                     if r.fecha_inicio_tratamiento else None
+                ),
+                "fecha_fin_tratamiento": (
+                    r.fecha_fin_tratamiento.isoformat()
+                    if r.fecha_fin_tratamiento else None
                 ),
                 "fecha_primera_administracion": (
                     r.fecha_primera_administracion.isoformat()
@@ -1946,6 +2084,23 @@ def listar_diagnosticos(
     return query.order_by(CatDiagnostico.nombre).all()
 
 
+@app.get(
+    "/catalogos/puestos",
+    response_model=list[PuestoResponse],
+    tags=["Catálogos"],
+    summary="Lista del catálogo de puestos/especialidades médicas.",
+)
+def listar_puestos(
+    solo_activos: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_password_cambiado),
+):
+    query = db.query(CatPuesto)
+    if solo_activos:
+        query = query.filter(CatPuesto.es_activo == True)
+    return query.order_by(CatPuesto.denominacion_puesto).all()
+
+
 @app.post(
     "/catalogos/diagnosticos",
     response_model=DiagnosticoResponse,
@@ -2011,7 +2166,7 @@ def listar_medicamentos(
     query = db.query(CatMedicamento)
     if solo_activos:
         query = query.filter(CatMedicamento.es_activo == True)
-    if clues:
+    if UNIDAD_MEDICAMENTOS_HABILITADO and clues:
         query = query.join(
             UnidadMedicamento,
             UnidadMedicamento.clave_cnis == CatMedicamento.clave_cnis,
@@ -2167,15 +2322,16 @@ def crear_usuario(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_super_admin),
 ):
-    if db.query(Usuario).filter(Usuario.email == payload.email).first():
+    email = str(payload.email).strip().lower()
+    if db.query(Usuario).filter(func.lower(Usuario.email) == email).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ya existe un usuario con email '{payload.email}'.",
+            detail=f"Ya existe un usuario con email '{email}'.",
         )
     password_temporal = _generar_password_temporal()
     nuevo = Usuario(
-        nombre_usuario=payload.nombre_usuario,
-        email=str(payload.email),
+        nombre_usuario=None,
+        email=email,
         hashed_password=hash_password(password_temporal),
         rol_nombre=payload.rol_nombre,
         clues_unidad_asignada=payload.clues_unidad_asignada,
@@ -2185,6 +2341,7 @@ def crear_usuario(
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
+    enviar_correo_acceso(nuevo.email, password_temporal)
     return UsuarioCreateResponse(
         id_usuario=nuevo.id_usuario,
         nombre_usuario=nuevo.nombre_usuario,
@@ -2214,6 +2371,16 @@ def cambiar_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La contraseña actual es incorrecta.",
         )
+    if usuario.nombre_usuario is None:
+        if not payload.nombre_usuario or not payload.nombre_usuario.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Debes indicar tu nombre de usuario.",
+            )
+        usuario.nombre_usuario = payload.nombre_usuario.strip()
+    elif payload.nombre_usuario and payload.nombre_usuario.strip():
+        usuario.nombre_usuario = payload.nombre_usuario.strip()
+
     usuario.hashed_password = hash_password(payload.password_nueva)
     usuario.debe_cambiar_password = False
     db.commit()
@@ -2285,6 +2452,21 @@ def _generar_password_temporal(longitud: int = 12) -> str:
     return "".join(secrets.choice(alfabeto) for _ in range(longitud))
 
 
+_MOTIVO_BAJA_SEP = ", "
+
+
+def _serializar_motivo_baja(motivos: list[str]) -> str:
+    """Une varios motivos de baja en un solo string para guardar en BD."""
+    return _MOTIVO_BAJA_SEP.join(motivos)
+
+
+def _deserializar_motivo_baja(valor: str | None) -> list[str] | None:
+    """Separa el string guardado en BD de vuelta a la lista de motivos."""
+    if not valor:
+        return None
+    return [m.strip() for m in valor.split(",") if m.strip()]
+
+
 def _paciente_to_response(
     p: Paciente,
     tiene_prescripcion_activa: bool = False,
@@ -2297,7 +2479,7 @@ def _paciente_to_response(
         db.query(ReaccionAdversa).filter(
             ReaccionAdversa.id_paciente == p.id_paciente
         ).count() > 0
-        if db is not None
+        if REACCIONES_ADVERSAS_HABILITADO and db is not None
         else False
     )
     return PacienteResponse(
@@ -2308,6 +2490,7 @@ def _paciente_to_response(
         clues_unidad_adscripcion=p.clues_unidad_adscripcion,
         fecha_nacimiento=p.fecha_nacimiento,
         es_activo=p.es_activo,
+        motivo_baja=_deserializar_motivo_baja(p.motivo_baja),
         estatus_evolucion=p.estatus_evolucion,
         fecha_registro=p.fecha_registro,
         id_usuario_registro=p.id_usuario_registro,
@@ -2378,6 +2561,9 @@ def _medico_to_response(m: Medico) -> MedicoResponse:
         id_medico=m.id_medico,
         nombre_medico=descifrar(m.nombre_medico),
         cedula=descifrar(m.cedula),
+        curp=descifrar_o_none(m.curp),
+        id_puesto=m.id_puesto,
+        denominacion_puesto=m.puesto.denominacion_puesto if m.puesto else None,
         email=m.email,
         clues_adscripcion=m.clues_adscripcion,
         es_activo=m.es_activo,
@@ -2463,6 +2649,9 @@ def _registro_to_response(r: Registro) -> RegistroResponse:
         talla=r.talla,
         estatus_diagnostico=r.estatus_diagnostico,
         confirmado_por=r.confirmado_por,
+        confirmado_mediante=r.confirmado_mediante,
+        tratamiento_amparo=r.tratamiento_amparo,
+        queja_derechos_humanos=r.queja_derechos_humanos,
         prescripcion=r.prescripcion,
         dosis=r.dosis,
         cantidad=r.cantidad,

@@ -17,6 +17,7 @@ import { listarMedicos } from "../../api/medicos";
 import { listarMedicamentos, listarDiagnosticos } from "../../api/catalogos";
 import UnidadCombobox from "../../components/shared/UnidadCombobox";
 import useAuthStore from "../../store/authStore";
+import { CONFIRMADO_POR_HABILITADO, UNIDAD_MEDICAMENTOS_HABILITADO } from "../../config/featureFlags";
 
 // ---------------------------------------------------------------------------
 // Constantes
@@ -38,6 +39,12 @@ const CONFIRMADO_POR_OPTIONS = [
   "Trabajo Social",
 ];
 
+const CONFIRMADO_MEDIANTE_OPTIONS = [
+  "Médico tratante (Clínico)",
+  "Estudios de laboratorio especializados",
+  "Confirmación por centro de referencia o especialista",
+];
+
 // Campos del formulario (requeridos en creación y edición)
 const camposFormulario = {
   // Sin UI — hardcodeados o no visibles en el form
@@ -45,7 +52,12 @@ const camposFormulario = {
   dosis_administrada: z.string().max(100).optional().or(z.literal("")),
   // Requeridos
   id_diagnostico: z.string().min(1, "Selecciona un diagnóstico."),
-  confirmado_por: z.string().min(1, "Selecciona quién confirmó."),
+  confirmado_por: CONFIRMADO_POR_HABILITADO
+    ? z.string().min(1, "Selecciona quién confirmó.")
+    : z.string().optional().or(z.literal("")),
+  confirmado_mediante: z.string().min(1, "Selecciona mediante qué se confirmó el diagnóstico."),
+  tratamiento_amparo: z.boolean().default(false),
+  queja_derechos_humanos: z.boolean().default(false),
   fecha_inicio_tratamiento: z.string().min(1, "Selecciona la fecha de inicio de tratamiento."),
   fecha_primera_administracion: z.string().min(1, "Indica la fecha de primera administración."),
   peso: z.string().min(1, "Indica el peso del paciente (kg)."),
@@ -345,11 +357,19 @@ export default function RegistroFormPage() {
     formState: { errors },
   } = useForm({
     resolver: zodResolver(esEdicion ? schemaEditar : schemaCrear),
-    defaultValues: !esEdicion ? { confirmado_por: CONFIRMADO_POR_FIJO } : undefined,
+    defaultValues: !esEdicion
+      ? {
+          ...(CONFIRMADO_POR_HABILITADO ? { confirmado_por: CONFIRMADO_POR_FIJO } : {}),
+          tratamiento_amparo: false,
+          queja_derechos_humanos: false,
+        }
+      : undefined,
   });
 
   const cluesSeleccionada = watch("clues");
   const claveCnisSeleccionada = watch("clave_cnis");
+  const tratamientoAmparo = watch("tratamiento_amparo");
+  const quejaDerechosHumanos = watch("queja_derechos_humanos");
 
   // Unidad del medicamento seleccionado (para etiqueta dinámica en posología)
   const medSeleccionado = medicamentos.find((m) => m.clave_cnis === claveCnisSeleccionada);
@@ -456,7 +476,9 @@ export default function RegistroFormPage() {
     }
     prevCluesRef.current = cluesSeleccionada;
 
-    listarMedicamentos(cluesSeleccionada)
+    // Con UNIDAD_MEDICAMENTOS_HABILITADO desactivado, todas las unidades ven
+    // el catálogo activo completo (sin pasar clues, sin filtrar por unidad_medicamentos).
+    listarMedicamentos(UNIDAD_MEDICAMENTOS_HABILITADO ? cluesSeleccionada : undefined)
       .then(setMedicamentos)
       .catch(() => toast.error("Error al cargar medicamentos de la unidad."));
   }, [cluesSeleccionada]);
@@ -474,6 +496,9 @@ export default function RegistroFormPage() {
         reset({
           estatus_diagnostico: r.estatus_diagnostico ?? "",
           confirmado_por: r.confirmado_por ?? "",
+          confirmado_mediante: r.confirmado_mediante ?? "",
+          tratamiento_amparo: r.tratamiento_amparo ?? false,
+          queja_derechos_humanos: r.queja_derechos_humanos ?? false,
           fecha_inicio_tratamiento: r.fecha_inicio_tratamiento ?? "",
           fecha_primera_administracion: r.fecha_primera_administracion ?? "",
           id_diagnostico: r.id_diagnostico != null ? String(r.id_diagnostico) : "",
@@ -899,24 +924,89 @@ export default function RegistroFormPage() {
             </div>
 
             {/* Confirmado por */}
+            {CONFIRMADO_POR_HABILITADO && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-black mb-1">
+                  Confirmado por <span className="text-primary">*</span>
+                </label>
+                <select
+                  disabled
+                  className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
+                    text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition
+                    disabled:opacity-70 disabled:cursor-not-allowed"
+                  {...register("confirmado_por")}
+                >
+                  <option value="">— Selecciona un área —</option>
+                  {CONFIRMADO_POR_OPTIONS.map((op) => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-neutral-gray mt-1">Por el momento este campo queda fijo en "{CONFIRMADO_POR_FIJO}".</p>
+                {errors.confirmado_por && <p className="text-red-500 text-xs mt-1">{errors.confirmado_por.message}</p>}
+              </div>
+            )}
+
+            {/* Confirmado mediante */}
             <div>
               <label className="block text-sm font-medium text-neutral-black mb-1">
-                Confirmado por <span className="text-primary">*</span>
+                Confirmado mediante <span className="text-primary">*</span>
               </label>
               <select
-                disabled
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
-                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition
-                  disabled:opacity-70 disabled:cursor-not-allowed"
-                {...register("confirmado_por")}
+                  text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                {...register("confirmado_mediante")}
               >
-                <option value="">— Selecciona un área —</option>
-                {CONFIRMADO_POR_OPTIONS.map((op) => (
+                <option value="">— Selecciona una opción —</option>
+                {CONFIRMADO_MEDIANTE_OPTIONS.map((op) => (
                   <option key={op} value={op}>{op}</option>
                 ))}
               </select>
-              <p className="text-xs text-neutral-gray mt-1">Por el momento este campo queda fijo en "{CONFIRMADO_POR_FIJO}".</p>
-              {errors.confirmado_por && <p className="text-red-500 text-xs mt-1">{errors.confirmado_por.message}</p>}
+              {errors.confirmado_mediante && <p className="text-red-500 text-xs mt-1">{errors.confirmado_mediante.message}</p>}
+            </div>
+
+            {/* Caso relacionado con amparo / queja de derechos humanos */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-2">
+                Caso relacionado con <span className="text-primary">*</span>
+              </label>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!!tratamientoAmparo}
+                    onChange={(e) => {
+                      setValue("tratamiento_amparo", e.target.checked, { shouldValidate: true, shouldDirty: true });
+                      if (e.target.checked) setValue("queja_derechos_humanos", false, { shouldDirty: true });
+                    }}
+                    className="accent-primary w-4 h-4"
+                  />
+                  Tratamiento por amparo
+                </label>
+                <label className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!!quejaDerechosHumanos}
+                    onChange={(e) => {
+                      setValue("queja_derechos_humanos", e.target.checked, { shouldValidate: true, shouldDirty: true });
+                      if (e.target.checked) setValue("tratamiento_amparo", false, { shouldDirty: true });
+                    }}
+                    className="accent-primary w-4 h-4"
+                  />
+                  Caso relacionado con queja de derechos humanos
+                </label>
+                <label className="flex items-center gap-2 text-sm text-neutral-black cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!tratamientoAmparo && !quejaDerechosHumanos}
+                    onChange={() => {
+                      setValue("tratamiento_amparo", false, { shouldDirty: true });
+                      setValue("queja_derechos_humanos", false, { shouldValidate: true, shouldDirty: true });
+                    }}
+                    className="accent-primary w-4 h-4"
+                  />
+                  No aplica
+                </label>
+              </div>
             </div>
 
             {/* Fecha inicio tratamiento */}
@@ -1217,7 +1307,20 @@ export default function RegistroFormPage() {
                   </>
                 )}
                 <FilaPreview label="Diagnóstico" valor={diagPreview?.nombre} span2 />
-                <FilaPreview label="Confirmado por" valor={vals.confirmado_por} />
+                {CONFIRMADO_POR_HABILITADO && (
+                  <FilaPreview label="Confirmado por" valor={vals.confirmado_por} />
+                )}
+                <FilaPreview label="Confirmado mediante" valor={vals.confirmado_mediante} />
+                <FilaPreview
+                  label="Caso relacionado con"
+                  valor={
+                    vals.tratamiento_amparo
+                      ? "Tratamiento por amparo"
+                      : vals.queja_derechos_humanos
+                      ? "Caso relacionado con queja de derechos humanos"
+                      : "No aplica"
+                  }
+                />
                 <FilaPreview label="Fecha inicio tratamiento" valor={formatFecha(vals.fecha_inicio_tratamiento)} />
                 <FilaPreview label="Peso" valor={vals.peso ? `${vals.peso} kg` : "—"} />
                 <FilaPreview label="Talla" valor={vals.talla ? `${vals.talla} cm` : "—"} />

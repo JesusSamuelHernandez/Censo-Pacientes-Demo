@@ -49,7 +49,6 @@ const ENTIDADES = [
 // ── Esquemas de validación ────────────────────────────────────────────────────
 const schemaCrear = z
   .object({
-    nombre_usuario: z.string().min(2, "Mínimo 2 caracteres.").max(150),
     email: z.string().email("Correo inválido."),
     rol_nombre: z.enum(["SUPER_ADMIN", "ADMIN_ESTATAL", "RESPONSABLE_UNIDAD"], {
       errorMap: () => ({ message: "Selecciona un rol." }),
@@ -106,7 +105,9 @@ function ModalPasswordTemporal({ usuario, onClose }) {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-xs text-neutral-gray mb-0.5">Nombre</p>
-              <p className="font-medium text-neutral-black">{usuario.nombre_usuario}</p>
+              <p className="font-medium text-neutral-black">
+                {usuario.nombre_usuario || "— (lo definirá el usuario)"}
+              </p>
             </div>
             <div>
               <p className="text-xs text-neutral-gray mb-0.5">Correo</p>
@@ -138,6 +139,7 @@ function ModalPasswordTemporal({ usuario, onClose }) {
             </div>
             <p className="text-xs text-neutral-gray mt-1.5">
               El usuario deberá cambiarla en su primer inicio de sesión.
+              También se envió esta información al correo del usuario.
             </p>
           </div>
 
@@ -176,7 +178,6 @@ function ModalFormulario({ item, onClose, onGuardado }) {
           password: "",
         }
       : {
-          nombre_usuario: "",
           email: "",
           rol_nombre: "",
           clues_unidad_asignada: "",
@@ -199,7 +200,6 @@ function ModalFormulario({ item, onClose, onGuardado }) {
         onGuardado(resultado);
       } else {
         const payload = {
-          nombre_usuario: values.nombre_usuario,
           email: values.email,
           rol_nombre: values.rol_nombre,
           clues_unidad_asignada: values.clues_unidad_asignada || undefined,
@@ -224,7 +224,7 @@ function ModalFormulario({ item, onClose, onGuardado }) {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-gray/20 sticky top-0 bg-white z-10">
           <h3 className="font-semibold text-neutral-black">
-            {esEdicion ? `Editar — ${item.nombre_usuario}` : "Nuevo usuario"}
+            {esEdicion ? `Editar — ${item.nombre_usuario || item.email}` : "Nuevo usuario"}
           </h3>
           <button
             onClick={onClose}
@@ -235,23 +235,32 @@ function ModalFormulario({ item, onClose, onGuardado }) {
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-          {/* Nombre */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-black mb-1">
-              Nombre completo {!esEdicion && <span className="text-primary">*</span>}
-            </label>
-            <input
-              type="text"
-              placeholder="ej. Juan Pérez García"
-              className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
-                focus:ring-2 focus:ring-primary/20 focus:border-primary
-                ${errors.nombre_usuario ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
-              {...register("nombre_usuario")}
-            />
-            {errors.nombre_usuario && (
-              <p className="text-red-500 text-xs mt-1">{errors.nombre_usuario.message}</p>
-            )}
-          </div>
+          {/* Nombre — solo en edición; en alta lo captura la propia persona */}
+          {esEdicion && (
+            <div>
+              <label className="block text-sm font-medium text-neutral-black mb-1">
+                Nombre completo
+              </label>
+              <input
+                type="text"
+                placeholder="ej. Juan Pérez García"
+                className={`w-full px-4 py-2.5 rounded-lg border text-sm outline-none transition
+                  focus:ring-2 focus:ring-primary/20 focus:border-primary
+                  ${errors.nombre_usuario ? "border-red-400 bg-red-50" : "border-neutral-gray/30 bg-neutral-light"}`}
+                {...register("nombre_usuario")}
+              />
+              {errors.nombre_usuario && (
+                <p className="text-red-500 text-xs mt-1">{errors.nombre_usuario.message}</p>
+              )}
+            </div>
+          )}
+
+          {!esEdicion && (
+            <p className="text-xs text-neutral-gray bg-neutral-light rounded-lg px-3 py-2">
+              El nombre de usuario lo capturará la propia persona al cambiar su
+              contraseña por primera vez.
+            </p>
+          )}
 
           {/* Email — solo en creación */}
           {!esEdicion && (
@@ -392,7 +401,7 @@ function ModalEliminar({ usuario, onClose, onConfirm }) {
     setLoading(true);
     try {
       await eliminarUsuario(usuario.id_usuario);
-      toast.success(`Usuario "${usuario.nombre_usuario}" eliminado.`);
+      toast.success(`Usuario "${usuario.nombre_usuario || usuario.email}" eliminado.`);
       onConfirm();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Error al eliminar.");
@@ -411,7 +420,7 @@ function ModalEliminar({ usuario, onClose, onConfirm }) {
           <div>
             <h3 className="font-semibold text-neutral-black">Eliminar usuario</h3>
             <p className="text-sm text-neutral-gray mt-1">
-              ¿Eliminar a <span className="font-medium text-neutral-black">{usuario.nombre_usuario}</span>?
+              ¿Eliminar a <span className="font-medium text-neutral-black">{usuario.nombre_usuario || usuario.email}</span>?
               Esta acción no se puede deshacer.
             </p>
           </div>
@@ -535,7 +544,7 @@ export default function UsuariosPage() {
                 usuarios.map((u) => (
                   <tr key={u.id_usuario} className="border-b border-neutral-gray/10 hover:bg-neutral-light/60">
                     <td className="px-4 py-3 font-medium text-neutral-black">
-                      {u.nombre_usuario}
+                      {u.nombre_usuario || <span className="font-normal text-neutral-gray/60">— (pendiente)</span>}
                     </td>
                     <td className="px-4 py-3 text-neutral-gray">{u.email}</td>
                     <td className="px-4 py-3">

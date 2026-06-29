@@ -49,15 +49,21 @@ Edita el archivo `.env` en la raíz del proyecto y reemplaza `DATABASE_URL` con 
 DATABASE_URL=postgresql://usuario:password@host:puerto/nombre_bd
 ```
 
-> La URL de Railway está en el dashboard: servicio PostgreSQL → Variables → `DATABASE_URL`.
+> **IMPORTANTE:** Usa la URL **pública** (servicio PostgreSQL → pestaña **Connect** → "Public Network" / variable `DATABASE_PUBLIC_URL`), no la interna que aparece en pestaña "Variables" (`postgres.railway.internal`). La interna solo es alcanzable entre servicios de Railway; desde tu máquina local el script se queda colgado tratando de conectar (sin error visible) porque ese host no es accesible desde fuera de la red privada de Railway.
 
 ### Paso 2 — Correr los scripts necesarios
+
+> **Lección aprendida (2026-06-22):** `migrar_medico_baja.py` (columna `medicos.es_activo`, de Blueprint v5) nunca se había corrido contra producción y causó 500 en `/medicos`, `/registros` y `/reportes/resumen-detallado` por meses sin detectarse, porque el checklist de "Paso 2" solo se actualiza con las migraciones del deploy en curso. Todas estas migraciones son idempotentes (no rompen nada si ya están aplicadas) — ante cualquier sospecha de columnas faltantes, es más seguro correr **todos** los scripts de la tabla del §4, no solo los del deploy actual.
 
 Correr solo los scripts que correspondan a los cambios de este deploy:
 
 ```bash
 # Migración estructural (nueva tabla / columna)
 python scripts/migrar_diagnosticos.py
+
+# Migración Soft Delete de médicos (medicos.es_activo) — verificar SIEMPRE,
+# se detectó faltante en producción el 2026-06-22 pese a ser de Blueprint v5
+python scripts/migrar_medico_baja.py
 
 # Migración campos nuevos: fecha_nacimiento, tabla expedientes_paciente
 python scripts/migrar_campos_nuevos.py
@@ -71,16 +77,51 @@ python scripts/migrar_paciente_curp_opcional.py
 # Migración reacciones adversas (crea tabla reacciones_adversas si no existe)
 python scripts/migrar_reacciones_adversas.py
 
+# Migración confirmado_mediante (registros.confirmado_mediante)
+python scripts/migrar_confirmado_mediante.py
+
+# Migración caso relacionado con amparo/derechos humanos
+python scripts/migrar_amparo_derechos_humanos.py
+
+# Migración motivo de baja del paciente
+python scripts/migrar_motivo_baja.py
+
+# Migración motivo de baja múltiple (amplía pacientes.motivo_baja a VARCHAR(300))
+python scripts/migrar_motivo_baja_multiple.py
+
+# Migración autoservicio de usuarios (usuarios.nombre_usuario nullable)
+python scripts/migrar_usuario_nombre_nullable.py
+
+# Migración autoservicio de usuarios (crea tabla usuarios_preautorizados)
+python scripts/migrar_usuarios_preautorizados.py
+
+# Migración CURP y Puesto del médico (crea cat_puestos; agrega medicos.curp_hash/curp/id_puesto)
+python scripts/migrar_medicos_curp_puesto.py
+
 # Carga inicial de catálogo (solo si es la primera vez o hay entradas nuevas)
 python scripts/cargar_diagnosticos.py
+
+# Carga del catálogo de puestos/especialidades médicas — primera vez, o si se
+# actualiza scripts/data/Especialidades_puesto.xlsx
+python scripts/cargar_puestos.py
+
+# Carga relación unidad-medicamento (medicamentos disponibles por unidad) —
+# verificar SIEMPRE, se detectó faltante en producción el 2026-06-22
+python scripts/cargar_unidad_medicamentos.py
+
+# Carga de correos preautorizados (rol + unidad/entidad) desde los Excel de
+# solicitudes_altas_usuarios/ — correr cada vez que regresen Excel llenos
+python scripts/cargar_usuarios_preautorizados.py
 ```
 
 Otros scripts disponibles:
 ```bash
-python scripts/cargar_medicamentos.py   # catálogo CNIS
+python scripts/cargar_medicamentos.py --actualizar --sincronizar   # catálogo CNIS completo (ver nota)
 python scripts/cargar_unidades.py       # unidades médicas
 python scripts/create_admin.py          # crear usuario SUPER_ADMIN inicial
 ```
+
+> **Nota sobre `cargar_medicamentos.py`:** sin flags, solo inserta claves nuevas (modo incremental). Con `--actualizar`, también actualiza descripción/grupo/tipo_clave de claves existentes. Con `--sincronizar`, además desactiva (`es_activo=False`, Soft Delete — no elimina físicamente) los medicamentos de la BD que ya no aparecen en el Excel. Usar `--actualizar --sincronizar` juntos cuando el Excel representa el catálogo completo vigente (ej. tras una actualización del cuadro básico), no un incremental.
 
 ### Paso 3 — Restaurar el .env local
 
@@ -100,10 +141,19 @@ Regresa `DATABASE_URL` a tu base de datos local para seguir desarrollando.
 | `migrar_estatus_evolucion.py` | Primera vez que se despliega el banderín de estatus de evolución: `pacientes.estatus_evolucion`, `pacientes.id_usuario_ultimo_cambio_estatus`, `pacientes.fecha_ultimo_cambio_estatus` |
 | `migrar_paciente_curp_opcional.py` | Primera vez que se despliega el registro de pacientes sin CURP: vuelve nullable `pacientes.curp_hash` y `pacientes.curp_paciente` |
 | `migrar_reacciones_adversas.py` | Primera vez que se despliega el módulo de reacciones adversas: crea tabla `reacciones_adversas` (idempotente, `[--]` si ya existe) |
+| `migrar_confirmado_mediante.py` | Primera vez que se despliega el campo `confirmado_mediante` en `registros` |
+| `migrar_amparo_derechos_humanos.py` | Primera vez que se despliegan `registros.tratamiento_amparo` y `registros.queja_derechos_humanos` |
+| `migrar_motivo_baja.py` | Primera vez que se despliega `pacientes.motivo_baja` |
+| `migrar_motivo_baja_multiple.py` | Primera vez que se despliega la selección múltiple de motivo de baja (amplía la columna a VARCHAR(300)) |
+| `migrar_usuario_nombre_nullable.py` | Primera vez que se despliega el autoservicio de alta de usuarios: vuelve nullable `usuarios.nombre_usuario` |
+| `migrar_usuarios_preautorizados.py` | Primera vez que se despliega el autoservicio de alta de usuarios: crea tabla `usuarios_preautorizados` |
+| `migrar_medicos_curp_puesto.py` | Primera vez que se despliegan CURP y Puesto del médico: crea tabla `cat_puestos`; agrega `medicos.curp_hash`, `medicos.curp`, `medicos.id_puesto` |
 | `cargar_diagnosticos.py` | Primera vez o cuando se agregan diagnósticos al catálogo |
+| `cargar_puestos.py` | Primera vez que se despliega CURP y Puesto del médico, o cuando se actualiza `scripts/data/Especialidades_puesto.xlsx` |
 | `cargar_medicamentos.py` | Primera vez o cuando se actualiza el catálogo CNIS |
 | `cargar_unidades.py` | Primera vez o cuando se agregan unidades médicas |
 | `cargar_unidad_medicamentos.py` | Cada vez que se actualice el Excel `scripts/data/unidad_medicamentos.xlsx` |
+| `cargar_usuarios_preautorizados.py` | Cada vez que regresen llenos los Excel de `solicitudes_altas_usuarios/` |
 | `create_admin.py` | Solo una vez, al crear el entorno de Railway |
 
 ---
@@ -116,9 +166,24 @@ Verificar que los servicios de Railway tengan estas variables configuradas:
 | Variable | Valor |
 |----------|-------|
 | `DATABASE_URL` | URL de PostgreSQL de Railway (auto-generada) |
-| `SECRET_KEY` | Clave secreta para JWT (generar con `openssl rand -hex 32`) |
+| `SECRET_KEY` / `JWT_SECRET_KEY` | Clave secreta para JWT (generar con `openssl rand -hex 32`) |
 | `FERNET_KEY` | Clave de cifrado Fernet (generar con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) |
 | `FRONTEND_URL` | URL del servicio frontend en Railway |
+| `SMTP_HOST` | `smtp.sendgrid.net` |
+| `SMTP_PORT` | `587` |
+| `SMTP_USER` | `apikey` (literal, así lo exige SendGrid) |
+| `SMTP_PASSWORD` | API key de SendGrid (cuenta institucional compartida) — secreto, nunca commitear |
+| `SMTP_FROM` | Remitente verificado en SendGrid (ver nota abajo) |
+| `APP_BASE_URL` | URL del frontend en Railway, para el enlace en el correo de acceso |
+
+> **Nota — `SMTP_FROM`:** SendGrid solo entrega correos desde remitentes verificados (Single Sender o dominio autenticado). A la fecha de este despliegue, `quirurgico-noreply@imssbienestar.gob.mx` es el único remitente confirmado como verificado (usado por el Sistema de Programación Quirúrgica). Si se verifica un remitente propio del Censo de Pacientes, actualizar esta variable.
+>
+> **Lección aprendida (2026-06-22):** al probar este flujo en local, la API key de SendGrid copiada de `solicitudes_altas_usuarios/envio_correo/.env` resultó **revocada/expirada** — SendGrid respondió `535 Authentication failed: The provided authorization grant is invalid, expired, or revoked`. El mecanismo SMTP/STARTTLS/AUTH en sí funciona correctamente (se diagnosticó con `smtplib` en modo debug); el problema fue específicamente la validez de la API key. Antes de depender de este flujo en producción, conseguir una API key vigente y volver a probar `POST /auth/solicitar-acceso` end-to-end.
+>
+> **Lección aprendida (2026-06-23):** al probar el login con un password temporal, una persona escribió su correo en MAYÚSCULAS y recibió "Credenciales incorrectas" sin entender por qué (el toast de error desaparecía muy rápido). La comparación de email en `autenticar_usuario()` era sensible a mayúsculas/minúsculas. Se corrigió para que la búsqueda sea siempre insensible a mayúsculas (`func.lower(Usuario.email) == email.strip().lower()`) en login, en `POST /auth/solicitar-acceso` y en `POST /usuarios`; además el toast de error de login ahora dura 8 segundos en vez del valor por defecto. Si algún usuario reporta "credenciales incorrectas" sin explicación aparente, revisar primero mayúsculas/espacios en el correo.
+
+> **CRÍTICO — `FERNET_KEY` y `JWT_SECRET_KEY` deben ser valores literales fijos, NUNCA `${{secret(...)}}`.**
+> La plantilla `${{secret(...)}}` de Railway genera un valor **aleatorio nuevo en cada deploy**, y Railway no conserva historial de esos valores. Para `JWT_SECRET_KEY` esto solo desconecta a todos los usuarios en cada deploy (molesto). Para `FERNET_KEY` es **irreversible**: cualquier dato cifrado con la clave de un deploy anterior queda permanentemente ilegible en el siguiente — no hay forma de recuperarlo. Esto ya pasó una vez (2026-06-22, ver `.context/activeContext.md`) y costó perder 10 pacientes + 5 médicos de prueba. Verificar en Variables que ambas claves sean texto fijo (no una referencia `${{...}}`) y guardar una copia en un lugar seguro fuera de Railway.
 
 ### Frontend (servicio Vite/Node)
 | Variable | Valor |
@@ -160,4 +225,18 @@ Verificar que los servicios de Railway tengan estas variables configuradas:
    - Registrar un paciente nuevo **sin CURP** (solo nombre completo) y confirmar que se guarda correctamente.
    - Buscarlo por nombre desde "Registrar Paciente" (apellido o nombre primero, con/sin acentos) y confirmar que aparece con su fecha de nacimiento en formato DD/MM/AA.
    - Seleccionarlo y verificar que "Ver historial" carga su detalle.
-8. Revisar los logs del backend en Railway si hay errores 500.
+8. Verificar el autoservicio de alta de usuarios (junio 2026):
+   - En la pantalla de login, hacer clic en "Solicita tu acceso", escribir un correo preautorizado (tabla `usuarios_preautorizados`) y confirmar que llega el correo con el password temporal.
+   - Iniciar sesión con ese correo + password temporal → debe redirigir a "Cambiar contraseña" y pedir también **Nombre de usuario** (cuenta nueva, sin nombre).
+   - Con un correo NO preautorizado, confirmar que se muestra el mismo mensaje genérico (no debe crear cuenta).
+   - Crear un usuario con el botón "Nuevo usuario" (SUPER_ADMIN) y confirmar que el formulario ya no pide nombre, y que llega el correo con el password temporal.
+   - Confirmar que un usuario YA EXISTENTE de antes de este deploy sigue iniciando sesión normal, sin que se le pida nombre de usuario.
+9. Verificar CURP y Puesto del médico (junio 2026):
+   - Ir a **Médicos → Registrar médico**: deben aparecer los campos **CURP** y **Puesto** (ambos obligatorios al crear).
+   - Probar una CURP con formato inválido → debe rechazarla antes de enviar el formulario.
+   - El campo Puesto debe mostrar el combobox con las 154 especialidades cargadas; seleccionar una y guardar.
+   - Intentar registrar un médico con una CURP ya usada por otro médico → debe rechazarlo (409).
+   - En la tabla de Médicos deben verse las columnas **CURP** y **Puesto**; los médicos previos a este deploy deben mostrar "—" en ambas hasta que se editen.
+10. Revisar los logs del backend en Railway si hay errores 500.
+
+> **Nota — `cargar_puestos.py`:** requiere que `scripts/data/Especialidades_puesto.xlsx` exista en la máquina desde donde se corre el script (no se versiona en git, igual que el resto de `scripts/data/`). Si no lo tienes, pide el archivo antes de intentar correr la carga contra Railway.

@@ -83,6 +83,21 @@ RolStr = Annotated[
 # "Inicia tx" es el valor por defecto para pacientes nuevos y existentes.
 ESTATUS_EVOLUCION_OPTIONS = ["Inicia tx", "Tx fase intermedia", "Recaída", "Curación"]
 
+# Motivo de baja del paciente — obligatorio al dar de baja desde Pacientes Activos.
+MOTIVO_BAJA_OPTIONS = [
+    "Efecto adverso",
+    "Defunción",
+    "Cambio de tratamiento",
+    "Atención en seguridad social o medios privados",
+]
+
+# Método mediante el cual se confirmó el diagnóstico — Registro.confirmado_mediante.
+CONFIRMADO_MEDIANTE_OPTIONS = [
+    "Médico tratante (Clínico)",
+    "Estudios de laboratorio especializados",
+    "Confirmación por centro de referencia o especialista",
+]
+
 
 # ---------------------------------------------------------------------------
 # ── 0. CatDiagnostico ───────────────────────────────────────────────────────
@@ -105,6 +120,18 @@ class DiagnosticoUpdate(BaseModel):
 
 class DiagnosticoResponse(DiagnosticoBase):
     id_diagnostico: int
+    es_activo: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
+# ── 0b. CatPuesto ────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+class PuestoResponse(BaseModel):
+    codigo: str
+    denominacion_puesto: str
     es_activo: bool
 
     model_config = ConfigDict(from_attributes=True)
@@ -173,7 +200,8 @@ class UnidadMedicaResponse(UnidadMedicaBase):
 # ---------------------------------------------------------------------------
 
 class UsuarioBase(BaseModel):
-    nombre_usuario: str = Field(..., min_length=2, max_length=150)
+    # nombre_usuario ya no lo define quien da de alta — lo captura la propia
+    # persona al cambiar su contraseña (ver CambiarPasswordRequest).
     email: EmailStr
     rol_nombre: RolStr
     clues_unidad_asignada: str | None = Field(
@@ -233,7 +261,7 @@ class UsuarioUpdate(BaseModel):
 
 class UsuarioResponse(BaseModel):
     id_usuario: int
-    nombre_usuario: str
+    nombre_usuario: str | None
     email: str
     rol_nombre: str
     clues_unidad_asignada: str | None
@@ -245,8 +273,21 @@ class UsuarioResponse(BaseModel):
 
 class UsuarioCreateResponse(UsuarioResponse):
     """Respuesta exclusiva de POST /usuarios. Incluye la contraseña temporal en texto plano.
-    Solo el SUPER_ADMIN que crea la cuenta puede verla — no se almacena en BD."""
+    Solo el SUPER_ADMIN que crea la cuenta puede verla — no se almacena en BD.
+    También se envía por correo al usuario."""
     password_temporal: str
+
+
+class SolicitarAccesoRequest(BaseModel):
+    """POST /auth/solicitar-acceso — autoservicio desde la pantalla de login."""
+    email: EmailStr
+
+
+class SolicitarAccesoResponse(BaseModel):
+    mensaje: str = (
+        "Si tu correo está autorizado, recibirás un correo con tus "
+        "credenciales de acceso en unos minutos."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +343,20 @@ class PacienteUpdate(BaseModel):
         return v
 
 
+class BajaPacienteRequest(BaseModel):
+    motivo_baja: list[str] = Field(
+        ..., min_length=1, description=f"Uno o más motivos de la baja. Valores válidos: {MOTIVO_BAJA_OPTIONS}"
+    )
+
+    @field_validator("motivo_baja")
+    @classmethod
+    def validar_motivo_baja(cls, v: list[str]) -> list[str]:
+        invalidos = [m for m in v if m not in MOTIVO_BAJA_OPTIONS]
+        if invalidos:
+            raise ValueError(f"motivo_baja contiene valores inválidos: {invalidos}. Válidos: {MOTIVO_BAJA_OPTIONS}")
+        return v
+
+
 class PacienteResponse(BaseModel):
     """
     Los campos cifrados (curp_paciente, nombre_completo, diagnostico_actual)
@@ -315,6 +370,7 @@ class PacienteResponse(BaseModel):
     clues_unidad_adscripcion: str
     fecha_nacimiento: date | None = None
     es_activo: bool
+    motivo_baja: list[str] | None = None
     estatus_evolucion: str
     fecha_registro: datetime
     id_usuario_registro: int | None
@@ -370,25 +426,71 @@ class MedicoBase(BaseModel):
 
 
 class MedicoCreate(MedicoBase):
-    pass
+    curp: str = Field(
+        ...,
+        min_length=18,
+        max_length=18,
+        description="CURP del médico (18 caracteres, formato oficial SEP/RENAPO).",
+        examples=["LOOA890101HDFPRS09"],
+    )
+    id_puesto: str = Field(..., max_length=20, description="Código del puesto (catálogo cat_puestos).")
+
+    @field_validator("curp", mode="before")
+    @classmethod
+    def normalizar_y_validar_curp(cls, v: str) -> str:
+        curp = v.strip().upper()
+        if not _CURP_REGEX.match(curp):
+            raise ValueError(
+                "CURP inválida. Debe tener 18 caracteres con el formato oficial "
+                "(ej. LOOA890101HDFPRS09)."
+            )
+        return curp
+
+    @field_validator("id_puesto", mode="before")
+    @classmethod
+    def normalizar_id_puesto(cls, v: str) -> str:
+        return v.strip().upper()
 
 
 class MedicoUpdate(BaseModel):
     nombre_medico: str | None = Field(None, min_length=2, max_length=255)
     cedula: str | None = Field(None, min_length=1, max_length=30)
+    curp: str | None = Field(None, min_length=18, max_length=18)
+    id_puesto: str | None = Field(None, max_length=20)
     email: str | None = Field(None, max_length=255)
     clues_adscripcion: str | None = Field(None, max_length=20)
     es_activo: bool | None = None
 
+    @field_validator("curp", mode="before")
+    @classmethod
+    def normalizar_y_validar_curp(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        curp = v.strip().upper()
+        if not _CURP_REGEX.match(curp):
+            raise ValueError(
+                "CURP inválida. Debe tener 18 caracteres con el formato oficial "
+                "(ej. LOOA890101HDFPRS09)."
+            )
+        return curp
+
+    @field_validator("id_puesto", mode="before")
+    @classmethod
+    def normalizar_id_puesto(cls, v: str | None) -> str | None:
+        return v.strip().upper() if v else v
+
 
 class MedicoResponse(BaseModel):
     """
-    Los campos cifrados (nombre_medico, cedula) se populan manualmente
+    Los campos cifrados (nombre_medico, cedula, curp) se populan manualmente
     en el endpoint después de descifrar.
     """
     id_medico: int
     nombre_medico: str
     cedula: str
+    curp: str | None = None
+    id_puesto: str | None = None
+    denominacion_puesto: str | None = None
     email: str | None
     clues_adscripcion: str
     es_activo: bool = True
@@ -454,6 +556,11 @@ class RegistroBase(BaseModel):
         description="Valores válidos: 'confirmado', 'por confirmar'.",
     )
     confirmado_por: str | None = Field(None, max_length=100, description="Área que confirmó el diagnóstico.")
+    confirmado_mediante: str | None = Field(
+        None, max_length=200, description="Método mediante el cual se confirmó el diagnóstico (texto libre)."
+    )
+    tratamiento_amparo: bool = Field(False, description="True si el caso está relacionado con un tratamiento por amparo.")
+    queja_derechos_humanos: bool = Field(False, description="True si el caso está relacionado con una queja de derechos humanos.")
     prescripcion: str | None = Field(
         None,
         description="Auto-generado por el backend si se envían dosis/frecuencia/duracion/unidad_tiempo.",
@@ -470,6 +577,13 @@ class RegistroBase(BaseModel):
     def normalizar_clues(cls, v: str) -> str:
         return v.strip().upper()
 
+    @field_validator("confirmado_mediante")
+    @classmethod
+    def validar_confirmado_mediante(cls, v: str | None) -> str | None:
+        if v is not None and v not in CONFIRMADO_MEDIANTE_OPTIONS:
+            raise ValueError(f"confirmado_mediante debe ser uno de: {CONFIRMADO_MEDIANTE_OPTIONS}")
+        return v
+
 
 class RegistroCreate(RegistroBase):
     pass
@@ -484,6 +598,9 @@ class RegistroUpdate(BaseModel):
     talla: Decimal | None = None
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
+    confirmado_mediante: str | None = Field(None, max_length=200)
+    tratamiento_amparo: bool | None = None
+    queja_derechos_humanos: bool | None = None
     prescripcion: str | None = None
     dosis: float | None = Field(None, gt=0)
     cantidad: float | None = Field(None, gt=0)
@@ -495,6 +612,13 @@ class RegistroUpdate(BaseModel):
         None,
         description="False = anular registro por error de captura (Soft Delete).",
     )
+
+    @field_validator("confirmado_mediante")
+    @classmethod
+    def validar_confirmado_mediante(cls, v: str | None) -> str | None:
+        if v is not None and v not in CONFIRMADO_MEDIANTE_OPTIONS:
+            raise ValueError(f"confirmado_mediante debe ser uno de: {CONFIRMADO_MEDIANTE_OPTIONS}")
+        return v
 
 
 class RegistroResponse(RegistroBase):
@@ -563,6 +687,9 @@ class RegistroCompletoCreate(BaseModel):
     talla: Decimal | None = None
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
+    confirmado_mediante: str | None = Field(None, max_length=200)
+    tratamiento_amparo: bool = False
+    queja_derechos_humanos: bool = False
     prescripcion: str | None = None
     dosis: float | None = Field(None, gt=0)
     cantidad: float | None = Field(None, gt=0)
@@ -584,6 +711,13 @@ class RegistroCompletoCreate(BaseModel):
     @classmethod
     def normalizar_clues(cls, v: str) -> str:
         return v.strip().upper()
+
+    @field_validator("confirmado_mediante")
+    @classmethod
+    def validar_confirmado_mediante(cls, v: str | None) -> str | None:
+        if v is not None and v not in CONFIRMADO_MEDIANTE_OPTIONS:
+            raise ValueError(f"confirmado_mediante debe ser uno de: {CONFIRMADO_MEDIANTE_OPTIONS}")
+        return v
 
 
 class RegistroCompletoResponse(RegistroResponse):
@@ -752,7 +886,7 @@ class TokenResponse(BaseModel):
     id_usuario: int
     debe_cambiar_password: bool
     email: str
-    nombre_usuario: str
+    nombre_usuario: str | None = None
     clues_unidad_asignada: str | None = None
     nombre_unidad: str | None = None
     id_entidad: str | None = None
@@ -768,4 +902,13 @@ class CambiarPasswordRequest(BaseModel):
         ...,
         min_length=8,
         description="Nueva contraseña (mínimo 8 caracteres).",
+    )
+    nombre_usuario: str | None = Field(
+        None,
+        min_length=2,
+        max_length=150,
+        description=(
+            "Requerido solo si la cuenta aún no tiene nombre_usuario "
+            "(autoservicio por correo o alta vía 'Nuevo usuario')."
+        ),
     )

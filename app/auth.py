@@ -28,6 +28,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import bcrypt
 from jose import JWTError, jwt
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import require_env
@@ -336,8 +337,15 @@ def autenticar_usuario(email: str, password: str, db: Session) -> Usuario:
     Valida credenciales y retorna el objeto Usuario de la BD.
     Lanza 401 si el email no existe o la contraseña es incorrecta.
     Usa un mensaje genérico para no revelar si el email está registrado.
+
+    La comparación de email es insensible a mayúsculas/minúsculas — el
+    correo institucional es el mismo sin importar cómo lo capture la persona.
     """
-    usuario = db.query(Usuario).filter(Usuario.email == email).first()
+    usuario = (
+        db.query(Usuario)
+        .filter(func.lower(Usuario.email) == email.strip().lower())
+        .first()
+    )
 
     if usuario is None or not verify_password(password, usuario.hashed_password):
         raise HTTPException(

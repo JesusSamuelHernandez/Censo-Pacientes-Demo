@@ -74,6 +74,26 @@ class CatDiagnostico(Base):
 
 
 # ---------------------------------------------------------------------------
+# 0b. Catálogo de Puestos / Especialidades médicas
+# ---------------------------------------------------------------------------
+class CatPuesto(Base):
+    """
+    Catálogo de puestos/especialidades del personal médico (ej. "ESPECIALISTA
+    EN ANESTESIOLOGIA"). Cargado desde scripts/data/Especialidades_puesto.xlsx.
+    """
+    __tablename__ = "cat_puestos"
+
+    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
+    denominacion_puesto: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    medicos: Mapped[list["Medico"]] = relationship(back_populates="puesto")
+
+    def __repr__(self) -> str:
+        return f"<CatPuesto codigo={self.codigo!r} denominacion={self.denominacion_puesto!r}>"
+
+
+# ---------------------------------------------------------------------------
 # 1. Catálogo Maestro de Medicamentos
 # ---------------------------------------------------------------------------
 class CatMedicamento(Base):
@@ -167,7 +187,9 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     id_usuario: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    nombre_usuario: Mapped[str] = mapped_column(String(150), nullable=False)
+    # Nullable: las cuentas creadas por autoservicio (correo) o por "Nuevo usuario"
+    # nacen sin nombre — lo completa la propia persona al cambiar su contraseña.
+    nombre_usuario: Mapped[str | None] = mapped_column(String(150), nullable=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     rol_nombre: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -194,6 +216,30 @@ class Usuario(Base):
 
     def __repr__(self) -> str:
         return f"<Usuario id={self.id_usuario} email={self.email!r} rol={self.rol_nombre!r}>"
+
+
+class UsuarioPreautorizado(Base):
+    """
+    Lista de correos institucionales con rol y unidad/entidad ya definidos por el
+    equipo central. Un correo en esta tabla puede autoservirse desde la pantalla
+    de login (POST /auth/solicitar-acceso) para recibir su password temporal por
+    correo y crear su cuenta en `usuarios`, sin que el SUPER_ADMIN tenga que dar
+    de alta a cada persona manualmente.
+    """
+    __tablename__ = "usuarios_preautorizados"
+
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    rol_nombre: Mapped[str] = mapped_column(String(30), nullable=False)
+    clues_unidad_asignada: Mapped[str | None] = mapped_column(
+        String(20), ForeignKey("cat_unidades.clues", ondelete="RESTRICT"), nullable=True
+    )
+    id_entidad: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    fecha_registro: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<UsuarioPreautorizado email={self.email!r} rol={self.rol_nombre!r}>"
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +271,7 @@ class Paciente(Base):
     )
 
     es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    motivo_baja: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     estatus_evolucion: Mapped[str] = mapped_column(
         String(30), nullable=False, default="Inicia tx", server_default="Inicia tx"
@@ -289,6 +336,15 @@ class Medico(Base):
     cedula: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Nullable: los médicos ya registrados antes de este campo no tienen CURP.
+    # Para médicos nuevos, el schema de creación la exige.
+    curp_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
+    curp: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+
+    id_puesto: Mapped[str | None] = mapped_column(
+        String(20), ForeignKey("cat_puestos.codigo", ondelete="RESTRICT"), nullable=True
+    )
+
     clues_adscripcion: Mapped[str] = mapped_column(
         String(20),
         ForeignKey("cat_unidades.clues", ondelete="RESTRICT"),
@@ -299,6 +355,7 @@ class Medico(Base):
     es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     unidad_adscripcion: Mapped["UnidadMedica"] = relationship(back_populates="medicos")
+    puesto: Mapped["CatPuesto | None"] = relationship(back_populates="medicos")
     registros: Mapped[list["Registro"]] = relationship(back_populates="medico")
 
     def __repr__(self) -> str:
@@ -360,6 +417,9 @@ class Registro(Base):
     talla: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     estatus_diagnostico: Mapped[str | None] = mapped_column(String(50), nullable=True)
     confirmado_por: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    confirmado_mediante: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tratamiento_amparo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    queja_derechos_humanos: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     prescripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Campos de posología — calculados automáticamente por el backend

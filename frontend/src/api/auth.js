@@ -16,11 +16,19 @@ export const login = async (email, password) => {
   return data;
 };
 
-// POST /usuarios/me/cambiar-password
-export const cambiarPassword = async ({ password_actual, password_nueva }) => {
-  const { data } = await axiosClient.post("/usuarios/me/cambiar-password", {
-    password_actual,
-    password_nueva,
-  });
+// POST /usuarios/me/cambiar-password — nombre_usuario es requerido solo si la
+// cuenta aún no tiene uno (autoservicio por correo o alta vía "Nuevo usuario")
+export const cambiarPassword = async ({ password_actual, password_nueva, nombre_usuario }) => {
+  const payload = { password_actual, password_nueva };
+  if (nombre_usuario) payload.nombre_usuario = nombre_usuario;
+
+  const { data } = await axiosClient.post("/usuarios/me/cambiar-password", payload);
   return data;
+};
+
+// POST /auth/solicitar-acceso — autoservicio desde la pantalla de login.
+// Siempre responde el mismo mensaje genérico, sin importar el caso.
+export const solicitarAcceso = async (email) => {
+  const { data } = await axiosClient.post("/auth/solicitar-acceso", { email });
+  return data; // { mensaje }
 };

@@ -15,6 +15,18 @@ import {
   actualizarMedicamento,
 } from "../../api/catalogos";
 
+const UNIDAD_OPTIONS = [
+  "tableta", "capsula", "comprimido", "gragea", "sobre", "ml", "gotas",
+  "frasco_ampula", "ampolleta", "inhalacion", "aplicacion", "parche",
+  "supositorio", "ovulo",
+];
+
+const UNIDAD_DE_MEDIDA_OPTIONS = [
+  "ng", "mcg", "mg", "g", "kg", "mcl", "ml", "l", "ui", "u", "ku", "mu", "ufc",
+  "dosis", "mg/ml", "g/ml", "mcg/ml", "ui/ml", "u/ml", "mg/5ml", "mcg/dosis",
+  "mg/dosis", "ui/dosis", "mg/g", "mcg/g", "g/100g", "mg/100ml", "%", "ppm",
+];
+
 const schemaCrear = z.object({
   clave_cnis: z
     .string()
@@ -41,6 +53,16 @@ const schemaEditar = z.object({
 function Modal({ item, onClose, onGuardado }) {
   const esEdicion = Boolean(item);
   const [loading, setLoading] = useState(false);
+
+  // Valores legacy que ya no están en la lista fija (ej. "inyección"): se
+  // conservan como opción extra para no perder/sobreescribir el dato existente
+  // hasta que alguien los corrija manualmente.
+  const unidadLegacy = esEdicion && item.unidad && !UNIDAD_OPTIONS.includes(item.unidad)
+    ? item.unidad
+    : null;
+  const unidadMedidaLegacy = esEdicion && item.unidad_de_medida && !UNIDAD_DE_MEDIDA_OPTIONS.includes(item.unidad_de_medida)
+    ? item.unidad_de_medida
+    : null;
 
   const {
     register,
@@ -183,13 +205,19 @@ function Modal({ item, onClose, onGuardado }) {
                 Unidad de dosis{" "}
                 <span className="text-neutral-gray font-normal">(singular)</span>
               </label>
-              <input
-                type="text"
-                placeholder="ej. tableta, inyección"
+              <select
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
                   text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
                 {...register("unidad")}
-              />
+              >
+                <option value="">— Selecciona —</option>
+                {unidadLegacy && (
+                  <option value={unidadLegacy}>{unidadLegacy} (valor actual, fuera de lista)</option>
+                )}
+                {UNIDAD_OPTIONS.map((op) => (
+                  <option key={op} value={op}>{op}</option>
+                ))}
+              </select>
               <p className="text-xs text-neutral-gray mt-1">Para el texto "2 tabletas…"</p>
             </div>
             <div>
@@ -197,13 +225,19 @@ function Modal({ item, onClose, onGuardado }) {
                 Unidad de medida{" "}
                 <span className="text-neutral-gray font-normal">(cantidad)</span>
               </label>
-              <input
-                type="text"
-                placeholder="ej. mg, ml, UI, mcg"
+              <select
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
                   text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
                 {...register("unidad_de_medida")}
-              />
+              >
+                <option value="">— Selecciona —</option>
+                {unidadMedidaLegacy && (
+                  <option value={unidadMedidaLegacy}>{unidadMedidaLegacy} (valor actual, fuera de lista)</option>
+                )}
+                {UNIDAD_DE_MEDIDA_OPTIONS.map((op) => (
+                  <option key={op} value={op}>{op}</option>
+                ))}
+              </select>
               <p className="text-xs text-neutral-gray mt-1">Para el texto "de 10 mg…"</p>
             </div>
           </div>

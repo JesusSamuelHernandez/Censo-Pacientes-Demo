@@ -1,6 +1,6 @@
 # Arquitectura del Backend — App "Medicamentos de Alto Costo"
 
-> Última actualización: 2026-06-15 (reacciones adversas)
+> Última actualización: 2026-06-22 (confirmado_mediante con 3 opciones fijas; confirmado_por oculto; caso relacionado con amparo/derechos humanos en Registro; motivo_baja en Paciente; Reporte Detallado actualizado)
 
 ## 1. Visión General
 
@@ -65,14 +65,17 @@ El modelo `Registro` amplía el concepto de "receta" con posología completa (do
 ```
 app/
 ├── database.py          → Conexión a PostgreSQL, pool de conexiones, get_db().
-├── models.py            → 11 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
-│                          Usuario, Paciente, Medico, Registro, NotificacionTransferencia,
+├── models.py            → 12 tablas ORM: CatDiagnostico, CatMedicamento, UnidadMedica (cat_unidades),
+│                          Usuario, UsuarioPreautorizado (usuarios_preautorizados), Paciente, Medico,
+│                          Registro, NotificacionTransferencia,
 │                          UnidadMedicamento (unidad_medicamentos — relación N:M unidad↔medicamento),
 │                          ExpedientePaciente (expedientes_paciente),
 │                          ReaccionAdversa (reacciones_adversas).
 ├── schemas.py           → Validación de entrada/salida con Pydantic v2.
 ├── auth.py              → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
 ├── crypto.py            → cifrar(), descifrar(), descifrar_o_none(), hash_sha256() con Fernet.
+├── email_service.py     → Envío de correos institucionales (SMTP/SendGrid): enviar_correo(),
+│                          enviar_correo_acceso(). Nunca bloquea al llamador si SMTP falla.
 └── main.py              → Todos los endpoints de la API (versión 3.0.0).
 ```
 
@@ -135,7 +138,7 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | Campo | Tipo SQLAlchemy | Restricciones | Notas |
 |---|---|---|---|
 | `id_usuario` | Integer | PK, autoincrement | |
-| `nombre_usuario` | String(150) | NOT NULL | |
+| `nombre_usuario` | String(150) | nullable | `None` hasta que la propia persona lo captura al cambiar su contraseña (cuentas creadas por autoservicio o por "Nuevo usuario") |
 | `email` | String(255) | unique, NOT NULL, index | |
 | `hashed_password` | String(255) | NOT NULL | bcrypt hash |
 | `rol_nombre` | String(30) | NOT NULL | SUPER_ADMIN / ADMIN_ESTATAL / RESPONSABLE_UNIDAD |
@@ -144,6 +147,22 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | `debe_cambiar_password` | Boolean | NOT NULL, default=True | Forzar cambio en primer login |
 
 **Relaciones:** `unidad_asignada`, `pacientes_registrados`, `registros_registrados`
+
+---
+
+### 5.3b UsuarioPreautorizado — `usuarios_preautorizados`
+
+Lista de correos institucionales con rol (y CLUES/entidad) ya definidos por el equipo central. Habilita el autoservicio de alta desde la pantalla de login (`POST /auth/solicitar-acceso`): si el correo está aquí, el sistema crea la cuenta en `usuarios` y envía el password temporal por correo, sin que el SUPER_ADMIN tenga que dar de alta a cada persona manualmente.
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `email` | String(255) | PK | Normalizado a minúsculas |
+| `rol_nombre` | String(30) | NOT NULL | |
+| `clues_unidad_asignada` | String(20) | FK → cat_unidades, nullable | Solo RESPONSABLE_UNIDAD |
+| `id_entidad` | String(100) | nullable | Solo ADMIN_ESTATAL |
+| `fecha_registro` | DateTime(timezone=True) | NOT NULL, server_default=now() | |
+
+Se carga vía `scripts/cargar_usuarios_preautorizados.py` desde los Excel de `solicitudes_altas_usuarios/` (no versionados en git), o se inserta directo en BD para casos puntuales.
 
 ---
 
@@ -159,6 +178,7 @@ Catálogo de diagnósticos clínicos. El diagnóstico se asocia a cada **prescri
 | `fecha_nacimiento` | Date | nullable | Fecha de nacimiento del paciente |
 | `clues_unidad_adscripcion` | String(20) | FK → cat_unidades, NOT NULL, index | |
 | `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
+| `motivo_baja` | String(300) | nullable | Uno o más motivos de la baja, guardados como string separado por `", "` (helpers `_serializar_motivo_baja`/`_deserializar_motivo_baja` en `main.py`). Valores válidos: `MOTIVO_BAJA_OPTIONS` (ver §6.4). Se limpia (`None`) automáticamente al reactivar el paciente |
 | `estatus_evolucion` | String(30) | NOT NULL, default="Inicia tx", server_default | Banderín de evolución. Valores válidos: `ESTATUS_EVOLUCION_OPTIONS` (ver §6.4) |
 | `id_usuario_ultimo_cambio_estatus` | Integer | FK → usuarios (SET NULL), nullable | Auditoría del último cambio de `estatus_evolucion` |
 | `fecha_ultimo_cambio_estatus` | DateTime(timezone=True) | nullable | Timestamp del último cambio de `estatus_evolucion` |
@@ -210,11 +230,32 @@ Registro histórico de reacciones adversas a medicamentos reportadas para un pac
 | `cedula_hash` | String(64) | unique, NOT NULL, index | SHA-256 de cédula para búsquedas |
 | `nombre_medico` | LargeBinary | NOT NULL | Nombre cifrado con Fernet |
 | `cedula` | LargeBinary | NOT NULL | Cédula cifrada con Fernet |
+| `curp_hash` | String(64) | unique, nullable, index | SHA-256 de CURP para búsquedas/unicidad (2026-06-23). Nullable: médicos previos a este campo no la tienen |
+| `curp` | LargeBinary | nullable | CURP cifrada con Fernet (2026-06-23). Exigida en `MedicoCreate`, opcional en BD |
+| `id_puesto` | String(20) | FK → cat_puestos (RESTRICT), nullable | Puesto/especialidad (2026-06-23). Exigido en `MedicoCreate`, opcional en BD |
 | `email` | String(255) | nullable | Texto plano |
 | `clues_adscripcion` | String(20) | FK → cat_unidades, NOT NULL, index | |
 | `es_activo` | Boolean | NOT NULL, default=True | Soft Delete |
 
-**Relaciones:** `unidad_adscripcion`, `registros`
+**Relaciones:** `unidad_adscripcion`, `puesto` (→ `CatPuesto`), `registros`
+
+**Validación de CURP:** mismo regex oficial SEP/RENAPO que `Paciente.curp_paciente` (`_CURP_REGEX` en `app/schemas.py`), aplicado en `MedicoCreate`/`MedicoUpdate`. Unicidad verificada vía `curp_hash` (409 si ya existe, igual que `cedula_hash`).
+
+---
+
+### 5.5b CatPuesto — `cat_puestos`
+
+Catálogo de puestos/especialidades del personal médico (ej. "ESPECIALISTA EN ANESTESIOLOGIA"). Cargado desde `scripts/data/Especialidades_puesto.xlsx` (columnas `CODIGO`, `DENOMINACIÓN DE PUESTO`).
+
+| Campo | Tipo SQLAlchemy | Restricciones | Notas |
+|---|---|---|---|
+| `codigo` | String(20) | PK | ej. "ME001" |
+| `denominacion_puesto` | String(255) | NOT NULL, unique | ej. "ESPECIALISTA EN ANESTESIOLOGIA" |
+| `es_activo` | Boolean | NOT NULL, default=True | |
+
+**Uso:** `GET /catalogos/puestos` alimenta el combobox de "Puesto" en el formulario de Médicos. Se exige (`id_puesto`) al registrar un médico nuevo; los médicos existentes quedan con `id_puesto=NULL` hasta que se edite su registro.
+
+**Carga:** Script `scripts/cargar_puestos.py` (mismo patrón que `cargar_diagnosticos.py`). Idempotente.
 
 ---
 
@@ -236,7 +277,10 @@ La PK es autoincremental. Reemplaza al modelo `Receta` desde Blueprint v6.
 | `peso` | Numeric(5,2) | nullable | Peso en kg |
 | `talla` | Numeric(5,2) | nullable | Talla en cm |
 | `estatus_diagnostico` | String(50) | nullable | "confirmado" / "por confirmar" |
-| `confirmado_por` | String(100) | nullable | Área que confirmó el diagnóstico |
+| `confirmado_por` | String(100) | nullable | **Oculto** desde el frontend (`CONFIRMADO_POR_HABILITADO = false`); columna se conserva sin uso |
+| `confirmado_mediante` | String(200) | nullable | Método mediante el cual se confirmó el diagnóstico. Valores válidos: `CONFIRMADO_MEDIANTE_OPTIONS` (ver §6.6) |
+| `tratamiento_amparo` | Boolean | NOT NULL, default=False | Caso relacionado con tratamiento por amparo. Mutuamente excluyente con `queja_derechos_humanos` (aplicado en frontend) |
+| `queja_derechos_humanos` | Boolean | NOT NULL, default=False | Caso relacionado con queja de derechos humanos. Si ambos son False, equivale a "No aplica" |
 | `prescripcion` | Text | nullable | Auto-generado por `_aplicar_posologia()` |
 | `dosis` | Float | nullable | Unidades por toma (posología) |
 | `cantidad` | Float | nullable | Cantidad de medicamento por unidad |
@@ -289,6 +333,8 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 **Carga:** Script `scripts/cargar_unidad_medicamentos.py` lee `scripts/data/unidad_medicamentos.xlsx` (columnas: `clues`, `clave_cnis`). Idempotente — omite duplicados.
 
+**Restricción desactivada vía feature flag (2026-06-23):** `UNIDAD_MEDICAMENTOS_HABILITADO = False` en `app/main.py` — la tabla solo tenía cargadas algunas unidades, así que se desactivó el JOIN en `listar_medicamentos()` (`if UNIDAD_MEDICAMENTOS_HABILITADO and clues:`) para que todas las unidades puedan usar todo el catálogo activo sin restricción. Los datos de la tabla y el script de carga se conservan intactos — para reactivar la restricción basta con poner el flag en `True` (y su espejo `UNIDAD_MEDICAMENTOS_HABILITADO` en `frontend/src/config/featureFlags.js`).
+
 ---
 
 ## 6. Schemas Pydantic (v2)
@@ -330,11 +376,14 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Schema | Campos destacados |
 |---|---|
-| `UsuarioBase` | `nombre_usuario`, `email` (EmailStr), `rol_nombre` (validado), `clues_unidad_asignada` (req. si RESPONSABLE_UNIDAD), `id_entidad` (req. si ADMIN_ESTATAL). Validadores: `rol_debe_ser_valido`, `validar_contexto_por_rol` |
+| `UsuarioBase` | `email` (EmailStr), `rol_nombre` (validado), `clues_unidad_asignada` (req. si RESPONSABLE_UNIDAD), `id_entidad` (req. si ADMIN_ESTATAL). Ya no incluye `nombre_usuario` — lo captura la propia persona al cambiar su contraseña. Validadores: `rol_debe_ser_valido`, `validar_contexto_por_rol` |
 | `UsuarioCreate` | Extiende `UsuarioBase`. La contraseña la genera el backend. |
 | `UsuarioUpdate` | Opcionales: `nombre_usuario`, `rol_nombre`, `clues_unidad_asignada`, `id_entidad`, `password` (min 8) |
-| `UsuarioResponse` | `id_usuario`, `nombre_usuario`, `email`, `rol_nombre`, `clues_unidad_asignada`, `id_entidad`, `debe_cambiar_password` |
-| `UsuarioCreateResponse` | Extiende `UsuarioResponse` + `password_temporal` (solo en POST /usuarios) |
+| `UsuarioResponse` | `id_usuario`, `nombre_usuario` (`str \| None`), `email`, `rol_nombre`, `clues_unidad_asignada`, `id_entidad`, `debe_cambiar_password` |
+| `UsuarioCreateResponse` | Extiende `UsuarioResponse` + `password_temporal` (solo en POST /usuarios; también se envía por correo) |
+| `SolicitarAccesoRequest` | `email` (EmailStr) — body de `POST /auth/solicitar-acceso` |
+| `SolicitarAccesoResponse` | `mensaje` genérico, igual sin importar si el correo está o no preautorizado |
+| `CambiarPasswordRequest` | `password_actual`, `password_nueva` (min 8), `nombre_usuario` (opcional; requerido solo si la cuenta aún no tiene uno) |
 
 ---
 
@@ -342,12 +391,15 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 `ESTATUS_EVOLUCION_OPTIONS = ["Inicia tx", "Tx fase intermedia", "Recaída", "Curación"]` — constante a nivel módulo en `schemas.py`, valores válidos para `estatus_evolucion`.
 
+`MOTIVO_BAJA_OPTIONS = ["Efecto adverso", "Defunción", "Cambio de tratamiento", "Atención en seguridad social o medios privados"]` — constante a nivel módulo en `schemas.py`, valores válidos para `motivo_baja`.
+
 | Schema | Campos destacados |
 |---|---|
 | `PacienteBase` | `nombre_completo` (str, 2-255), `diagnostico_actual` (opt, max 5000), `clues_unidad_adscripcion` (CluesStr, normalizado a mayúsculas), `fecha_nacimiento` (opt) |
 | `PacienteCreate` | Base + `curp_paciente` (CurpStr, validado contra regex oficial) |
 | `PacienteUpdate` | Opcionales: `nombre_completo`, `diagnostico_actual`, `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion` (validado contra `ESTATUS_EVOLUCION_OPTIONS`) |
-| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado, `str \| None` — `None` si el paciente no tiene CURP), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas), `tiene_reaccion_adversa` (bool — True si existe al menos una reacción adversa en `reacciones_adversas`) |
+| `BajaPacienteRequest` | `motivo_baja` (`list[str]`, requerido, mínimo 1 elemento, cada valor validado contra `MOTIVO_BAJA_OPTIONS`). Body de `DELETE /pacientes/{curp_paciente}` |
+| `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado, `str \| None` — `None` si el paciente no tiene CURP), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `motivo_baja` (`list[str] \| None`), `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas), `tiene_reaccion_adversa` (bool — True si existe al menos una reacción adversa en `reacciones_adversas`) |
 | `PacienteListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[PacienteResponse]) |
 | `BusquedaCurpResponse` | `existe`, `id_paciente`, `nombre_completo`, `fecha_nacimiento`, `clues_unidad_adscripcion`, `nombre_unidad`, `total_registros` |
 | `BusquedaNombreItem` | `id_paciente`, `nombre_completo`, `fecha_nacimiento` (opt), `curp_paciente` (opt, descifrado), `clues_unidad_adscripcion`, `nombre_unidad` (opt), `total_registros` |
@@ -379,17 +431,20 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Schema | Campos destacados |
 |---|---|
 | `MedicoBase` | `nombre_medico` (str, 2-255), `cedula` (str, 1-30), `email` (opt), `clues_adscripcion` (CluesStr) |
-| `MedicoCreate` | Idéntico a Base |
-| `MedicoUpdate` | Todos opcionales: `nombre_medico`, `cedula`, `email`, `clues_adscripcion`, `es_activo` (Soft Delete) |
-| `MedicoResponse` | `id_medico`, `nombre_medico` (descifrado), `cedula` (descifrada), `email`, `clues_adscripcion`, `es_activo` |
+| `MedicoCreate` | Base + `curp` (18 chars, regex SEP/RENAPO, requerida) + `id_puesto` (requerido, código de `cat_puestos`) |
+| `MedicoUpdate` | Todos opcionales: `nombre_medico`, `cedula`, `curp`, `id_puesto`, `email`, `clues_adscripcion`, `es_activo` (Soft Delete) |
+| `MedicoResponse` | `id_medico`, `nombre_medico` (descifrado), `cedula` (descifrada), `curp` (descifrada, opt), `id_puesto` (opt), `denominacion_puesto` (opt, join con `cat_puestos`), `email`, `clues_adscripcion`, `es_activo` |
+| `PuestoResponse` | `codigo`, `denominacion_puesto`, `es_activo` |
 
 ---
 
 ### 6.6 Registro
 
+`CONFIRMADO_MEDIANTE_OPTIONS = ["Médico tratante (Clínico)", "Estudios de laboratorio especializados", "Confirmación por centro de referencia o especialista"]` — constante a nivel módulo en `schemas.py`, valores válidos para `confirmado_mediante`. Validado vía `field_validator` en `RegistroBase`, `RegistroUpdate` y `RegistroCompletoCreate` (las 3 clases que exponen el campo).
+
 | Schema | Campos destacados |
 |---|---|
-| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
+| `RegistroBase` | `id_medico`, `id_paciente`, `clave_cnis`, `clues` (normalizado), `id_diagnostico` (opt, FK → cat_diagnosticos), `fecha_inicio_tratamiento` (opt), `fecha_primera_administracion` (opt), `fecha_fin_tratamiento` (opt), `dosis_administrada` (opt), `peso` (opt), `talla` (opt), `estatus_diagnostico` (opt), `confirmado_por` (opt — oculto en frontend), `confirmado_mediante` (opt, validado contra `CONFIRMADO_MEDIANTE_OPTIONS`), `tratamiento_amparo` (bool, default False), `queja_derechos_humanos` (bool, default False), `prescripcion` (opt), `dosis` (opt, >0), `cantidad` (opt, >0), `frecuencia` (opt, >0), `unidad_tiempo` (opt), `duracion` (opt, >0) |
 | `RegistroCreate` | Idéntico a Base |
 | `RegistroUpdate` | Todos opcionales, incluye `id_diagnostico` y `es_activo` (Soft Delete) |
 | `RegistroResponse` | Base + `id_registro`, `es_activo`, `fecha_registro_sistema`, `id_usuario_registro`, `nombre_paciente` (descifrado), `curp_paciente` (descifrado), `total_medicamento` (calculado), `id_registro_origen`, `medicamento` (MedicamentoResponse embebido), `medico` (MedicoResponse embebido), `diagnostico` (DiagnosticoResponse embebido, nullable) |
@@ -455,7 +510,8 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
-| POST | `/auth/login` | Público | Login. Recibe `OAuth2PasswordRequestForm` (form-data). Devuelve JWT + rol + `debe_cambiar_password`. |
+| POST | `/auth/login` | Público | Login. Recibe `OAuth2PasswordRequestForm` (form-data). Devuelve JWT + rol + `debe_cambiar_password`. La comparación de email es insensible a mayúsculas/minúsculas (`func.lower(...)`). |
+| POST | `/auth/solicitar-acceso` | Público | Autoservicio de alta desde el login. Si el correo está en `usuarios_preautorizados`: crea la cuenta (o regenera el password si quedó pendiente) y envía el password temporal por correo. Responde siempre el mismo mensaje genérico, sin importar el caso (anti-enumeración). |
 
 ---
 
@@ -469,7 +525,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | GET | `/pacientes/buscar-por-nombre` | Todos | Búsqueda nacional por nombre (para pacientes sin CURP). Sin filtro RBAC. Param: `q` (min 3 chars), `limite` (default 15, max 50). Descifra y normaliza (mayúsculas, sin acentos) cada `nombre_completo`; hace match si cada token de `q` es prefijo de algún token del nombre (acepta apellido-primero o nombre-primero). |
 | GET | `/pacientes/{curp_paciente}` | Todos | Detalle completo. Lectura nacional sin restricción RBAC. |
 | PATCH | `/pacientes/{curp_paciente}` | Todos (con restricciones por rol) | Actualización parcial. Si cambia `clues_unidad_adscripcion`, genera `NotificacionTransferencia` automáticamente. Si el payload incluye `estatus_evolucion`, estampa `id_usuario_ultimo_cambio_estatus` y `fecha_ultimo_cambio_estatus` antes de aplicar los cambios. |
-| DELETE | `/pacientes/{curp_paciente}` | Todos (con acceso) | Soft Delete (`es_activo = False`). |
+| DELETE | `/pacientes/{curp_paciente}` | Todos (con acceso) | Soft Delete (`es_activo = False`). Requiere body `BajaPacienteRequest` con `motivo_baja` (lista de 1 o más valores, cada uno validado contra `MOTIVO_BAJA_OPTIONS`); se limpia automáticamente si el paciente se reactiva después. |
 | GET | `/pacientes/{curp_paciente}/registros` | Todos | Todas las prescripciones del paciente, sin filtro de unidad. Param: `solo_activos`. |
 | GET | `/pacientes/{curp_paciente}/expedientes` | Todos | Lista los expedientes (número de expediente por unidad) del paciente. |
 | POST | `/pacientes/{curp_paciente}/expedientes` | Todos (con restricciones por rol) | Crea o actualiza (upsert) el número de expediente del paciente en una unidad (`clues` + `numero_expediente`). RESPONSABLE_UNIDAD solo puede gestionar expedientes de su propia unidad (403 si no coincide). 201 Created. |
@@ -485,9 +541,9 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
 | GET | `/medicos` | Todos | Lista activos (`es_activo=True`) con filtro RBAC geográfico automático. Param opcional: `clues_adscripcion`. |
-| POST | `/medicos` | ADMIN_ESTATAL, SUPER_ADMIN | Crear médico. RESPONSABLE_UNIDAD: 403 (ya no puede registrar médicos). ADMIN_ESTATAL: unidades de su estado. SUPER_ADMIN: sin restricción. Nombre y cédula cifrados. |
+| POST | `/medicos` | ADMIN_ESTATAL, SUPER_ADMIN | Crear médico. RESPONSABLE_UNIDAD: 403 (ya no puede registrar médicos). ADMIN_ESTATAL: unidades de su estado. SUPER_ADMIN: sin restricción. Nombre, cédula y CURP cifrados; CURP y `id_puesto` requeridos (2026-06-23) — 409 si la CURP ya existe, 404 si el puesto no existe en `cat_puestos`. |
 | GET | `/medicos/{id_medico}` | Todos | Perfil de un médico. |
-| PATCH | `/medicos/{id_medico}` | Todos con RBAC | Actualizar datos o dar de baja (`es_activo=False`). RBAC geográfico: RESPONSABLE_UNIDAD solo su unidad, ADMIN_ESTATAL solo su estado. Re-cifra nombre/cédula si cambian. |
+| PATCH | `/medicos/{id_medico}` | Todos con RBAC | Actualizar datos o dar de baja (`es_activo=False`). RBAC geográfico: RESPONSABLE_UNIDAD solo su unidad, ADMIN_ESTATAL solo su estado. Re-cifra nombre/cédula/CURP si cambian (con las mismas validaciones 409/404 que el alta). |
 | DELETE | `/medicos/{id_medico}` | Solo SUPER_ADMIN | Eliminación física (204 No Content). |
 
 ---
@@ -521,7 +577,7 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
-| GET | `/reportes/resumen-detallado` | Todos | Datos crudos para Excel/PDF. Params: `fecha_inicio`, `fecha_fin`, `solo_activos`. Filtro RBAC por unidad actual del paciente. |
+| GET | `/reportes/resumen-detallado` | Todos | Datos crudos para Excel/PDF. Params: `fecha_inicio`, `fecha_fin` (filtran por `Registro.fecha_inicio_tratamiento`, no por `fecha_primera_administracion`), `solo_activos`. Filtro RBAC por unidad actual del paciente. Cada fila incluye: `diagnostico` (de la prescripción vía `Registro.diagnostico`/`id_diagnostico`, no del paciente — más preciso que el legacy `paciente.diagnostico_actual`), `estatus_diagnostico`, `confirmado_por`, `confirmado_mediante`, `caso_relacionado_con` (computado: "Tratamiento por amparo" / "Caso relacionado con queja de derechos humanos" / "No aplica"), `peso`, `talla`, `fecha_fin_tratamiento`, además de los campos previos. |
 | GET | `/reportes/estatal` | ADMIN_ESTATAL, SUPER_ADMIN | Agrupados por unidad: total pacientes activos + total registros activos. Scope por entidad para ADMIN_ESTATAL. |
 | GET | `/reportes/rtm` | Solo SUPER_ADMIN | Requerimiento Teórico Mensual. Params: `clues` (req), `meses` (1-24, default 7). Calcula consumo mensual proporcional por medicamento usando overlap de fechas con límites exclusivos. Solo prescripciones con posología completa. |
 
@@ -532,9 +588,10 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
 | GET | `/catalogos/diagnosticos` | Todos | Lista diagnósticos. Param: `solo_activos` (default True). |
+| GET | `/catalogos/puestos` | Todos | Lista puestos/especialidades médicas (`cat_puestos`). Param: `solo_activos` (default True). Alimenta el combobox de "Puesto" en Médicos. |
 | POST | `/catalogos/diagnosticos` | Solo SUPER_ADMIN | Crear nuevo diagnóstico. Conflicto 409 si nombre duplicado. |
 | PATCH | `/catalogos/diagnosticos/{id_diagnostico}` | Solo SUPER_ADMIN | Actualizar o desactivar diagnóstico. |
-| GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Params: `solo_activos` (default True), `clues` (opcional — filtra solo medicamentos asignados a esa unidad vía JOIN con `unidad_medicamentos`). |
+| GET | `/catalogos/medicamentos` | Todos | Lista del catálogo. Params: `solo_activos` (default True), `clues` (opcional — filtra solo medicamentos asignados a esa unidad vía JOIN con `unidad_medicamentos`; **sin efecto** mientras `UNIDAD_MEDICAMENTOS_HABILITADO = False`). |
 | POST | `/catalogos/medicamentos` | Solo SUPER_ADMIN | Crear nueva clave CNIS. Conflicto 409 si duplicada. |
 | PATCH | `/catalogos/medicamentos/{clave_cnis}` | Solo SUPER_ADMIN | Actualizar o desactivar medicamento. |
 | GET | `/catalogos/unidades` | Todos | Lista de unidades. Param: `id_entidad`. |
@@ -548,8 +605,8 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | Método | Ruta | Rol requerido | Descripción |
 |---|---|---|---|
 | GET | `/usuarios` | Solo SUPER_ADMIN | Lista completa de usuarios. |
-| POST | `/usuarios` | Solo SUPER_ADMIN | Crear usuario. Genera `password_temporal` aleatoria (12 chars alfanuméricos). La devuelve una sola vez en la respuesta. |
-| POST | `/usuarios/me/cambiar-password` | Todos (sin require_password_cambiado) | Cambiar contraseña propia. Verifica contraseña actual. Pone `debe_cambiar_password = False`. |
+| POST | `/usuarios` | Solo SUPER_ADMIN | Crear usuario (sin `nombre_usuario` — lo captura la propia persona después). Genera `password_temporal` aleatoria (12 chars alfanuméricos): la devuelve una sola vez en la respuesta y además la envía por correo. |
+| POST | `/usuarios/me/cambiar-password` | Todos (sin require_password_cambiado) | Cambiar contraseña propia. Verifica contraseña actual. Si `nombre_usuario` de la cuenta es `None`, exige `nombre_usuario` en el body (422 si falta) y lo guarda. Pone `debe_cambiar_password = False`. |
 | PATCH | `/usuarios/{id_usuario}` | Solo SUPER_ADMIN | Actualizar datos. Si incluye `password`, la hashea con bcrypt. |
 | DELETE | `/usuarios/{id_usuario}` | Solo SUPER_ADMIN | Eliminación física. No puede eliminar la propia cuenta. |
 
@@ -641,6 +698,14 @@ JWT_SECRET_KEY=<mínimo 32 caracteres aleatorios>
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_HOURS=8
 FERNET_KEY=<clave Fernet base64 generada con Fernet.generate_key()>
+
+# Envío de correos institucionales (SendGrid SMTP) — autoservicio de usuarios
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASSWORD=<API key de SendGrid>
+SMTP_FROM=<remitente verificado en SendGrid>
+APP_BASE_URL=<URL del frontend, para el enlace en el correo de acceso>
 ```
 
 En Railway (producción), `DATABASE_URL` apunta al servicio PostgreSQL interno:

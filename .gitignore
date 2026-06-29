@@ -48,6 +48,11 @@ scripts/data/
 *.xls
 
 backups/
+# Solicitudes de datos a entidades (PII de usuarios estatales/responsables de unidad)
+solicitudes_altas_usuarios/
+
+scripts/**
+scripts/cargar_medicamentos.py
 
 node_modules/
 dist/
@@ -55,3 +60,6 @@ build/
 .vscode/
 .DS_Store
 *.log
+
+solicitudes_altas_usuarios\envio_correo\email.py
+solicitudes_altas_usuarios\envio_correo\.env
