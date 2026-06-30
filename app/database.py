@@ -17,7 +17,17 @@ engine = create_engine(
     pool_pre_ping=True,       # Verifica la conexión antes de usarla (evita conexiones muertas).
     pool_size=10,             # Conexiones simultáneas mantenidas en el pool.
     max_overflow=20,          # Conexiones extras permitidas en picos de carga.
-    connect_args={"connect_timeout": 10},  # Falla rápido si el host no es alcanzable (p.ej. URL interna de Railway).
+    connect_args={
+        "connect_timeout": 10,  # Falla rápido si el host no es alcanzable (p.ej. URL interna de Railway).
+        # Keepalives TCP: sin esto, el proxy público de Railway puede cerrar una
+        # conexión inactiva sin avisar al cliente, y una sesión larga (ej. un
+        # script de carga con cientos de filas) se queda esperando una respuesta
+        # que nunca llega — sin error, sin timeout (detectado 2026-06-23).
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    },
 )
 
 SessionLocal = sessionmaker(
