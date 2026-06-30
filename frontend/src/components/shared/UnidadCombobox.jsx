@@ -25,7 +25,7 @@ export default function UnidadCombobox({ value, onChange, error, idEntidad = nul
   useEffect(() => {
     if (value && unidades.length > 0) {
       const u = unidades.find((u) => u.clues === value);
-      if (u) setQuery(`${u.clues} — ${u.nombre_de_la_unidad}`);
+      if (u) queueMicrotask(() => setQuery(`${u.clues} — ${u.nombre_de_la_unidad}`));
     }
   }, [value, unidades]);
 

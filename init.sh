@@ -1,12 +1,17 @@
 #!/bin/bash
-# Script para inicializar la base de datos en el primer despliegue
+# Script de arranque del backend.
 
-echo "Esperando a que PostgreSQL esté lista..."
-sleep 10
+set -e
 
-echo "Creando usuario administrador..."
-python create_admin.py 2>/dev/null || true
+if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
+	echo "Aplicando migraciones de base de datos..."
+	alembic upgrade head
+fi
+
+if [ "${CREATE_ADMIN_ON_STARTUP:-false}" = "true" ]; then
+	echo "Creando usuario administrador inicial..."
+	python create_admin.py
+fi
 
 echo "Iniciando servidor..."
-# Usar PORT si existe, sino usar 8000
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"

@@ -11,7 +11,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: gunicorn -w $WEB_CONCURRENCY -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:$PORT
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -25,6 +25,20 @@ services:
         value: HS256
       - key: JWT_EXPIRE_HOURS
         value: 8
+      - key: FRONTEND_URL
+        sync: false
+      - key: DATABASE_SSL_MODE
+        value: prefer
+      - key: DB_POOL_SIZE
+        value: 10
+      - key: DB_MAX_OVERFLOW
+        value: 20
+      - key: DB_POOL_TIMEOUT
+        value: 30
+      - key: DB_POOL_RECYCLE
+        value: 1800
+      - key: WEB_CONCURRENCY
+        value: 2
       - key: PYTHON_VERSION
         value: 3.11
 

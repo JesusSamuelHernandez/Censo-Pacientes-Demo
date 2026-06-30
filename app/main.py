@@ -27,6 +27,7 @@ Adherencia:
     (date.today() - registro.fecha_inicio_tratamiento).days
 """
 import calendar
+import os
 import unicodedata
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -34,7 +35,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import exists, func, update
+from sqlalchemy import exists, func, text, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import (
@@ -115,8 +116,6 @@ UNIDAD_MEDICAMENTOS_HABILITADO = False  # Reactivar para volver a restringir qu�
 # ---------------------------------------------------------------------------
 # Inicialización
 # ---------------------------------------------------------------------------
-Base.metadata.create_all(bind=engine)
-
 app = FastAPI(
     title="API — Medicamentos de Alto Costo",
     description=(
@@ -130,27 +129,31 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
-import os
-
-FRONTEND_URL = os.getenv(
-    "FRONTEND_URL",
-    "http://localhost:5173,https://censo-frontend-production-dab7.up.railway.app"
-)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 
 allowed_origins = [url.strip() for url in FRONTEND_URL.split(",") if url.strip()]
 
-if "http://localhost:5173" not in allowed_origins:
-    allowed_origins.append("http://localhost:5173")
+if not allowed_origins:
+    raise RuntimeError(
+        "Variable de entorno FRONTEND_URL no definida. "
+        "Configura los origenes permitidos separados por coma."
+    )
 
 print(f"✓ CORS allowed origins: {allowed_origins}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TEMPORAL: permitir todos para debugging
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health", tags=["Sistema"], summary="Verifica la salud de la API y la base de datos.")
+def healthcheck(db: Session = Depends(get_db)):
+    db.execute(text("SELECT 1"))
+    return {"status": "ok", "database": "ok"}
 
 # ===========================================================================
 # AUTENTICACIÓN
@@ -427,7 +430,7 @@ def _normalizar_texto(texto: str) -> str:
     "/pacientes/buscar-por-nombre",
     response_model=BusquedaNombreResponse,
     tags=["Pacientes"],
-    summary="Búsqueda nacional de pacientes por nombre (pacientes sin CURP). Sin filtro RBAC — todos los roles.",
+    summary="Búsqueda de pacientes por nombre filtrada automáticamente por rol.",
 )
 def buscar_pacientes_por_nombre(
     q: str = Query(..., min_length=3, description="Texto a buscar en el nombre completo del paciente."),
@@ -436,9 +439,18 @@ def buscar_pacientes_por_nombre(
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     tokens_busqueda = _normalizar_texto(q).split()
+    filtro = apply_rbac_filter(current_user)
+
+    query = db.query(Paciente)
+    if filtro.filtrar_por_clues:
+        query = query.filter(Paciente.clues_unidad_adscripcion == filtro.valor_clues)
+    elif filtro.filtrar_por_entidad:
+        query = query.join(UnidadMedica).filter(
+            UnidadMedica.id_entidad == filtro.valor_entidad
+        )
 
     candidatos: list[tuple[Paciente, str, str]] = []
-    for paciente in db.query(Paciente).all():
+    for paciente in query.order_by(Paciente.id_paciente).all():
         nombre = descifrar(paciente.nombre_completo)
         nombre_normalizado = _normalizar_texto(nombre)
         tokens_nombre = nombre_normalizado.split()
@@ -452,6 +464,15 @@ def buscar_pacientes_por_nombre(
     candidatos = candidatos[:limite]
 
     unidades = {u.clues: u.nombre_de_la_unidad for u in db.query(UnidadMedica).all()}
+    totales_por_paciente: dict[int, int] = {}
+    if candidatos:
+        ids_pacientes = [paciente.id_paciente for paciente, _, _ in candidatos]
+        totales_por_paciente = dict(
+            db.query(Registro.id_paciente, func.count(Registro.id_registro))
+            .filter(Registro.id_paciente.in_(ids_pacientes))
+            .group_by(Registro.id_paciente)
+            .all()
+        )
 
     resultados = [
         BusquedaNombreItem(
@@ -461,7 +482,7 @@ def buscar_pacientes_por_nombre(
             curp_paciente=descifrar_o_none(paciente.curp_paciente),
             clues_unidad_adscripcion=paciente.clues_unidad_adscripcion,
             nombre_unidad=unidades.get(paciente.clues_unidad_adscripcion),
-            total_registros=db.query(Registro).filter(Registro.id_paciente == paciente.id_paciente).count(),
+            total_registros=totales_por_paciente.get(paciente.id_paciente, 0),
         )
         for paciente, nombre, _ in candidatos
     ]
@@ -1777,6 +1798,8 @@ def reporte_resumen_detallado(
     fecha_inicio: date | None = Query(None),
     fecha_fin: date | None = Query(None),
     solo_activos: bool = Query(True),
+    pagina: int = Query(1, ge=1),
+    por_pagina: int = Query(500, ge=1, le=2000),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
@@ -1809,15 +1832,27 @@ def reporte_resumen_detallado(
     if fecha_fin:
         query = query.filter(Registro.fecha_inicio_tratamiento <= fecha_fin)
 
-    registros = query.all()
+    total_registros = query.count()
+    registros = (
+        query.order_by(Registro.id_registro.desc())
+        .offset((pagina - 1) * por_pagina)
+        .limit(por_pagina)
+        .all()
+    )
 
     return {
         "generado_en": datetime.now(timezone.utc).isoformat(),
-        "total_registros": len(registros),
+        "total_registros": total_registros,
+        "registros_devueltos": len(registros),
+        "pagina": pagina,
+        "por_pagina": por_pagina,
+        "hay_mas": pagina * por_pagina < total_registros,
         "filtros_aplicados": {
             "fecha_inicio": str(fecha_inicio) if fecha_inicio else None,
             "fecha_fin": str(fecha_fin) if fecha_fin else None,
             "solo_activos": solo_activos,
+            "pagina": pagina,
+            "por_pagina": por_pagina,
             "rbac_clues": filtro.valor_clues,
             "rbac_entidad": filtro.valor_entidad,
         },
