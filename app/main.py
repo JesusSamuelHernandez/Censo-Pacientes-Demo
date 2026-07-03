@@ -35,7 +35,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import exists, func, text, update
+from sqlalchemy import exists, func, or_, text, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import (
@@ -1664,11 +1664,24 @@ def listar_notificaciones(
     )
 
     if filtro.filtrar_por_clues:
-        query = query.filter(Registro.clues == filtro.valor_clues)
+        # Filtra por la unidad donde el paciente está AHORA (no donde se hizo la prescripción),
+        # para que las alertas de revalidación sigan al paciente tras un traslado.
+        query = query.filter(
+            Registro.paciente.has(
+                Paciente.clues_unidad_adscripcion == filtro.valor_clues
+            )
+        )
     elif filtro.filtrar_por_entidad:
-        query = query.join(
-            UnidadMedica, Registro.clues == UnidadMedica.clues
-        ).filter(UnidadMedica.id_entidad == filtro.valor_entidad)
+        # Mismo criterio para el nivel estatal: unidad actual del paciente dentro de la entidad.
+        clues_en_entidad = (
+            db.query(UnidadMedica.clues)
+            .filter(UnidadMedica.id_entidad == filtro.valor_entidad)
+        )
+        query = query.filter(
+            Registro.paciente.has(
+                Paciente.clues_unidad_adscripcion.in_(clues_en_entidad)
+            )
+        )
 
     registros = query.order_by(Registro.fecha_fin_tratamiento.asc()).all()
 
@@ -1727,8 +1740,12 @@ def listar_notificaciones_transferencia(
     )
 
     if current_user.es_responsable_unidad:
+        # La unidad ve la notificación si es origen (pierde al paciente) O destino (lo recibe).
         query = query.filter(
-            NotificacionTransferencia.clues_unidad_origen == current_user.clues_unidad_asignada
+            or_(
+                NotificacionTransferencia.clues_unidad_origen == current_user.clues_unidad_asignada,
+                NotificacionTransferencia.clues_unidad_destino == current_user.clues_unidad_asignada,
+            )
         )
 
     notifs = query.order_by(NotificacionTransferencia.fecha_traslado.desc()).all()
