@@ -1126,6 +1126,17 @@ def crear_registro(
             detail=f"Medicamento '{payload.clave_cnis}' no encontrado en catálogo activo.",
         )
 
+    prescripcion_activa = db.query(Registro).filter(
+        Registro.id_paciente == payload.id_paciente,
+        Registro.clave_cnis == payload.clave_cnis,
+        Registro.es_activo == True,
+    ).first()
+    if prescripcion_activa:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El paciente ya tiene una prescripción activa de este medicamento. Edita la existente o anúlala antes de crear una nueva.",
+        )
+
     if any([payload.dosis, payload.frecuencia, payload.duracion, payload.unidad_tiempo]):
         if not payload.fecha_primera_administracion:
             raise HTTPException(
@@ -1283,6 +1294,18 @@ def crear_registro_completo(
         )
 
     # 5. Crear registro (prescripción)
+    if not paciente_creado:
+        prescripcion_activa = db.query(Registro).filter(
+            Registro.id_paciente == paciente.id_paciente,
+            Registro.clave_cnis == payload.clave_cnis,
+            Registro.es_activo == True,
+        ).first()
+        if prescripcion_activa:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El paciente ya tiene una prescripción activa de este medicamento. Edita la existente o anúlala antes de crear una nueva.",
+            )
+
     nuevo = Registro(
         id_paciente=paciente.id_paciente,
         id_medico=payload.id_medico,

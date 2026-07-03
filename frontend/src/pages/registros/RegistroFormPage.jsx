@@ -69,6 +69,15 @@ const camposFormulario = {
   duracion: z.string().min(1, "Indica la duración del tratamiento."),
 };
 
+const refineAdminPosteriorAInicio = (data) => {
+  if (!data.fecha_inicio_tratamiento || !data.fecha_primera_administracion) return true;
+  return data.fecha_primera_administracion >= data.fecha_inicio_tratamiento;
+};
+const refineAdminMsg = {
+  message: "La fecha de primera administración debe ser igual o posterior a la fecha de inicio de tratamiento.",
+  path: ["fecha_primera_administracion"],
+};
+
 const schemaCrear = z.object({
   // Campos de paciente nuevo (validación adicional en onSubmit)
   nombre_completo: z.string().optional().or(z.literal("")),
@@ -77,9 +86,10 @@ const schemaCrear = z.object({
   clave_cnis: z.string().min(1, "Selecciona un medicamento."),
   clues: z.string().min(1, "Selecciona una unidad."),
   ...camposFormulario,
-});
+}).refine(refineAdminPosteriorAInicio, refineAdminMsg);
 
-const schemaEditar = z.object({ ...camposFormulario });
+const schemaEditar = z.object({ ...camposFormulario })
+  .refine(refineAdminPosteriorAInicio, refineAdminMsg);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -386,7 +396,8 @@ export default function RegistroFormPage() {
   const frecuenciaVal       = watch("frecuencia");
   const duracionVal         = watch("duracion");
   const unidadTiempoVal     = watch("unidad_tiempo");
-  const fechaPrimeraAdminVal = watch("fecha_primera_administracion");
+  const fechaPrimeraAdminVal   = watch("fecha_primera_administracion");
+  const fechaInicioTratamiento = watch("fecha_inicio_tratamiento");
 
   // Calcula el preview de prescripción en el cliente (espejo de la lógica del backend)
   const previewPrescripcion = (() => {
@@ -1061,6 +1072,7 @@ export default function RegistroFormPage() {
                 Fecha de primera administración <span className="text-primary">*</span>
               </label>
               <input type="date"
+                min={fechaInicioTratamiento || undefined}
                 className={`w-full px-4 py-2.5 rounded-lg border bg-neutral-light text-sm outline-none transition
                   focus:ring-2 focus:ring-primary/20 focus:border-primary
                   ${errors.fecha_primera_administracion ? "border-red-400 bg-red-50" : "border-neutral-gray/30"}`}
