@@ -5,12 +5,12 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bell, RefreshCw, CheckCircle, AlertTriangle, Clock, Eye,
-  ArrowRightLeft, ClipboardList,
+  ArrowRightLeft, ClipboardList, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { listarNotificaciones, listarNotificacionesTraslados, marcarTrasladoLeido } from "../../api/notificaciones";
-import { validarContinuidad } from "../../api/registros";
+import { validarContinuidad, anularRegistro } from "../../api/registros";
 import useAuthStore from "../../store/authStore";
 
 // Badge de urgencia para prescripciones
@@ -102,14 +102,18 @@ function TabBtn({ activo, onClick, icon: Icon, count, children }) {
 }
 
 // ── Pestaña Prescripciones ────────────────────────────────────────────────────
+const ROLES_PUEDEN_ANULAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
+
 function TabPrescripciones({ onTotal }) {
   const navigate = useNavigate();
+  const { rolNombre } = useAuthStore();
   const [notificaciones, setNotificaciones] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [modalValidar, setModalValidar] = useState(null);
   const [nuevaFecha, setNuevaFecha] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [confirmAnular, setConfirmAnular] = useState(null);
 
   const cargar = async () => {
     setLoading(true);
@@ -124,6 +128,7 @@ function TabPrescripciones({ onTotal }) {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { cargar(); }, []);
 
   const handleValidar = async () => {
@@ -141,6 +146,19 @@ function TabPrescripciones({ onTotal }) {
       toast.error(err.response?.data?.detail || "Error al validar la continuidad.");
     } finally {
       setGuardando(false);
+    }
+  };
+
+  const handleAnular = async () => {
+    if (!confirmAnular) return;
+    try {
+      await anularRegistro(confirmAnular);
+      toast.success("Prescripción anulada correctamente.");
+      setConfirmAnular(null);
+      cargar();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error al anular la prescripción.");
+      setConfirmAnular(null);
     }
   };
 
@@ -241,12 +259,50 @@ function TabPrescripciones({ onTotal }) {
                             <RefreshCw size={12} />
                             Validar
                           </button>
+                          {ROLES_PUEDEN_ANULAR.includes(rolNombre) && n.es_activo && (
+                            <button
+                              onClick={() => setConfirmAnular(n.id_registro)}
+                              className="p-1.5 rounded-lg text-neutral-gray hover:text-red-600 hover:bg-red-50 transition"
+                              title="Anular prescripción"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación de anulación */}
+      {confirmAnular && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-base font-semibold text-neutral-black mb-2">¿Anular esta prescripción?</h3>
+            <p className="text-sm text-neutral-gray mb-1">ID: <span className="font-mono">#{confirmAnular}</span></p>
+            <p className="text-sm text-neutral-gray mb-6">
+              La prescripción quedará marcada como anulada. Esta acción es por error de captura.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmAnular(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-neutral-gray/30
+                  text-sm text-neutral-gray hover:bg-neutral-light transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleAnular}
+                className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700
+                  text-white text-sm font-medium transition"
+              >
+                Confirmar anulación
+              </button>
             </div>
           </div>
         </div>
@@ -346,6 +402,7 @@ function TabTraslados({ onTotal }) {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { cargar(); }, []);
 
   const handleEnterado = async (id) => {
