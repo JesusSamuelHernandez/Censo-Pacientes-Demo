@@ -1660,7 +1660,6 @@ def listar_notificaciones(
         .filter(
             Registro.fecha_fin_tratamiento.isnot(None),
             Registro.fecha_fin_tratamiento <= fecha_alerta,
-            Registro.es_activo == True,
             Registro.paciente.has(Paciente.es_activo == True),
         )
     )
