@@ -106,6 +106,15 @@ def postgres_connect_args() -> dict[str, str | int]:
         except ValueError as exc:
             raise RuntimeError("DATABASE_CONNECT_TIMEOUT debe ser un entero.") from exc
 
+    # Keepalives TCP: el proxy público de Railway (y proxies similares) puede
+    # cerrar conexiones inactivas sin avisar al cliente. Sin keepalives, una
+    # sesión larga (ej. un script de carga con muchas filas) se queda esperando
+    # indefinidamente una respuesta que nunca llega (detectado 2026-06-23).
+    connect_args.setdefault("keepalives", 1)
+    connect_args.setdefault("keepalives_idle", 30)
+    connect_args.setdefault("keepalives_interval", 10)
+    connect_args.setdefault("keepalives_count", 5)
+
     return connect_args
 
 
