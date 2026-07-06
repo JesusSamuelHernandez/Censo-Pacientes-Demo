@@ -35,8 +35,8 @@ from app.models import Base, UnidadMedica
 # ---------------------------------------------------------------------------
 # Configuración
 # ---------------------------------------------------------------------------
-ARCHIVO_DEFAULT = os.path.join(os.path.dirname(__file__), "data", "unidades.xlsx")
-COLUMNAS_REQUERIDAS = {"clues", "nombre_de_la_unidad", "id_entidad"}
+ARCHIVO_DEFAULT = os.path.join(os.path.dirname(__file__), "data", "Unidades medicas.xlsx")
+COLUMNAS_REQUERIDAS = {"clues_imb", "nombre_de_la_unidad", "entidad"}
 
 
 def cargar_unidades(archivo: str) -> None:
@@ -77,9 +77,9 @@ def cargar_unidades(archivo: str) -> None:
         fila_num = idx + 2  # +2 porque fila 1 es encabezado, idx es base-0
 
         # Limpiar y validar campos requeridos
-        clues = str(row.get("clues", "")).strip().upper()
+        clues = str(row.get("clues_imb", "")).strip().upper()
         nombre = str(row.get("nombre_de_la_unidad", "")).strip()
-        id_entidad = str(row.get("id_entidad", "")).strip()
+        entidad = str(row.get("entidad", "")).strip()
         categoria = str(row.get("categoria_gerencial", "")).strip() or None
 
         # Saltar filas vacías
@@ -93,8 +93,8 @@ def cargar_unidades(archivo: str) -> None:
             errores += 1
             continue
 
-        if not id_entidad or id_entidad == "NAN":
-            print(f"  [ERROR]   Fila {fila_num} ({clues}): id_entidad vacío.")
+        if not entidad or entidad == "NAN":
+            print(f"  [ERROR]   Fila {fila_num} ({clues}): entidad vacío.")
             errores += 1
             continue
 
@@ -109,7 +109,7 @@ def cargar_unidades(archivo: str) -> None:
             nueva = UnidadMedica(
                 clues=clues,
                 nombre_de_la_unidad=nombre,
-                id_entidad=id_entidad,
+                id_entidad=entidad,
                 categoria_gerencial=categoria if categoria != "NAN" else None,
             )
             db.add(nueva)
