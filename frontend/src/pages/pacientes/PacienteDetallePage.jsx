@@ -60,6 +60,7 @@ export default function PacienteDetallePage() {
       }
     };
     cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curp]);
 
   if (loading) {
@@ -73,7 +74,7 @@ export default function PacienteDetallePage() {
   if (!paciente) return null;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       {/* Encabezado */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -137,14 +138,11 @@ export default function PacienteDetallePage() {
           </span>
         } />
         <Campo label="Unidad de adscripción" valor={paciente.clues_unidad_adscripcion} />
-        <Campo label="Fecha de registro" valor={new Date(paciente.fecha_registro).toLocaleDateString("es-MX", {
-          year: "numeric", month: "long", day: "numeric"
-        })} />
-        <Campo label="Adherencia" valor={
-          paciente.dias_adherencia != null
-            ? <span className="text-secondary font-semibold">{paciente.dias_adherencia} días</span>
-            : "Sin prescripción activa"
-        } />
+        <div className="col-span-2">
+          <Campo label="Fecha de registro" valor={new Date(paciente.fecha_registro).toLocaleDateString("es-MX", {
+            year: "numeric", month: "long", day: "numeric"
+          })} />
+        </div>
         <div className="col-span-2">
           <Campo label="Diagnóstico(s)" valor={
             paciente.diagnosticos_activos?.length
@@ -196,6 +194,7 @@ export default function PacienteDetallePage() {
                 <tr className="bg-neutral-light border-b border-neutral-gray/10">
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">ID</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Medicamento</th>
+                  <th className="text-left px-4 py-3 font-semibold text-neutral-black">Adherencia</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Médico</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Inicio</th>
                   <th className="text-left px-4 py-3 font-semibold text-neutral-black">Fin</th>
@@ -225,6 +224,13 @@ export default function PacienteDetallePage() {
                       >
                         {r.medicamento?.descripcion ?? "—"}
                       </p>
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {r.es_activo && r.fecha_inicio_tratamiento ? (
+                        <span className="text-secondary font-semibold">
+                          {Math.floor((Date.now() - new Date(r.fecha_inicio_tratamiento)) / 86400000)} días
+                        </span>
+                      ) : "—"}
                     </td>
                     <td className="px-4 py-3 text-neutral-gray text-xs">
                       {r.medico?.nombre_medico ?? "—"}

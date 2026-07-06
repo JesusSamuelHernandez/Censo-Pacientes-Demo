@@ -35,7 +35,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import exists, func, text, update
+from sqlalchemy import exists, func, or_, text, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import (
@@ -1126,6 +1126,17 @@ def crear_registro(
             detail=f"Medicamento '{payload.clave_cnis}' no encontrado en catálogo activo.",
         )
 
+    prescripcion_activa = db.query(Registro).filter(
+        Registro.id_paciente == payload.id_paciente,
+        Registro.clave_cnis == payload.clave_cnis,
+        Registro.es_activo == True,
+    ).first()
+    if prescripcion_activa:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El paciente ya tiene una prescripción activa de este medicamento. Edita la existente o anúlala antes de crear una nueva.",
+        )
+
     if any([payload.dosis, payload.frecuencia, payload.duracion, payload.unidad_tiempo]):
         if not payload.fecha_primera_administracion:
             raise HTTPException(
@@ -1283,6 +1294,18 @@ def crear_registro_completo(
         )
 
     # 5. Crear registro (prescripción)
+    if not paciente_creado:
+        prescripcion_activa = db.query(Registro).filter(
+            Registro.id_paciente == paciente.id_paciente,
+            Registro.clave_cnis == payload.clave_cnis,
+            Registro.es_activo == True,
+        ).first()
+        if prescripcion_activa:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El paciente ya tiene una prescripción activa de este medicamento. Edita la existente o anúlala antes de crear una nueva.",
+            )
+
     nuevo = Registro(
         id_paciente=paciente.id_paciente,
         id_medico=payload.id_medico,
@@ -1660,15 +1683,29 @@ def listar_notificaciones(
         .filter(
             Registro.fecha_fin_tratamiento.isnot(None),
             Registro.fecha_fin_tratamiento <= fecha_alerta,
+            Registro.paciente.has(Paciente.es_activo == True),
         )
     )
 
     if filtro.filtrar_por_clues:
-        query = query.filter(Registro.clues == filtro.valor_clues)
+        # Filtra por la unidad donde el paciente está AHORA (no donde se hizo la prescripción),
+        # para que las alertas de revalidación sigan al paciente tras un traslado.
+        query = query.filter(
+            Registro.paciente.has(
+                Paciente.clues_unidad_adscripcion == filtro.valor_clues
+            )
+        )
     elif filtro.filtrar_por_entidad:
-        query = query.join(
-            UnidadMedica, Registro.clues == UnidadMedica.clues
-        ).filter(UnidadMedica.id_entidad == filtro.valor_entidad)
+        # Mismo criterio para el nivel estatal: unidad actual del paciente dentro de la entidad.
+        clues_en_entidad = (
+            db.query(UnidadMedica.clues)
+            .filter(UnidadMedica.id_entidad == filtro.valor_entidad)
+        )
+        query = query.filter(
+            Registro.paciente.has(
+                Paciente.clues_unidad_adscripcion.in_(clues_en_entidad)
+            )
+        )
 
     registros = query.order_by(Registro.fecha_fin_tratamiento.asc()).all()
 
@@ -1727,8 +1764,12 @@ def listar_notificaciones_transferencia(
     )
 
     if current_user.es_responsable_unidad:
+        # La unidad ve la notificación si es origen (pierde al paciente) O destino (lo recibe).
         query = query.filter(
-            NotificacionTransferencia.clues_unidad_origen == current_user.clues_unidad_asignada
+            or_(
+                NotificacionTransferencia.clues_unidad_origen == current_user.clues_unidad_asignada,
+                NotificacionTransferencia.clues_unidad_destino == current_user.clues_unidad_asignada,
+            )
         )
 
     notifs = query.order_by(NotificacionTransferencia.fecha_traslado.desc()).all()
