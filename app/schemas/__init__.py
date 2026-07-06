@@ -1,0 +1,138 @@
+"""Esquemas Pydantic exportados por dominio.
+
+Este paquete conserva el contrato historico `from app.schemas import X`
+mientras permite mantener los schemas en archivos mas pequenos.
+"""
+from app.schemas.auth import (
+    CambiarPasswordRequest,
+    LoginRequest,
+    SolicitarAccesoRequest,
+    SolicitarAccesoResponse,
+    TokenResponse,
+)
+from app.schemas.catalogos import (
+    DiagnosticoCreate,
+    DiagnosticoResponse,
+    DiagnosticoUpdate,
+    MedicamentoCreate,
+    MedicamentoResponse,
+    MedicamentoUpdate,
+    PuestoResponse,
+    UnidadMedicaCreate,
+    UnidadMedicaResponse,
+    UnidadMedicaUpdate,
+)
+from app.schemas.common import (
+    CONFIRMADO_MEDIANTE_OPTIONS,
+    ESTATUS_EVOLUCION_OPTIONS,
+    MOTIVO_BAJA_OPTIONS,
+    ClaveCnisStr,
+    CluesStr,
+    CurpStr,
+    RolStr,
+)
+from app.schemas.medicos import (
+    MedicoCreate,
+    MedicoResponse,
+    MedicoUpdate,
+)
+from app.schemas.notificaciones import (
+    NotificacionListResponse,
+    NotificacionResponse,
+    NotificacionTransferenciaListResponse,
+    NotificacionTransferenciaResponse,
+)
+from app.schemas.pacientes import (
+    BajaPacienteRequest,
+    BusquedaCurpResponse,
+    BusquedaNombreItem,
+    BusquedaNombreResponse,
+    ExpedienteCreate,
+    ExpedienteResponse,
+    ExpedienteUpdate,
+    PacienteCreate,
+    PacienteListResponse,
+    PacienteResponse,
+    PacienteUpdate,
+    ReaccionAdversaCreate,
+    ReaccionAdversaResponse,
+)
+from app.schemas.registros import (
+    RegistroCompletoCreate,
+    RegistroCompletoResponse,
+    RegistroCreate,
+    RegistroListResponse,
+    RegistroResponse,
+    RegistroUpdate,
+    ValidarContinuidadRequest,
+)
+from app.schemas.reportes import (
+    RtmFilaResponse,
+    RtmMesItem,
+    RtmResponse,
+)
+from app.schemas.usuarios import (
+    UsuarioCreate,
+    UsuarioCreateResponse,
+    UsuarioResponse,
+    UsuarioUpdate,
+)
+
+__all__ = [
+    "BajaPacienteRequest",
+    "BusquedaCurpResponse",
+    "BusquedaNombreItem",
+    "BusquedaNombreResponse",
+    "CambiarPasswordRequest",
+    "ClaveCnisStr",
+    "CluesStr",
+    "CONFIRMADO_MEDIANTE_OPTIONS",
+    "CurpStr",
+    "DiagnosticoCreate",
+    "DiagnosticoResponse",
+    "DiagnosticoUpdate",
+    "ESTATUS_EVOLUCION_OPTIONS",
+    "ExpedienteCreate",
+    "ExpedienteResponse",
+    "ExpedienteUpdate",
+    "LoginRequest",
+    "MedicoCreate",
+    "MedicoResponse",
+    "MedicoUpdate",
+    "MedicamentoCreate",
+    "MedicamentoResponse",
+    "MedicamentoUpdate",
+    "MOTIVO_BAJA_OPTIONS",
+    "NotificacionListResponse",
+    "NotificacionResponse",
+    "NotificacionTransferenciaListResponse",
+    "NotificacionTransferenciaResponse",
+    "PacienteCreate",
+    "PacienteListResponse",
+    "PacienteResponse",
+    "PacienteUpdate",
+    "PuestoResponse",
+    "ReaccionAdversaCreate",
+    "ReaccionAdversaResponse",
+    "RegistroCompletoCreate",
+    "RegistroCompletoResponse",
+    "RegistroCreate",
+    "RegistroListResponse",
+    "RegistroResponse",
+    "RegistroUpdate",
+    "RolStr",
+    "RtmFilaResponse",
+    "RtmMesItem",
+    "RtmResponse",
+    "SolicitarAccesoRequest",
+    "SolicitarAccesoResponse",
+    "TokenResponse",
+    "UnidadMedicaCreate",
+    "UnidadMedicaResponse",
+    "UnidadMedicaUpdate",
+    "UsuarioCreate",
+    "UsuarioCreateResponse",
+    "UsuarioResponse",
+    "UsuarioUpdate",
+    "ValidarContinuidadRequest",
+]
