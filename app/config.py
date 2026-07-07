@@ -144,3 +144,19 @@ def inspect_database_url(database_url: str) -> DatabaseUrlInfo:
         port_set=bool(url.port),
         database_set=bool(url.database),
     )
+
+
+# ---------------------------------------------------------------------------
+# Feature Flags
+# Cambia a True para activar el módulo correspondiente sin redeploy.
+# ---------------------------------------------------------------------------
+
+# Módulo de reacciones adversas a medicamentos por paciente.
+REACCIONES_ADVERSAS_HABILITADO = False
+
+# Permite cambiar el estatus de evolución del paciente (banderín de color).
+ESTATUS_EVOLUCION_HABILITADO = False
+
+# Restringe qué medicamentos puede usar cada unidad (tabla unidad_medicamentos).
+# Cuando está en False todas las unidades pueden usar todo el catálogo activo.
+UNIDAD_MEDICAMENTOS_HABILITADO = False

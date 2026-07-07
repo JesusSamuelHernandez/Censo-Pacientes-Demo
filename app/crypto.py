@@ -19,6 +19,8 @@ import hashlib
 import os
 
 from cryptography.fernet import Fernet
+from sqlalchemy import LargeBinary
+from sqlalchemy.types import TypeDecorator
 
 # ---------------------------------------------------------------------------
 # Inicialización — la instancia Fernet se crea una sola vez al importar.
@@ -33,6 +35,25 @@ if not _FERNET_KEY:
     )
 
 _fernet = Fernet(_FERNET_KEY.encode())
+
+
+# ---------------------------------------------------------------------------
+# Tipo SQLAlchemy — cifra/descifra automáticamente en columnas del modelo.
+# ---------------------------------------------------------------------------
+class EncryptedString(TypeDecorator):
+    """Columna LargeBinary que cifra/descifra automáticamente con Fernet."""
+    impl = LargeBinary
+    cache_ok = True
+
+    def process_bind_param(self, value: str | None, dialect) -> bytes | None:
+        if value is None:
+            return None
+        return _fernet.encrypt(value.encode("utf-8"))
+
+    def process_result_value(self, value: bytes | None, dialect) -> str | None:
+        if value is None:
+            return None
+        return _fernet.decrypt(value).decode("utf-8")
 
 
 # ---------------------------------------------------------------------------

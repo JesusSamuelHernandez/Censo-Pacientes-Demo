@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-
+from app.crypto import EncryptedString
 
 class Paciente(Base):
     """Padron de pacientes en tratamiento con medicamentos de alto costo."""
@@ -13,9 +13,9 @@ class Paciente(Base):
 
     id_paciente: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     curp_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
-    curp_paciente: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
-    nombre_completo: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    diagnostico_actual: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    curp_paciente: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    nombre_completo: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    diagnostico_actual: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     fecha_nacimiento: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     clues_unidad_adscripcion: Mapped[str] = mapped_column(
