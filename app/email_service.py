@@ -50,10 +50,16 @@ def enviar_correo(destinatario: str, asunto: str, contenido: str) -> bool:
     msg.set_content(contenido)
 
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30)
+        try:
+            server.ehlo()
             server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.ehlo()
+            if SMTP_USER and SMTP_PASSWORD:
+                server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
+        finally:
+            server.quit()
         return True
     except Exception:
         logger.exception("enviar_correo: fallo al enviar correo a %s.", destinatario)
