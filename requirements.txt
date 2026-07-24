@@ -19,7 +19,7 @@ bcrypt==5.0.0                    # Hasheo de contraseñas (usado directamente, s
 cryptography==44.0.2             # Cifrado simétrico Fernet para columnas sensibles
 
 # ── Formularios (OAuth2PasswordRequestForm) ────────────────────────────────────
-python-multipart==0.0.20         # Requerido por FastAPI para parsear form-data
+python-multipart==0.0.30         # Requerido por FastAPI para parsear form-data
 
 # ── Variables de entorno ───────────────────────────────────────────────────────
 python-dotenv==1.0.1             # Carga .env en desarrollo local
