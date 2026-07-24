@@ -14,7 +14,7 @@ pydantic[email]==2.10.3          # Habilita EmailStr (depende de email-validator
 email-validator==2.2.0           # Requerido por EmailStr
 
 # ── Autenticación JWT ──────────────────────────────────────────────────────────
-python-jose[cryptography]==3.3.0 # Generación y verificación de tokens JWT
+python-jose[cryptography]==3.4.0 # Generación y verificación de tokens JWT
 bcrypt==5.0.0                    # Hasheo de contraseñas (usado directamente, sin passlib)
 cryptography==48.0.1             # Cifrado simétrico Fernet para columnas sensibles
 
