@@ -16,7 +16,7 @@ email-validator==2.2.0           # Requerido por EmailStr
 # ── Autenticación JWT ──────────────────────────────────────────────────────────
 python-jose[cryptography]==3.3.0 # Generación y verificación de tokens JWT
 bcrypt==5.0.0                    # Hasheo de contraseñas (usado directamente, sin passlib)
-cryptography==44.0.2             # Cifrado simétrico Fernet para columnas sensibles
+cryptography==48.0.1             # Cifrado simétrico Fernet para columnas sensibles
 
 # ── Formularios (OAuth2PasswordRequestForm) ────────────────────────────────────
 python-multipart==0.0.31         # Requerido por FastAPI para parsear form-data
