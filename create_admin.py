@@ -63,7 +63,7 @@ def create_first_admin():
         print("--------------------------------------------------")
         print("¡ÉXITO! Tablas creadas y Usuario Admin registrado.")
         print(f"Usuario (Login): {email_admin}")
-        print(f"Contraseña: {password_plana}")
+        print("Contraseña: [OCULTA] (definida vía ADMIN_PASSWORD)")
         print("Ahora ya puedes iniciar el servidor con uvicorn.")
         print("--------------------------------------------------")
 
