@@ -292,10 +292,12 @@ def obtener_paciente(
 ):
     marcar_registros_vencidos(db)
     paciente = _obtener_paciente_por_identificador(identificador, db)
+    _verificar_acceso_paciente(paciente, current_user, db)
 
-    # Lectura nacional sin restricción: cualquier rol puede consultar el detalle de
-    # un paciente para hacer búsquedas al registrar una nueva prescripción.
-    # La restricción RBAC aplica solo en escritura (PATCH / DELETE).
+    # Si se requiere ubicar pacientes de otras unidades (p. ej. para
+    # continuidad de tratamiento), usar /pacientes/buscar o /pacientes?q=,
+    # que exponen solo identidad y conteo de registros, sin diagnóstico,
+    # expediente ni historial.
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds, adherencias = _get_medicamentos_y_adherencia(paciente.id_paciente, db)
@@ -435,6 +437,7 @@ def listar_expedientes_paciente(
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     paciente = _obtener_paciente_por_identificador(identificador, db)
+    _verificar_acceso_paciente(paciente, current_user, db)
     expedientes = db.query(ExpedientePaciente).filter(
         ExpedientePaciente.id_paciente == paciente.id_paciente
     ).all()
@@ -516,6 +519,7 @@ if REACCIONES_ADVERSAS_HABILITADO:
         current_user: UsuarioActivo = Depends(require_password_cambiado),
     ):
         paciente = _obtener_paciente_por_identificador(identificador, db)
+        _verificar_acceso_paciente(paciente, current_user, db)
         reacciones = (
             db.query(ReaccionAdversa)
             .filter(ReaccionAdversa.id_paciente == paciente.id_paciente)
@@ -568,6 +572,7 @@ def listar_registros_de_paciente(
 ):
     marcar_registros_vencidos(db)
     paciente = _obtener_paciente_por_identificador(identificador, db)
+    _verificar_acceso_paciente(paciente, current_user, db)
 
     query = (
         db.query(Registro)

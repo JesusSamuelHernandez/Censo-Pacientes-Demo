@@ -63,7 +63,13 @@ export default function PacienteFormPage() {
             fecha_nacimiento: p.fecha_nacimiento ?? "",
           });
         })
-        .catch(() => toast.error("Error al cargar el paciente."));
+        .catch((error) => {
+          const mensaje =
+            error.response?.status === 403
+              ? "No tienes acceso a este paciente."
+              : "Error al cargar el paciente.";
+          toast.error(mensaje);
+        });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);

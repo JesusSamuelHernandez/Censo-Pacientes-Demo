@@ -85,7 +85,13 @@ export default function MedicoFormPage() {
           email: m.email ?? "",
           clues_adscripcion: m.clues_adscripcion,
         }))
-        .catch(() => toast.error("Error al cargar el médico."));
+        .catch((error) => {
+          const mensaje =
+            error.response?.status === 403
+              ? "No tienes acceso a este médico."
+              : "Error al cargar el médico.";
+          toast.error(mensaje);
+        });
     }
   }, [id]);
 

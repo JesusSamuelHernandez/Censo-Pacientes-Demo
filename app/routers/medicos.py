@@ -7,7 +7,11 @@ from app.crypto import hash_sha256
 from app.database import get_db
 from app.models import CatPuesto, Medico, UnidadMedica
 from app.schemas import MedicoCreate, MedicoResponse, MedicoUpdate
-from app.services.medicos import _medico_to_response
+from app.services.medicos import (
+    _medico_to_response,
+    _obtener_medico_o_404,
+    _verificar_acceso_medico,
+)
 
 router = APIRouter(prefix="/medicos", tags=["Médicos"])
 
@@ -111,9 +115,8 @@ def obtener_medico(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
-    if not medico:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
+    medico = _obtener_medico_o_404(id_medico, db)
+    _verificar_acceso_medico(medico, current_user, db)
     return _medico_to_response(medico)
 
 
@@ -128,23 +131,8 @@ def actualizar_medico(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
-    if not medico:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
-
-    if current_user.es_responsable_unidad:
-        if medico.clues_adscripcion != current_user.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede modificar médicos de su propia unidad médica.",
-            )
-    elif current_user.es_admin_estatal:
-        unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == medico.clues_adscripcion).first()
-        if not unidad or unidad.id_entidad != current_user.id_entidad:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede modificar médicos de unidades de su estado.",
-            )
+    medico = _obtener_medico_o_404(id_medico, db)
+    _verificar_acceso_medico(medico, current_user, db)
 
     datos = payload.model_dump(exclude_none=True)
     if "nombre_medico" in datos:
@@ -191,8 +179,6 @@ def eliminar_medico(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_super_admin),
 ):
-    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
-    if not medico:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
+    medico = _obtener_medico_o_404(id_medico, db)
     db.delete(medico)
     db.commit()
