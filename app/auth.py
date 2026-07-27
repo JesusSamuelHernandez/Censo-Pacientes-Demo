@@ -94,9 +94,25 @@ def hash_password(plain_password: str) -> str:
     return bcrypt.hashpw(plain_password.encode(), bcrypt.gensalt()).decode()
 
 
+# Hash señuelo para comparar en tiempo constante cuando la cuenta no existe,
+# evitando que el tiempo de respuesta o el status revelen si el email está
+# registrado (ver _DUMMY_BCRYPT_HASH en autenticar_usuario).
+_DUMMY_BCRYPT_HASH = bcrypt.hashpw(b"cuenta-inexistente", bcrypt.gensalt()).decode()
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Retorna True si la contraseña coincide con el hash almacenado."""
-    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+    """
+    Retorna True si la contraseña coincide con el hash almacenado.
+
+    bcrypt limita internamente a 72 bytes; con bcrypt>=4 checkpw lanza
+    ValueError en vez de truncar. Sin este guard, una cuenta existente con
+    password >72 bytes respondería 500 mientras que una cuenta inexistente
+    respondería 401 — una fuga de enumeración (CWE-204).
+    """
+    password_bytes = plain_password.encode("utf-8")
+    if len(password_bytes) > 72:
+        return False
+    return bcrypt.checkpw(password_bytes, hashed_password.encode())
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +390,13 @@ def autenticar_usuario(email: str, password: str, db: Session) -> Usuario:
         .first()
     )
 
-    if usuario is None or not verify_password(password, usuario.hashed_password):
+    # Siempre se ejecuta verify_password, exista o no la cuenta, contra un
+    # hash real o uno señuelo: mismo camino de código y costo de cómputo en
+    # ambos casos, para no filtrar por status ni por tiempo de respuesta.
+    hash_a_verificar = usuario.hashed_password if usuario else _DUMMY_BCRYPT_HASH
+    password_valida = verify_password(password, hash_a_verificar)
+
+    if usuario is None or not password_valida:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas.",
