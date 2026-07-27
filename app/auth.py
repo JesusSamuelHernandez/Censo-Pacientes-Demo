@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from app.config import require_env
 from app.database import get_db
-from app.models import Rol, Usuario
+from app.models import Rol, UnidadMedica, Usuario
 
 # ---------------------------------------------------------------------------
 # Configuración desde variables de entorno
@@ -326,6 +326,33 @@ def apply_rbac_filter(usuario: UsuarioActivo) -> FiltroRBAC:
         valor_entidad=None,
         sin_filtro=True,
     )
+
+
+def _verificar_clues_en_ambito(clues: str, usuario: UsuarioActivo, db: Session) -> None:
+    """
+    Lanza 403 si la CLUES indicada queda fuera del ámbito geográfico del usuario.
+
+    Debe aplicarse tanto a la CLUES actual de un recurso como a cualquier CLUES
+    nueva que un payload intente asignar (alta o transferencia), para que un
+    responsable o admin estatal no pueda mover ni crear recursos fuera de su
+    unidad/estado simplemente indicando un destino distinto en el body.
+    """
+    if usuario.es_super_admin:
+        return
+    if usuario.es_responsable_unidad:
+        if clues != usuario.clues_unidad_asignada:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puede operar dentro de su propia unidad médica.",
+            )
+        return
+    if usuario.es_admin_estatal:
+        unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == clues).first()
+        if not unidad or unidad.id_entidad != usuario.id_entidad:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puede operar dentro de unidades de su propio estado.",
+            )
 
 
 # ---------------------------------------------------------------------------

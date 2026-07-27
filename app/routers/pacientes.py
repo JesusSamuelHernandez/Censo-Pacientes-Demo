@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import exists, func
 from sqlalchemy.orm import Session, joinedload
 
-from app.auth import UsuarioActivo, apply_rbac_filter, require_password_cambiado
+from app.auth import (
+    UsuarioActivo,
+    _verificar_clues_en_ambito,
+    apply_rbac_filter,
+    require_password_cambiado,
+)
 from app.config import ESTATUS_EVOLUCION_HABILITADO, REACCIONES_ADVERSAS_HABILITADO
 from app.crypto import hash_sha256
 from app.database import get_db
@@ -147,12 +152,7 @@ def crear_paciente(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    if current_user.es_responsable_unidad:
-        if payload.clues_unidad_adscripcion != current_user.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede registrar pacientes en su propia unidad médica.",
-            )
+    _verificar_clues_en_ambito(payload.clues_unidad_adscripcion, current_user, db)
 
     curp_hash = hash_sha256(payload.curp_paciente)
     if db.query(Paciente).filter(Paciente.curp_hash == curp_hash).first():
@@ -347,6 +347,9 @@ def actualizar_paciente(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tiene acceso a pacientes de otro estado.",
             )
+        if payload.clues_unidad_adscripcion:
+            # También el destino: no puede transferir el paciente a otro estado.
+            _verificar_clues_en_ambito(payload.clues_unidad_adscripcion.strip().upper(), current_user, db)
 
     clues_anterior = paciente.clues_unidad_adscripcion
 
@@ -457,12 +460,7 @@ def upsert_expediente_paciente(
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     paciente = _obtener_paciente_por_identificador(identificador, db)
-
-    if current_user.es_responsable_unidad and payload.clues != current_user.clues_unidad_asignada:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo puede gestionar expedientes de su propia unidad.",
-        )
+    _verificar_clues_en_ambito(payload.clues, current_user, db)
 
     expediente = db.query(ExpedientePaciente).filter(
         ExpedientePaciente.id_paciente == paciente.id_paciente,

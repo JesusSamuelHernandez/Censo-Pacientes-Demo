@@ -2,7 +2,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.auth import UsuarioActivo, apply_rbac_filter, require_password_cambiado, require_super_admin
+from app.auth import (
+    UsuarioActivo,
+    _verificar_clues_en_ambito,
+    apply_rbac_filter,
+    require_password_cambiado,
+    require_super_admin,
+)
 from app.crypto import hash_sha256
 from app.database import get_db
 from app.models import CatPuesto, Medico, UnidadMedica
@@ -65,13 +71,7 @@ def crear_medico(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tiene permiso para registrar médicos. Contacte a su administrador estatal.",
         )
-    elif current_user.es_admin_estatal:
-        unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == clues).first()
-        if not unidad or unidad.id_entidad != current_user.id_entidad:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede registrar médicos en unidades de su estado.",
-            )
+    _verificar_clues_en_ambito(clues, current_user, db)
 
     cedula_hash = hash_sha256(payload.cedula)
     if db.query(Medico).filter(Medico.cedula_hash == cedula_hash).first():
@@ -135,6 +135,9 @@ def actualizar_medico(
     _verificar_acceso_medico(medico, current_user, db)
 
     datos = payload.model_dump(exclude_none=True)
+    if "clues_adscripcion" in datos:
+        datos["clues_adscripcion"] = datos["clues_adscripcion"].strip().upper()
+        _verificar_clues_en_ambito(datos["clues_adscripcion"], current_user, db)
     if "nombre_medico" in datos:
         medico.nombre_medico = datos.pop("nombre_medico")
     if "cedula" in datos:

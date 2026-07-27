@@ -509,13 +509,9 @@ def validar_continuidad(
     if not registro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Registro no encontrado.")
 
-    # RBAC: RESPONSABLE_UNIDAD solo puede validar registros de su unidad
-    if current_user.es_responsable_unidad:
-        if registro.clues != current_user.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No puede validar registros de otra unidad médica.",
-            )
+    # La prescripción "sigue al paciente": el acceso se determina por la unidad
+    # actual del paciente, no por registro.clues (la unidad donde se generó).
+    _verificar_acceso_registro(registro, current_user, db)
 
     # Si tiene posología guardada → calcular nueva fecha desde hoy
     if registro.duracion and registro.unidad_tiempo:
