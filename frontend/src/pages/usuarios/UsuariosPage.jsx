@@ -78,7 +78,7 @@ const schemaEditar = z.object({
   rol_nombre: z.enum(["SUPER_ADMIN", "ADMIN_ESTATAL", "RESPONSABLE_UNIDAD"]).optional(),
   clues_unidad_asignada: z.string().optional().or(z.literal("")),
   id_entidad: z.string().optional().or(z.literal("")),
-  password: z.string().min(8, "Mínimo 8 caracteres.").optional().or(z.literal("")),
+  password: z.string().min(15, "Mínimo 15 caracteres.").max(72).optional().or(z.literal("")),
 });
 
 // ── Modal de contraseña temporal ──────────────────────────────────────────────
@@ -354,7 +354,7 @@ function ModalFormulario({ item, onClose, onGuardado }) {
               </label>
               <input
                 type="password"
-                placeholder="Mínimo 8 caracteres"
+                placeholder="Mínimo 15 caracteres"
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
                   text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
                 {...register("password")}

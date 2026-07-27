@@ -6,8 +6,12 @@ import unicodedata
 _MOTIVO_BAJA_SEP = ", "
 
 
-def _generar_password_temporal(longitud: int = 12) -> str:
-    """Genera una contraseña aleatoria alfanumérica para el primer acceso."""
+def _generar_password_temporal(longitud: int = 15) -> str:
+    """Genera una contraseña aleatoria alfanumérica para el primer acceso.
+
+    15 caracteres para cumplir el mínimo de la política de contraseñas
+    (app.services.password_policy) aunque esta no pase por esa validación.
+    """
     alfabeto = string.ascii_letters + string.digits
     return "".join(secrets.choice(alfabeto) for _ in range(longitud))
 

@@ -1,5 +1,7 @@
 """Schemas de autenticacion y cambio de password."""
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.services.password_policy import PASSWORD_MIN_LENGTH, validar_password_fuerte
 
 
 class SolicitarAccesoRequest(BaseModel):
@@ -36,9 +38,15 @@ class CambiarPasswordRequest(BaseModel):
     password_actual: str = Field(..., min_length=1, description="Contrasena actual.")
     password_nueva: str = Field(
         ...,
-        min_length=8,
-        description="Nueva contrasena (minimo 8 caracteres).",
+        min_length=PASSWORD_MIN_LENGTH,
+        max_length=72,
+        description=f"Nueva contrasena (minimo {PASSWORD_MIN_LENGTH} caracteres, NIST SP 800-63B-4).",
     )
+
+    @field_validator("password_nueva")
+    @classmethod
+    def _validar_fortaleza(cls, v: str) -> str:
+        return validar_password_fuerte(v)
     nombre_usuario: str | None = Field(
         None,
         min_length=2,

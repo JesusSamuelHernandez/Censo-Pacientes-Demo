@@ -13,6 +13,22 @@ import { toast } from "sonner";
 import { cambiarPassword } from "../../api/auth";
 import useAuthStore from "../../store/authStore";
 
+// Medidor de fortaleza puramente indicativo (UX) — la validación real
+// (longitud, blocklist de contraseñas comunes) la hace el backend.
+function calcularFortaleza(password) {
+  if (!password) return { nivel: 0, etiqueta: "", color: "bg-neutral-gray/20" };
+  let puntos = 0;
+  if (password.length >= 15) puntos += 1;
+  if (password.length >= 20) puntos += 1;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) puntos += 1;
+  if (/\d/.test(password)) puntos += 1;
+  if (/[^A-Za-z0-9]/.test(password)) puntos += 1;
+
+  if (puntos <= 1) return { nivel: 1, etiqueta: "Débil", color: "bg-red-500" };
+  if (puntos <= 3) return { nivel: 2, etiqueta: "Aceptable", color: "bg-yellow-500" };
+  return { nivel: 3, etiqueta: "Fuerte", color: "bg-green-600" };
+}
+
 const construirSchema = (requiereNombre) =>
   z
     .object({
@@ -22,7 +38,8 @@ const construirSchema = (requiereNombre) =>
       password_actual: z.string().min(1, "Ingresa tu contraseña actual."),
       password_nueva: z
         .string()
-        .min(8, "La nueva contraseña debe tener al menos 8 caracteres."),
+        .min(15, "La nueva contraseña debe tener al menos 15 caracteres.")
+        .max(72, "La nueva contraseña no puede exceder 72 caracteres."),
       password_confirmar: z.string().min(1, "Confirma tu nueva contraseña."),
     })
     .refine((d) => d.password_nueva === d.password_confirmar, {
@@ -41,8 +58,12 @@ export default function CambiarPasswordPage() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm({ resolver: zodResolver(construirSchema(requiereNombre)) });
+
+  const passwordNueva = watch("password_nueva") || "";
+  const fortaleza = calcularFortaleza(passwordNueva);
 
   const toggleShow = (field) => setShow((prev) => ({ ...prev, [field]: !prev[field] }));
 
@@ -133,11 +154,30 @@ export default function CambiarPasswordPage() {
               label="Contraseña temporal actual"
               showField="actual"
             />
-            <InputPassword
-              name="password_nueva"
-              label="Nueva contraseña (mínimo 8 caracteres)"
-              showField="nueva"
-            />
+            <div>
+              <InputPassword
+                name="password_nueva"
+                label="Nueva contraseña (mínimo 15 caracteres)"
+                showField="nueva"
+              />
+              {passwordNueva && (
+                <div className="mt-1.5">
+                  <div className="h-1.5 w-full bg-neutral-gray/20 rounded-full overflow-hidden flex gap-0.5">
+                    {[1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className={`h-full flex-1 rounded-full transition-colors ${
+                          fortaleza.nivel >= i ? fortaleza.color : "bg-neutral-gray/20"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs text-neutral-gray mt-1">
+                    Fortaleza: <span className="font-medium">{fortaleza.etiqueta}</span>
+                  </p>
+                </div>
+              )}
+            </div>
             <InputPassword
               name="password_confirmar"
               label="Confirmar nueva contraseña"
