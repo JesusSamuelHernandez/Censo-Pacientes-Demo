@@ -63,8 +63,8 @@ export default function App() {
             <Route element={<ProtectedRoute rolesPermitidos={ROLES.TODOS} />}>
               <Route path="/pacientes" element={<PacientesPage />} />
               <Route path="/pacientes/nuevo" element={<PacienteFormPage />} />
-              <Route path="/pacientes/:curp" element={<PacienteDetallePage />} />
-              <Route path="/pacientes/:curp/editar" element={<PacienteFormPage />} />
+              <Route path="/pacientes/:id" element={<PacienteDetallePage />} />
+              <Route path="/pacientes/:id/editar" element={<PacienteFormPage />} />
               <Route path="/medicos" element={<MedicosPage />} />
               <Route path="/medicos/nuevo" element={<MedicoFormPage />} />
               <Route path="/medicos/:id/editar" element={<MedicoFormPage />} />

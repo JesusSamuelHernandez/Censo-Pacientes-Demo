@@ -194,7 +194,7 @@ export default function RegistrosPage() {
                     <td className="px-4 py-3">
                       {r.nombre_paciente ? (
                         <button
-                          onClick={() => navigate(`/pacientes/${r.curp_paciente}`, {
+                          onClick={() => navigate(`/pacientes/${r.id_paciente}`, {
                             state: { from: "registros-list" }
                           })}
                           title={r.nombre_paciente}

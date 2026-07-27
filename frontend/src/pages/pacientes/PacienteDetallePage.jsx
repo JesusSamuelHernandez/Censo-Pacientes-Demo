@@ -30,7 +30,7 @@ function getEstadoRegistro(r) {
 const ROLES_PUEDEN_EDITAR = ["SUPER_ADMIN", "RESPONSABLE_UNIDAD"];
 
 export default function PacienteDetallePage() {
-  const { curp } = useParams();
+  const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { rolNombre } = useAuthStore();
@@ -47,8 +47,8 @@ export default function PacienteDetallePage() {
     const cargar = async () => {
       try {
         const [p, r] = await Promise.all([
-          obtenerPaciente(curp),
-          listarRegistrosDePaciente(curp),
+          obtenerPaciente(id),
+          listarRegistrosDePaciente(id),
         ]);
         setPaciente(p);
         setRegistros(r.resultados);
@@ -61,7 +61,7 @@ export default function PacienteDetallePage() {
     };
     cargar();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curp]);
+  }, [id]);
 
   if (loading) {
     return (
@@ -118,7 +118,7 @@ export default function PacienteDetallePage() {
           )}
           {ROLES_PUEDEN_EDITAR.includes(rolNombre) && paciente.es_activo && (
             <button
-              onClick={() => navigate(`/pacientes/${curp}/editar`)}
+              onClick={() => navigate(`/pacientes/${id}/editar`)}
               className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white
                 text-sm font-medium px-4 py-2 rounded-lg transition"
             >
@@ -156,7 +156,7 @@ export default function PacienteDetallePage() {
               label="Alertas"
               valor={
                 <ReaccionAdversaIcon
-                  identificador={curp}
+                  identificador={id}
                   modoDetalle
                 />
               }

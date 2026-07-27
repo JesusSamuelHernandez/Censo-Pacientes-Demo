@@ -20,6 +20,7 @@ from app.models import (
 )
 from app.schemas import (
     BajaPacienteRequest,
+    BusquedaCurpRequest,
     BusquedaCurpResponse,
     BusquedaNombreItem,
     BusquedaNombreResponse,
@@ -179,17 +180,17 @@ def crear_paciente(
     return respuesta
 
 
-@router.get(
+@router.post(
     "/buscar",
     response_model=BusquedaCurpResponse,
     summary="Búsqueda nacional de paciente por CURP. Sin filtro RBAC — todos los roles.",
 )
 def buscar_paciente_por_curp(
-    curp: str = Query(..., min_length=18, max_length=18, description="CURP completa del paciente."),
+    payload: BusquedaCurpRequest,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    curp_normalizada = curp.strip().upper()
+    curp_normalizada = payload.curp
     paciente = db.query(Paciente).filter(
         Paciente.curp_hash == hash_sha256(curp_normalizada)
     ).first()
@@ -280,17 +281,17 @@ def buscar_pacientes_por_nombre(
 
 
 @router.get(
-    "/{curp_paciente}",
+    "/{identificador}",
     response_model=PacienteResponse,
     summary="Detalle completo de un paciente.",
 )
 def obtener_paciente(
-    curp_paciente: str,
+    identificador: str,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     marcar_registros_vencidos(db)
-    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+    paciente = _obtener_paciente_por_identificador(identificador, db)
 
     # Lectura nacional sin restricción: cualquier rol puede consultar el detalle de
     # un paciente para hacer búsquedas al registrar una nueva prescripción.
@@ -306,17 +307,17 @@ def obtener_paciente(
 
 
 @router.patch(
-    "/{curp_paciente}",
+    "/{identificador}",
     response_model=PacienteResponse,
     summary="Actualización parcial de datos del paciente.",
 )
 def actualizar_paciente(
-    curp_paciente: str,
+    identificador: str,
     payload: PacienteUpdate,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+    paciente = _obtener_paciente_por_identificador(identificador, db)
 
     # RBAC para escritura — permite traslado entrante para RESPONSABLE_UNIDAD
     if current_user.es_responsable_unidad:
@@ -387,17 +388,17 @@ def actualizar_paciente(
 
 
 @router.delete(
-    "/{curp_paciente}",
+    "/{identificador}",
     response_model=PacienteResponse,
     summary="Soft Delete: da de baja al paciente.",
 )
 def dar_baja_paciente(
-    curp_paciente: str,
+    identificador: str,
     payload: BajaPacienteRequest,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+    paciente = _obtener_paciente_por_identificador(identificador, db)
     _verificar_acceso_paciente(paciente, current_user, db)
 
     if not paciente.es_activo:
@@ -424,16 +425,16 @@ def dar_baja_paciente(
 
 
 @router.get(
-    "/{curp_paciente}/expedientes",
+    "/{identificador}/expedientes",
     response_model=list[ExpedienteResponse],
     summary="Lista los expedientes del paciente en cada unidad donde ha sido atendido.",
 )
 def listar_expedientes_paciente(
-    curp_paciente: str,
+    identificador: str,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+    paciente = _obtener_paciente_por_identificador(identificador, db)
     expedientes = db.query(ExpedientePaciente).filter(
         ExpedientePaciente.id_paciente == paciente.id_paciente
     ).all()
@@ -441,18 +442,18 @@ def listar_expedientes_paciente(
 
 
 @router.post(
-    "/{curp_paciente}/expedientes",
+    "/{identificador}/expedientes",
     response_model=ExpedienteResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crea o actualiza el expediente del paciente en una unidad específica (upsert).",
 )
 def upsert_expediente_paciente(
-    curp_paciente: str,
+    identificador: str,
     payload: ExpedienteCreate,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+    paciente = _obtener_paciente_por_identificador(identificador, db)
 
     if current_user.es_responsable_unidad and payload.clues != current_user.clues_unidad_asignada:
         raise HTTPException(
@@ -505,16 +506,16 @@ if REACCIONES_ADVERSAS_HABILITADO:
         )
 
     @router.get(
-        "/{curp_paciente}/reacciones-adversas",
+        "/{identificador}/reacciones-adversas",
         response_model=list[ReaccionAdversaResponse],
         summary="Lista las reacciones adversas registradas para un paciente.",
     )
     def listar_reacciones_adversas(
-        curp_paciente: str,
+        identificador: str,
         db: Session = Depends(get_db),
         current_user: UsuarioActivo = Depends(require_password_cambiado),
     ):
-        paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+        paciente = _obtener_paciente_por_identificador(identificador, db)
         reacciones = (
             db.query(ReaccionAdversa)
             .filter(ReaccionAdversa.id_paciente == paciente.id_paciente)
@@ -525,18 +526,18 @@ if REACCIONES_ADVERSAS_HABILITADO:
         return [_reaccion_to_response(r) for r in reacciones]
 
     @router.post(
-        "/{curp_paciente}/reacciones-adversas",
+        "/{identificador}/reacciones-adversas",
         response_model=ReaccionAdversaResponse,
         status_code=status.HTTP_201_CREATED,
         summary="Registra una reacción adversa a un medicamento para un paciente.",
     )
     def agregar_reaccion_adversa(
-        curp_paciente: str,
+        identificador: str,
         payload: ReaccionAdversaCreate,
         db: Session = Depends(get_db),
         current_user: UsuarioActivo = Depends(require_password_cambiado),
     ):
-        paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+        paciente = _obtener_paciente_por_identificador(identificador, db)
         _verificar_acceso_paciente(paciente, current_user, db)
 
         if not db.query(CatMedicamento).filter(CatMedicamento.clave_cnis == payload.clave_cnis).first():
@@ -555,18 +556,18 @@ if REACCIONES_ADVERSAS_HABILITADO:
 
 
 @router.get(
-    "/{curp_paciente}/registros",
+    "/{identificador}/registros",
     response_model=RegistroListResponse,
     summary="Todas las prescripciones de un paciente, sin filtro de unidad.",
 )
 def listar_registros_de_paciente(
-    curp_paciente: str,
+    identificador: str,
     solo_activos: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     marcar_registros_vencidos(db)
-    paciente = _obtener_paciente_por_identificador(curp_paciente, db)
+    paciente = _obtener_paciente_por_identificador(identificador, db)
 
     query = (
         db.query(Registro)

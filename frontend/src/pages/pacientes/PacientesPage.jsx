@@ -78,9 +78,9 @@ export default function PacientesPage() {
       : true
   );
 
-  const handleEstatusEvolucionCambiado = (curp, nuevoEstatus) => {
+  const handleEstatusEvolucionCambiado = (idPaciente, nuevoEstatus) => {
     setPacientes((prev) =>
-      prev.map((p) => (p.curp_paciente === curp ? { ...p, estatus_evolucion: nuevoEstatus } : p))
+      prev.map((p) => (p.id_paciente === idPaciente ? { ...p, estatus_evolucion: nuevoEstatus } : p))
     );
   };
 
@@ -202,15 +202,15 @@ export default function PacientesPage() {
                       <div className={`relative ${ESTATUS_EVOLUCION_HABILITADO && soloActivos ? "pl-5" : ""}`}>
                         {ESTATUS_EVOLUCION_HABILITADO && soloActivos && (
                           <BanderinEstado
-                            curp={p.curp_paciente}
+                            identificador={p.id_paciente}
                             estatus={p.estatus_evolucion}
-                            onChange={(nuevo) => handleEstatusEvolucionCambiado(p.curp_paciente, nuevo)}
+                            onChange={(nuevo) => handleEstatusEvolucionCambiado(p.id_paciente, nuevo)}
                           />
                         )}
                         <div className="flex items-center gap-1.5">
                           {REACCIONES_ADVERSAS_HABILITADO && p.tiene_reaccion_adversa && (
                             <ReaccionAdversaIcon
-                              identificador={p.curp_paciente ?? String(p.id_paciente)}
+                              identificador={p.id_paciente}
                             />
                           )}
                           <span title={p.nombre_completo}>{p.nombre_completo}</span>
@@ -293,7 +293,7 @@ export default function PacientesPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => navigate(`/pacientes/${p.curp_paciente ?? p.id_paciente}`)}
+                          onClick={() => navigate(`/pacientes/${p.id_paciente}`)}
                           className="p-1.5 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
                           title="Ver detalle"
                         >
@@ -301,7 +301,7 @@ export default function PacientesPage() {
                         </button>
                         {REACCIONES_ADVERSAS_HABILITADO && (
                           <button
-                            onClick={() => setPacienteReaccion(p.curp_paciente ?? String(p.id_paciente))}
+                            onClick={() => setPacienteReaccion(p.id_paciente)}
                             className="p-1.5 rounded-lg text-neutral-gray hover:text-yellow-600 hover:bg-yellow-50 transition"
                             title="Reacción adversa"
                           >
@@ -310,7 +310,7 @@ export default function PacientesPage() {
                         )}
                         {ROLES_PUEDEN_CREAR.includes(rolNombre) && p.es_activo && (
                           <button
-                            onClick={() => setConfirmBaja(p.curp_paciente)}
+                            onClick={() => setConfirmBaja(p.id_paciente)}
                             className="p-1.5 rounded-lg text-neutral-gray hover:text-red-600 hover:bg-red-50 transition"
                             title="Dar de baja"
                           >

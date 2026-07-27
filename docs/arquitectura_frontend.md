@@ -155,7 +155,7 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 - `crearPaciente(data)` → `POST /pacientes`
 - `actualizarPaciente(curp, data)` → `PATCH /pacientes/{curp}` (también usado por `BanderinEstado` para actualizar `estatus_evolucion`)
 - `darBajaPaciente(curp, motivosBaja)` → `DELETE /pacientes/{curp}` (body `{ motivo_baja }`, arreglo de 1 o más valores)
-- `buscarPacientePorCurp(curp)` → `GET /pacientes/buscar?curp=`
+- `buscarPacientePorCurp(curp)` → `POST /pacientes/buscar` (body `{ curp }`)
 - `buscarPacientesPorNombre(q, limite)` → `GET /pacientes/buscar-por-nombre?q=&limite=` (para pacientes sin CURP)
 - `listarRegistrosDePaciente(curp, soloActivos)` → `GET /pacientes/{curp}/registros`
 - `listarExpedientesPaciente(curp)` → `GET /pacientes/{curp}/expedientes`
@@ -229,9 +229,9 @@ Cada archivo en `src/api/` encapsula las llamadas a los endpoints del backend us
 | Página | Ruta | Endpoints consumidos | Roles con acceso |
 |---|---|---|---|
 | Lista | `/pacientes` | `GET /pacientes` | Todos |
-| Detalle | `/pacientes/:curp` | `GET /pacientes/{curp}` + `GET /pacientes/{curp}/registros` + `GET /pacientes/{curp}/expedientes` | Todos |
+| Detalle | `/pacientes/:id` | `GET /pacientes/{id}` + `GET /pacientes/{id}/registros` + `GET /pacientes/{id}/expedientes` | Todos |
 | Registrar | `/pacientes/nuevo` | `POST /pacientes` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
-| Editar | `/pacientes/:curp/editar` | `PATCH /pacientes/{curp}` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
+| Editar | `/pacientes/:id/editar` | `PATCH /pacientes/{id}` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 
 **Banderín de estatus de evolución (`BanderinEstado.jsx`):** En `PacientesPage.jsx`, cuando `soloActivos = true`, cada fila muestra un banderín de color con forma de listón (clip-path) a la izquierda del nombre, posicionado `absolute` dentro de un contenedor `relative` con `-top-1.5 -bottom-1.5` para sobresalir visualmente sin ser recortado por el `overflow-hidden` de la tabla. El color depende de `paciente.estatus_evolucion`:
 
@@ -270,11 +270,11 @@ Al hacer clic se abre un modal con la leyenda de colores y un selector; al elegi
 | Registrar | `/registros/nuevo` | `POST /registros/completo` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 | Editar | `/registros/:id/editar` | `PATCH /registros/:id` | RESPONSABLE_UNIDAD, SUPER_ADMIN |
 
-**Formulario combinado (`RegistroFormPage`):** Busca primero el paciente por CURP (`GET /pacientes/buscar`). Si existe, usa sus datos. Si no existe, muestra campos para capturarlo.
+**Formulario combinado (`RegistroFormPage`):** Busca primero el paciente por CURP (`POST /pacientes/buscar` con body). Si existe, usa sus datos. Si no existe, muestra campos para capturarlo.
 
 **Identificación de pacientes sin CURP (recién nacidos):** Debajo del buscador de CURP, un segundo buscador "as you type" (`BuscadorPacientePorNombre`, debounce 350ms, mínimo 3 caracteres) consulta `GET /pacientes/buscar-por-nombre`. Acepta apellido-primero o nombre-primero y es insensible a acentos (normalización NFD en backend). Cada resultado muestra el nombre y la fecha de nacimiento en formato `DD/MM/AA` (`formatFechaCorta`) junto con la unidad de adscripción. Al seleccionar un resultado se limpia cualquier búsqueda por CURP en curso (los dos buscadores no permanecen activos a la vez).
 
-Ambos caminos de identificación (CURP encontrada o nombre seleccionado) convergen en una única variable derivada `pacienteEncontrado`, renderizada con el componente compartido `PacienteEncontradoCard` (nombre, unidad, total de registros, fecha de nacimiento, botón "Ver historial" que navega a `/pacientes/:curp` — el backend resuelve `id_paciente` numérico igual que una CURP — y botón "Quitar" para el caso de búsqueda por nombre).
+Ambos caminos de identificación (CURP encontrada o nombre seleccionado) convergen en una única variable derivada `pacienteEncontrado`, renderizada con el componente compartido `PacienteEncontradoCard` (nombre, unidad, total de registros, fecha de nacimiento, botón "Ver historial" que navega a `/pacientes/:id` usando `id_paciente` — sin exponer la CURP en la URL del navegador — y botón "Quitar" para el caso de búsqueda por nombre).
 
 Si no hay paciente identificado (ni por CURP ni por nombre), se muestran los campos de **paciente nuevo**: `nombre_completo` (requerido), `fecha_nacimiento` (opcional) y, si la CURP capturada no tiene formato válido, un campo **CURP (opcional)** adicional para pacientes que sí cuentan con CURP pero no fueron encontrados por ese buscador.
 

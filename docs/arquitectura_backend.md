@@ -53,10 +53,10 @@ No hay scheduler externo. La función `marcar_registros_vencidos()` se llama al 
 El modelo `Registro` amplía el concepto de "receta" con posología completa (dosis, frecuencia, duración), cálculo automático de `fecha_fin_tratamiento`, trazabilidad de reemplazos (`id_registro_origen`) y validación de continuidad.
 
 ### Estatus de evolución del paciente (banderín)
-`Paciente.estatus_evolucion` (default `"Inicia tx"`) representa el avance clínico del paciente y se muestra como un banderín de color en el frontend (solo en "Pacientes Activos"). Se actualiza vía el mismo `PATCH /pacientes/{curp_paciente}` que el resto de los datos del paciente — no hay endpoint dedicado, por lo que reutiliza el RBAC existente (las 3 roles que pueden editar a un paciente también pueden cambiar su estatus de evolución). Cada cambio estampa `id_usuario_ultimo_cambio_estatus` y `fecha_ultimo_cambio_estatus`.
+`Paciente.estatus_evolucion` (default `"Inicia tx"`) representa el avance clínico del paciente y se muestra como un banderín de color en el frontend (solo en "Pacientes Activos"). Se actualiza vía el mismo `PATCH /pacientes/{identificador}` que el resto de los datos del paciente — no hay endpoint dedicado, por lo que reutiliza el RBAC existente (las 3 roles que pueden editar a un paciente también pueden cambiar su estatus de evolución). Cada cambio estampa `id_usuario_ultimo_cambio_estatus` y `fecha_ultimo_cambio_estatus`.
 
 ### CURP opcional (pacientes sin CURP, ej. recién nacidos)
-`Paciente.curp_hash` y `curp_paciente` son `nullable` (Postgres permite múltiples `NULL` en una columna `unique`). Un paciente sin CURP se identifica y localiza por `id_paciente`. El helper `_obtener_paciente_por_identificador(identificador, db)` resuelve el segmento `{curp_paciente}` de las rutas existentes: si `identificador.isdigit()` busca por `id_paciente`, si no por `curp_hash`. Esto permite que rutas como `GET /pacientes/{curp_paciente}` acepten también un `id_paciente` numérico sin cambiar su definición. La búsqueda de estos pacientes se hace por nombre vía `GET /pacientes/buscar-por-nombre` (ver §7.2).
+`Paciente.curp_hash` y `curp_paciente` son `nullable` (Postgres permite múltiples `NULL` en una columna `unique`). Un paciente se identifica y localiza preferentemente por `id_paciente` (para no exponer la CURP en URLs, logs ni historial del navegador). El helper `_obtener_paciente_por_identificador(identificador, db)` resuelve el segmento `{identificador}` de las rutas: si `identificador.isdigit()` busca por `id_paciente`, si no por `curp_hash` (compatibilidad). La búsqueda por CURP va en el body de `POST /pacientes/buscar`; la de pacientes sin CURP se hace por nombre vía `GET /pacientes/buscar-por-nombre` (ver §7.2).
 
 ---
 
@@ -398,10 +398,11 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 | `PacienteBase` | `nombre_completo` (str, 2-255), `diagnostico_actual` (opt, max 5000), `clues_unidad_adscripcion` (CluesStr, normalizado a mayúsculas), `fecha_nacimiento` (opt) |
 | `PacienteCreate` | Base + `curp_paciente` (CurpStr, validado contra regex oficial) |
 | `PacienteUpdate` | Opcionales: `nombre_completo`, `diagnostico_actual`, `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `estatus_evolucion` (validado contra `ESTATUS_EVOLUCION_OPTIONS`) |
-| `BajaPacienteRequest` | `motivo_baja` (`list[str]`, requerido, mínimo 1 elemento, cada valor validado contra `MOTIVO_BAJA_OPTIONS`). Body de `DELETE /pacientes/{curp_paciente}` |
+| `BajaPacienteRequest` | `motivo_baja` (`list[str]`, requerido, mínimo 1 elemento, cada valor validado contra `MOTIVO_BAJA_OPTIONS`). Body de `DELETE /pacientes/{identificador}` |
+| `BusquedaCurpRequest` | `curp` (CURP válida, 18 caracteres, normalizada a mayúsculas). Body de `POST /pacientes/buscar` |
+| `BusquedaCurpResponse` | `existe`, `id_paciente`, `nombre_completo`, `fecha_nacimiento`, `clues_unidad_adscripcion`, `nombre_unidad`, `total_registros` |
 | `PacienteResponse` | `id_paciente`, `curp_paciente` (descifrado, `str \| None` — `None` si el paciente no tiene CURP), `nombre_completo` (descifrado), `diagnostico_actual` (descifrado, legacy), `clues_unidad_adscripcion`, `fecha_nacimiento`, `es_activo`, `motivo_baja` (`list[str] \| None`), `estatus_evolucion`, `fecha_registro`, `id_usuario_registro`, `dias_adherencia` (calculado, registro activo más reciente), `tiene_prescripcion_activa`, `medicamentos_activos` (list[str]), `adherencia_medicamentos` (list[int \| None] — días de adherencia por medicamento activo, alineado posicionalmente con `medicamentos_activos`), `diagnosticos_activos` (list[str] — nombres de diagnósticos de prescripciones activas), `tiene_reaccion_adversa` (bool — True si existe al menos una reacción adversa en `reacciones_adversas`) |
 | `PacienteListResponse` | `total`, `pagina`, `por_pagina`, `resultados` (list[PacienteResponse]) |
-| `BusquedaCurpResponse` | `existe`, `id_paciente`, `nombre_completo`, `fecha_nacimiento`, `clues_unidad_adscripcion`, `nombre_unidad`, `total_registros` |
 | `BusquedaNombreItem` | `id_paciente`, `nombre_completo`, `fecha_nacimiento` (opt), `curp_paciente` (opt, descifrado), `clues_unidad_adscripcion`, `nombre_unidad` (opt), `total_registros` |
 | `BusquedaNombreResponse` | `resultados` (list[BusquedaNombreItem]) |
 
@@ -521,18 +522,18 @@ Tabla de relación N:M entre `cat_unidades` y `cat_medicamentos`. No todas las u
 |---|---|---|---|
 | GET | `/pacientes` | Todos | Lista paginada con filtro RBAC automático. Params: `solo_activos`, `pagina`, `por_pagina`, `clave_cnis`. Llama `marcar_registros_vencidos()`. |
 | POST | `/pacientes` | Todos | Crear nuevo paciente. CURP cifrada + hash. Conflicto 409 si CURP duplicada. |
-| GET | `/pacientes/buscar` | Todos | Búsqueda nacional por CURP. Sin filtro RBAC. |
+| POST | `/pacientes/buscar` | Todos | Búsqueda nacional por CURP en el body (`BusquedaCurpRequest`). Sin filtro RBAC. La CURP no viaja en la URL. |
 | GET | `/pacientes/buscar-por-nombre` | Todos | Búsqueda nacional por nombre (para pacientes sin CURP). Sin filtro RBAC. Param: `q` (min 3 chars), `limite` (default 15, max 50). Descifra y normaliza (mayúsculas, sin acentos) cada `nombre_completo`; hace match si cada token de `q` es prefijo de algún token del nombre (acepta apellido-primero o nombre-primero). |
-| GET | `/pacientes/{curp_paciente}` | Todos | Detalle completo. Lectura nacional sin restricción RBAC. |
-| PATCH | `/pacientes/{curp_paciente}` | Todos (con restricciones por rol) | Actualización parcial. Si cambia `clues_unidad_adscripcion`, genera `NotificacionTransferencia` automáticamente. Si el payload incluye `estatus_evolucion`, estampa `id_usuario_ultimo_cambio_estatus` y `fecha_ultimo_cambio_estatus` antes de aplicar los cambios. |
-| DELETE | `/pacientes/{curp_paciente}` | Todos (con acceso) | Soft Delete (`es_activo = False`). Requiere body `BajaPacienteRequest` con `motivo_baja` (lista de 1 o más valores, cada uno validado contra `MOTIVO_BAJA_OPTIONS`); se limpia automáticamente si el paciente se reactiva después. |
-| GET | `/pacientes/{curp_paciente}/registros` | Todos | Todas las prescripciones del paciente, sin filtro de unidad. Param: `solo_activos`. |
-| GET | `/pacientes/{curp_paciente}/expedientes` | Todos | Lista los expedientes (número de expediente por unidad) del paciente. |
-| POST | `/pacientes/{curp_paciente}/expedientes` | Todos (con restricciones por rol) | Crea o actualiza (upsert) el número de expediente del paciente en una unidad (`clues` + `numero_expediente`). RESPONSABLE_UNIDAD solo puede gestionar expedientes de su propia unidad (403 si no coincide). 201 Created. |
-| GET | `/pacientes/{curp_paciente}/reacciones-adversas` | Todos | Lista todas las reacciones adversas del paciente en orden descendente de fecha. Sin filtro RBAC (lectura nacional). Devuelve `list[ReaccionAdversaResponse]` |
-| POST | `/pacientes/{curp_paciente}/reacciones-adversas` | Todos (con restricciones de acceso) | Registra una nueva reacción adversa. Aplica `_verificar_acceso_paciente()` (RESPONSABLE_UNIDAD → solo su unidad, ADMIN_ESTATAL → solo su estado). Guarda `id_usuario_registro`. 201 Created. |
+| GET | `/pacientes/{identificador}` | Todos | Detalle completo. Lectura nacional sin restricción RBAC. Preferir `id_paciente` numérico. |
+| PATCH | `/pacientes/{identificador}` | Todos (con restricciones por rol) | Actualización parcial. Si cambia `clues_unidad_adscripcion`, genera `NotificacionTransferencia` automáticamente. Si el payload incluye `estatus_evolucion`, estampa `id_usuario_ultimo_cambio_estatus` y `fecha_ultimo_cambio_estatus` antes de aplicar los cambios. |
+| DELETE | `/pacientes/{identificador}` | Todos (con acceso) | Soft Delete (`es_activo = False`). Requiere body `BajaPacienteRequest` con `motivo_baja` (lista de 1 o más valores, cada uno validado contra `MOTIVO_BAJA_OPTIONS`); se limpia automáticamente si el paciente se reactiva después. |
+| GET | `/pacientes/{identificador}/registros` | Todos | Todas las prescripciones del paciente, sin filtro de unidad. Param: `solo_activos`. |
+| GET | `/pacientes/{identificador}/expedientes` | Todos | Lista los expedientes (número de expediente por unidad) del paciente. |
+| POST | `/pacientes/{identificador}/expedientes` | Todos (con restricciones por rol) | Crea o actualiza (upsert) el número de expediente del paciente en una unidad (`clues` + `numero_expediente`). RESPONSABLE_UNIDAD solo puede gestionar expedientes de su propia unidad (403 si no coincide). 201 Created. |
+| GET | `/pacientes/{identificador}/reacciones-adversas` | Todos | Lista todas las reacciones adversas del paciente en orden descendente de fecha. Sin filtro RBAC (lectura nacional). Devuelve `list[ReaccionAdversaResponse]` |
+| POST | `/pacientes/{identificador}/reacciones-adversas` | Todos (con restricciones de acceso) | Registra una nueva reacción adversa. Aplica `_verificar_acceso_paciente()` (RESPONSABLE_UNIDAD → solo su unidad, ADMIN_ESTATAL → solo su estado). Guarda `id_usuario_registro`. 201 Created. |
 
-> **Nota:** En todas las rutas con `{curp_paciente}`, el segmento acepta también el `id_paciente` numérico de un paciente sin CURP — resuelto por `_obtener_paciente_por_identificador()` (ver §3, "CURP opcional").
+> **Nota:** En todas las rutas con `{identificador}`, el segmento preferido es el `id_paciente` numérico (no expone CURP en logs ni historial). Sigue aceptando CURP por compatibilidad — resuelto por `_obtener_paciente_por_identificador()` (ver §3, "CURP opcional").
 
 ---
 

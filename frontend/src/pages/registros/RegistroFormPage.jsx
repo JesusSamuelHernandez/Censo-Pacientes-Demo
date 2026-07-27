@@ -183,7 +183,7 @@ function BuscadorItem({ placeholder, items, displayFn, itemKey, onSelect, error 
 // ---------------------------------------------------------------------------
 // Tarjeta de paciente identificado (por CURP o por nombre)
 // ---------------------------------------------------------------------------
-function PacienteEncontradoCard({ data, historialId, navigate, onQuitar }) {
+function PacienteEncontradoCard({ data, historialId, navigate, onQuitar, curpOrigen = null }) {
   return (
     <div className="flex items-start justify-between gap-3 bg-secondary/5 border border-secondary/20 rounded-lg px-4 py-3">
       <div className="flex items-start gap-2">
@@ -207,7 +207,7 @@ function PacienteEncontradoCard({ data, historialId, navigate, onQuitar }) {
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <button type="button"
           onClick={() => navigate(`/pacientes/${historialId}`, {
-            state: { from: "registro-form", curpOrigen: typeof historialId === "string" ? historialId : null }
+            state: { from: "registro-form", curpOrigen: curpOrigen ?? data.curp_paciente ?? null }
           })}
           className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark
             border border-primary/30 hover:border-primary px-3 py-1.5 rounded-lg transition">
@@ -714,7 +714,12 @@ export default function RegistroFormPage() {
                 )}
 
                 {busquedaEstado === "encontrado" && resultadoBusqueda && (
-                  <PacienteEncontradoCard data={resultadoBusqueda} historialId={curpBusqueda} navigate={navigate} />
+                  <PacienteEncontradoCard
+                    data={resultadoBusqueda}
+                    historialId={resultadoBusqueda.id_paciente}
+                    navigate={navigate}
+                    curpOrigen={curpBusqueda.trim().toUpperCase()}
+                  />
                 )}
 
                 {busquedaEstado === "no_encontrado" && (
@@ -740,7 +745,7 @@ export default function RegistroFormPage() {
                   {pacienteSeleccionado ? (
                     <PacienteEncontradoCard
                       data={pacienteSeleccionado}
-                      historialId={pacienteSeleccionado.curp_paciente ?? pacienteSeleccionado.id_paciente}
+                      historialId={pacienteSeleccionado.id_paciente}
                       navigate={navigate}
                       onQuitar={() => setPacienteSeleccionado(null)}
                     />

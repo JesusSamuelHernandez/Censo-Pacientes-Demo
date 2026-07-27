@@ -144,6 +144,21 @@ class ExpedienteResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class BusquedaCurpRequest(BaseModel):
+    curp: CurpStr
+
+    @field_validator("curp", mode="before")
+    @classmethod
+    def normalizar_y_validar_curp(cls, v: str) -> str:
+        curp = v.strip().upper()
+        if not _CURP_REGEX.match(curp):
+            raise ValueError(
+                "CURP invalida. Debe tener 18 caracteres con el formato oficial "
+                "(ej. LOOA890101HDFPRS09)."
+            )
+        return curp
+
+
 class BusquedaCurpResponse(BaseModel):
     existe: bool
     id_paciente: int | None = None

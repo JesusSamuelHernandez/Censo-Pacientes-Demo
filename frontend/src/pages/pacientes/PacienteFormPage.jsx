@@ -1,6 +1,6 @@
 /**
  * PacienteFormPage.jsx — Formulario para registrar o editar un paciente.
- * Modo: si la URL tiene /:curp/editar → edición. Si es /nuevo → creación.
+ * Modo: si la URL tiene /:id/editar → edición. Si es /nuevo → creación.
  */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -32,11 +32,12 @@ const schemaEditar = z.object({
 });
 
 export default function PacienteFormPage() {
-  const { curp } = useParams();
-  const esEdicion = Boolean(curp);
+  const { id } = useParams();
+  const esEdicion = Boolean(id);
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
+  const [curpMostrada, setCurpMostrada] = useState(null);
 
   const {
     register,
@@ -53,16 +54,19 @@ export default function PacienteFormPage() {
 
   useEffect(() => {
     if (esEdicion) {
-      obtenerPaciente(curp)
-        .then((p) => reset({
-          nombre_completo: p.nombre_completo,
-          clues_unidad_adscripcion: p.clues_unidad_adscripcion,
-          fecha_nacimiento: p.fecha_nacimiento ?? "",
-        }))
+      obtenerPaciente(id)
+        .then((p) => {
+          setCurpMostrada(p.curp_paciente);
+          reset({
+            nombre_completo: p.nombre_completo,
+            clues_unidad_adscripcion: p.clues_unidad_adscripcion,
+            fecha_nacimiento: p.fecha_nacimiento ?? "",
+          });
+        })
         .catch(() => toast.error("Error al cargar el paciente."));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curp]);
+  }, [id]);
 
   const onSubmit = async (values) => {
     setLoading(true);
@@ -72,7 +76,7 @@ export default function PacienteFormPage() {
         const payload = Object.fromEntries(
           Object.entries(values).filter(([, v]) => v !== "" && v !== undefined)
         );
-        await actualizarPaciente(curp, payload);
+        await actualizarPaciente(id, payload);
         toast.success("Paciente actualizado correctamente.");
       } else {
         const payload = {
@@ -106,7 +110,9 @@ export default function PacienteFormPage() {
             {esEdicion ? "Editar paciente" : "Registrar paciente"}
           </h2>
           <p className="text-sm text-neutral-gray">
-            {esEdicion ? `CURP: ${curp}` : "Completa los datos del nuevo paciente."}
+            {esEdicion
+              ? (curpMostrada ? `CURP: ${curpMostrada}` : `Paciente #${id}`)
+              : "Completa los datos del nuevo paciente."}
           </p>
         </div>
       </div>

@@ -487,7 +487,7 @@ function TabTraslados({ onTotal }) {
                 {/* Acciones */}
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
-                    onClick={() => navigate(`/pacientes/${t.curp_paciente}`)}
+                    onClick={() => navigate(`/pacientes/${t.id_paciente}`)}
                     className="p-2 rounded-lg text-neutral-gray hover:text-primary hover:bg-primary/10 transition"
                     title="Ver historial del paciente"
                   >

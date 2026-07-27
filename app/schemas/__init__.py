@@ -44,6 +44,7 @@ from app.schemas.notificaciones import (
 )
 from app.schemas.pacientes import (
     BajaPacienteRequest,
+    BusquedaCurpRequest,
     BusquedaCurpResponse,
     BusquedaNombreItem,
     BusquedaNombreResponse,
@@ -80,6 +81,7 @@ from app.schemas.usuarios import (
 
 __all__ = [
     "BajaPacienteRequest",
+    "BusquedaCurpRequest",
     "BusquedaCurpResponse",
     "BusquedaNombreItem",
     "BusquedaNombreResponse",

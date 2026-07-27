@@ -187,10 +187,10 @@ def _verificar_acceso_registro(
 
 
 def _obtener_paciente_por_identificador(identificador: str, db: Session) -> Paciente:
-    """Resuelve un paciente a partir del segmento {curp_paciente} de la URL.
+    """Resuelve un paciente a partir del segmento {identificador} de la URL.
 
-    El identificador puede ser una CURP (siempre empieza con 4 letras, nunca es
-    numérica) o el id_paciente numérico de un paciente sin CURP.
+    El identificador puede ser el id_paciente numérico (preferido, no expone CURP
+    en logs ni historial) o una CURP (compatibilidad; siempre empieza con 4 letras).
     """
     if identificador.isdigit():
         paciente = db.query(Paciente).filter(Paciente.id_paciente == int(identificador)).first()

@@ -18,7 +18,7 @@ const ESTATUS_EVOLUCION_OPTIONS = [
 const colorDe = (estatus) =>
   ESTATUS_EVOLUCION_OPTIONS.find((o) => o.valor === estatus)?.color ?? "#9ca3af";
 
-export default function BanderinEstado({ curp, estatus, onChange }) {
+export default function BanderinEstado({ identificador, estatus, onChange }) {
   const [abierto, setAbierto] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
@@ -29,7 +29,7 @@ export default function BanderinEstado({ curp, estatus, onChange }) {
     }
     setGuardando(true);
     try {
-      await actualizarPaciente(curp, { estatus_evolucion: valor });
+      await actualizarPaciente(identificador, { estatus_evolucion: valor });
       onChange?.(valor);
       toast.success("Estatus de evolución actualizado.");
       setAbierto(false);
