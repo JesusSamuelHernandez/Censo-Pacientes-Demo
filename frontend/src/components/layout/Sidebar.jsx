@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import useAuthStore from "../../store/authStore";
+import { cerrarSesion } from "../../api/auth";
 import { listarNotificaciones, listarNotificacionesTraslados } from "../../api/notificaciones";
 
 const ROLES = {
@@ -99,7 +100,13 @@ export default function Sidebar() {
     });
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await cerrarSesion();
+    } catch {
+      // Best-effort: aunque falle la invalidación en el servidor, no se debe
+      // dejar a la persona atrapada sin poder cerrar sesión localmente.
+    }
     logout();
     toast.success("Sesión cerrada.");
     navigate("/login", { replace: true });

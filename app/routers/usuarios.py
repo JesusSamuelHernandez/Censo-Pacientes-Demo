@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import (
     UsuarioActivo,
+    create_access_token,
     hash_password,
     require_cualquier_rol,
     require_super_admin,
@@ -15,6 +16,7 @@ from app.email_service import enviar_correo_acceso
 from app.models import Usuario
 from app.schemas import (
     CambiarPasswordRequest,
+    CambiarPasswordResponse,
     UsuarioCreate,
     UsuarioCreateResponse,
     UsuarioResponse,
@@ -78,7 +80,7 @@ def crear_usuario(
 
 @router.post(
     "/me/cambiar-password",
-    response_model=UsuarioResponse,
+    response_model=CambiarPasswordResponse,
     summary="Cambiar contraseña propia. Obligatorio tras el primer login.",
 )
 def cambiar_password(
@@ -104,9 +106,17 @@ def cambiar_password(
 
     usuario.hashed_password = hash_password(payload.password_nueva)
     usuario.debe_cambiar_password = False
+    usuario.token_version += 1
     db.commit()
     db.refresh(usuario)
-    return usuario
+
+    # token_version cambió: el JWT con el que se hizo esta llamada ya quedó
+    # invalidado. Se emite uno nuevo para que la sesión pueda continuar.
+    nuevo_token = create_access_token(usuario)
+    return CambiarPasswordResponse(
+        **UsuarioResponse.model_validate(usuario).model_dump(),
+        access_token=nuevo_token,
+    )
 
 
 @router.patch(
@@ -127,6 +137,7 @@ def actualizar_usuario(
     datos = payload.model_dump(exclude_none=True)
     if "password" in datos:
         usuario.hashed_password = hash_password(datos.pop("password"))
+        usuario.token_version += 1
     for campo, valor in datos.items():
         setattr(usuario, campo, valor)
 

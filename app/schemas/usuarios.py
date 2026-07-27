@@ -78,3 +78,13 @@ class UsuarioResponse(BaseModel):
 class UsuarioCreateResponse(UsuarioResponse):
     """Respuesta exclusiva de POST /usuarios. Incluye la password temporal."""
     password_temporal: str
+
+
+class CambiarPasswordResponse(UsuarioResponse):
+    """
+    Respuesta exclusiva de POST /usuarios/me/cambiar-password. Incluye un
+    access_token nuevo porque cambiar la contraseña invalida el token con el
+    que se hizo esta misma llamada (token_version) — sin este token nuevo,
+    el siguiente request del usuario recibiría 401 inmediatamente.
+    """
+    access_token: str

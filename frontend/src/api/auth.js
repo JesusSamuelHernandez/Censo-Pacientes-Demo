@@ -32,3 +32,10 @@ export const solicitarAcceso = async (email) => {
   const { data } = await axiosClient.post("/auth/solicitar-acceso", { email });
   return data; // { mensaje }
 };
+
+// POST /auth/logout — invalida en el servidor todos los tokens de la cuenta
+// (token_version). Best-effort: si falla (p. ej. sin red), igual se limpia
+// la sesión local en el llamador para no dejar a la persona sin poder salir.
+export const cerrarSesion = async () => {
+  await axiosClient.post("/auth/logout");
+};

@@ -28,6 +28,9 @@ class Usuario(Base):
     fecha_ultima_solicitud_acceso: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
 
     unidad_asignada: Mapped["UnidadMedica | None"] = relationship(back_populates="usuarios")
 

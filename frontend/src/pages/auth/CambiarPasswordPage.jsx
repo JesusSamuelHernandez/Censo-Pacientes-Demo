@@ -49,12 +49,14 @@ export default function CambiarPasswordPage() {
   const onSubmit = async (values) => {
     setLoading(true);
     try {
-      await cambiarPassword({
+      const data = await cambiarPassword({
         password_actual: values.password_actual,
         password_nueva: values.password_nueva,
         nombre_usuario: requiereNombre ? values.nombre_usuario : undefined,
       });
-      marcarPasswordCambiado(requiereNombre ? values.nombre_usuario : undefined);
+      // Cambiar la contraseña invalida el token anterior en el servidor
+      // (token_version); el backend emite uno nuevo para no cerrar la sesión.
+      marcarPasswordCambiado(requiereNombre ? values.nombre_usuario : undefined, data.access_token);
       toast.success("Contraseña actualizada correctamente.");
       navigate("/pacientes", { replace: true });
     } catch (err) {

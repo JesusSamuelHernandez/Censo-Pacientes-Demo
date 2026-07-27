@@ -73,6 +73,7 @@ from app.schemas.reportes import (
     RtmResponse,
 )
 from app.schemas.usuarios import (
+    CambiarPasswordResponse,
     UsuarioCreate,
     UsuarioCreateResponse,
     UsuarioResponse,
@@ -86,6 +87,7 @@ __all__ = [
     "BusquedaNombreItem",
     "BusquedaNombreResponse",
     "CambiarPasswordRequest",
+    "CambiarPasswordResponse",
     "ClaveCnisStr",
     "CluesStr",
     "CONFIRMADO_MEDIANTE_OPTIONS",

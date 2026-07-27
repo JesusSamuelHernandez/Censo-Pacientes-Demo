@@ -1,12 +1,18 @@
 """Router de autenticación: login y autoservicio de acceso."""
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth import autenticar_usuario, create_access_token, hash_password
+from app.auth import (
+    UsuarioActivo,
+    autenticar_usuario,
+    create_access_token,
+    hash_password,
+    require_cualquier_rol,
+)
 from app.database import get_db
 from app.email_service import enviar_correo_acceso
 from app.models import Usuario, UsuarioPreautorizado
@@ -53,6 +59,25 @@ def login(
         ),
         id_entidad=usuario.id_entidad,
     )
+
+
+@router.post(
+    "/auth/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Cierra la sesión: invalida en el servidor todos los tokens emitidos para esta cuenta.",
+)
+def logout(
+    db: Session = Depends(get_db),
+    current_user: UsuarioActivo = Depends(require_cualquier_rol),
+):
+    """
+    Incrementa token_version en BD, así que el JWT usado en esta misma
+    llamada (y cualquier otro token ya emitido para esta cuenta) deja de
+    ser válido de inmediato en get_current_user, sin esperar a su exp.
+    """
+    usuario = db.query(Usuario).filter(Usuario.id_usuario == current_user.id_usuario).first()
+    usuario.token_version += 1
+    db.commit()
 
 
 @router.post(
@@ -115,6 +140,7 @@ def solicitar_acceso(
                 if enviar_correo_acceso(email, password_temporal):
                     usuario.hashed_password = hash_password(password_temporal)
                     usuario.fecha_ultima_solicitud_acceso = ahora
+                    usuario.token_version += 1
                     db.commit()
         # Si la cuenta ya está activa (debe_cambiar_password=False), no se hace nada.
 

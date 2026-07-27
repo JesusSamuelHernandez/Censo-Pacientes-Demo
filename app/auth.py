@@ -129,6 +129,9 @@ def create_access_token(usuario: Usuario) -> str:
         rol_nombre            : rol RBAC.
         clues_unidad_asignada : contexto de unidad (RESPONSABLE_UNIDAD).
         id_entidad            : contexto estatal (ADMIN_ESTATAL).
+        token_version         : debe coincidir con usuarios.token_version en BD;
+                                 logout o cambio de contraseña la incrementan,
+                                 invalidando de inmediato los tokens ya emitidos.
         exp                   : fecha/hora de expiración (UTC).
     """
     expira_en = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)
@@ -140,6 +143,7 @@ def create_access_token(usuario: Usuario) -> str:
         "clues_unidad_asignada": usuario.clues_unidad_asignada,
         "id_entidad": usuario.id_entidad,
         "debe_cambiar_password": usuario.debe_cambiar_password,
+        "token_version": usuario.token_version,
         "exp": expira_en,
     }
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
@@ -174,7 +178,9 @@ def get_current_user(
     Dependencia FastAPI: decodifica el JWT y devuelve el contexto del usuario.
 
     Verifica que el usuario siga existiendo en la BD (protege contra cuentas
-    eliminadas o modificadas después de emitir el token).
+    eliminadas o modificadas después de emitir el token) y que el token no
+    haya sido invalidado por un logout o cambio de contraseña posterior
+    (token_version).
     """
     payload = _decode_token(token)
 
@@ -193,6 +199,13 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="El usuario del token ya no existe en el sistema.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if payload.get("token_version") != usuario_db.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión inválida o cerrada. Inicia sesión de nuevo.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
