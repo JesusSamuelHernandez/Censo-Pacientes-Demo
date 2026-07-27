@@ -4,7 +4,7 @@
  * - Si la CURP no existe: captura datos del paciente nuevo y crea ambos en una sola llamada.
  */
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";

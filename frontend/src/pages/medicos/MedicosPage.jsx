@@ -2,7 +2,7 @@
  * MedicosPage.jsx — Lista de médicos con búsqueda y acciones.
  */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { UserPlus, Search, Pencil, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 

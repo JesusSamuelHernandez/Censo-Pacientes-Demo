@@ -3,7 +3,7 @@
  * Accesible desde la lista de notificaciones o de prescripciones.
  */
 import { useEffect, useState } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router";
 import { ArrowLeft, RefreshCw, Pencil, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 

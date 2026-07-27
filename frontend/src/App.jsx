@@ -7,7 +7,7 @@
  *   /no-autorizado           → Pública
  *   /*                       → Protegidas dentro de AppLayout (Sidebar + Topbar)
  */
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { Toaster } from "sonner";
 
 import ProtectedRoute from "./components/layout/ProtectedRoute";
