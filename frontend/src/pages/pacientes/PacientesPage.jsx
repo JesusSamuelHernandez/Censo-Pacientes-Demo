@@ -2,7 +2,7 @@
  * PacientesPage.jsx — Lista paginada de pacientes con búsqueda, filtro por medicamento y acciones.
  */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Search, ChevronLeft, ChevronRight, Eye, UserX, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 

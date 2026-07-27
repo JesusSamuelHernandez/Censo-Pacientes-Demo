@@ -3,7 +3,7 @@
  * Los selects de paciente y médico usan búsqueda por texto para evitar listas largas.
  */
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";

@@ -2,7 +2,7 @@
  * AppLayout.jsx — Layout principal con Sidebar + Topbar + contenido.
  * Todas las páginas protegidas se renderizan dentro de este layout.
  */
-import { Outlet } from "react-router-dom";
+import { Outlet } from "react-router";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 

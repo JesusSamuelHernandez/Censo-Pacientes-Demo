@@ -3,7 +3,7 @@
  * Modo: si la URL tiene /:curp/editar → edición. Si es /nuevo → creación.
  */
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";

@@ -3,7 +3,7 @@
  * Se muestra obligatoriamente cuando debe_cambiar_password = true.
  */
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";

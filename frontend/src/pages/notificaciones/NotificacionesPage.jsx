@@ -2,7 +2,7 @@
  * NotificacionesPage.jsx — Dos pestañas: Prescripciones (continuidad) y Traslados.
  */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import {
   Bell, RefreshCw, CheckCircle, AlertTriangle, Clock, Eye,
   ArrowRightLeft, ClipboardList, Trash2,

@@ -2,7 +2,7 @@
  * RecetasPage.jsx — Lista paginada de recetas con filtros y acciones.
  */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { FilePlus, Search, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 

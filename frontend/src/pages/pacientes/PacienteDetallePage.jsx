@@ -2,7 +2,7 @@
  * PacienteDetallePage.jsx — Detalle completo de un paciente con sus prescripciones.
  */
 import { useEffect, useState } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router";
 import { ArrowLeft, Pencil, ClipboardList, X, Eye } from "lucide-react";
 import { toast } from "sonner";
 

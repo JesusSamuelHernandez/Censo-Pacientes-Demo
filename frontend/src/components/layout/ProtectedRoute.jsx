@@ -7,7 +7,7 @@
  *   3. Si se pasa `rolesPermitidos` y el rol no está en la lista → redirige a /no-autorizado.
  *   4. En cualquier otro caso → renderiza la página hija.
  */
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router";
 import useAuthStore from "../../store/authStore";
 
 export default function ProtectedRoute({ rolesPermitidos, ignorarPasswordPendiente = false }) {

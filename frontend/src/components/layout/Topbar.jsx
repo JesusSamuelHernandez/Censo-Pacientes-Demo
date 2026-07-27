@@ -1,7 +1,7 @@
 /**
  * Topbar.jsx — Barra superior con título de página y datos del usuario.
  */
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { User } from "lucide-react";
 import useAuthStore from "../../store/authStore";
 

@@ -2,7 +2,7 @@
  * RegistrosPage.jsx — Lista paginada de prescripciones (registros) con filtros y acciones.
  */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { FilePlus, Search, ChevronLeft, ChevronRight, Eye, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
