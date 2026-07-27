@@ -21,6 +21,9 @@ cryptography==48.0.1             # Cifrado simétrico Fernet para columnas sensi
 # ── Formularios (OAuth2PasswordRequestForm) ────────────────────────────────────
 python-multipart==0.0.31         # Requerido por FastAPI para parsear form-data
 
+# ── Rate limiting ──────────────────────────────────────────────────────────────
+slowapi==0.1.10                  # Throttling por IP en /auth/login y /auth/solicitar-acceso
+
 # ── Variables de entorno ───────────────────────────────────────────────────────
 python-dotenv==1.2.2             # Carga .env en desarrollo local
 

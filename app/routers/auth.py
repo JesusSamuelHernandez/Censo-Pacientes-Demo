@@ -1,5 +1,7 @@
 """Router de autenticación: login y autoservicio de acceso."""
-from fastapi import APIRouter, Depends
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -8,10 +10,16 @@ from app.auth import autenticar_usuario, create_access_token, hash_password
 from app.database import get_db
 from app.email_service import enviar_correo_acceso
 from app.models import Usuario, UsuarioPreautorizado
+from app.rate_limit import limiter
 from app.schemas import SolicitarAccesoRequest, SolicitarAccesoResponse, TokenResponse
 from app.services.utils import _generar_password_temporal
 
 router = APIRouter(tags=["Autenticación"])
+
+# Ventana mínima entre solicitudes de acceso para una misma cuenta pendiente.
+# Evita que una solicitud anónima repetida invalide continuamente la
+# contraseña temporal más reciente antes de que la persona alcance a usarla.
+SOLICITUD_ACCESO_COOLDOWN = timedelta(minutes=5)
 
 
 @router.post(
@@ -19,7 +27,9 @@ router = APIRouter(tags=["Autenticación"])
     response_model=TokenResponse,
     summary="Inicio de sesión — devuelve JWT + rol del usuario.",
 )
+@limiter.limit("5/minute")
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
@@ -50,7 +60,9 @@ def login(
     response_model=SolicitarAccesoResponse,
     summary="Autoservicio de alta — envía password temporal por correo si el email está preautorizado.",
 )
+@limiter.limit("3/hour")
 def solicitar_acceso(
+    request: Request,
     payload: SolicitarAccesoRequest,
     db: Session = Depends(get_db),
 ):
@@ -69,28 +81,41 @@ def solicitar_acceso(
 
     if preautorizado:
         usuario = db.query(Usuario).filter(func.lower(Usuario.email) == email).first()
+        ahora = datetime.now(timezone.utc)
 
         if usuario is None:
+            # El correo se intenta ANTES de escribir en BD: si falla, no queda
+            # una cuenta con una contraseña que nadie recibió.
             password_temporal = _generar_password_temporal()
-            usuario = Usuario(
-                nombre_usuario=None,
-                email=email,
-                hashed_password=hash_password(password_temporal),
-                rol_nombre=preautorizado.rol_nombre,
-                clues_unidad_asignada=preautorizado.clues_unidad_asignada,
-                id_entidad=preautorizado.id_entidad,
-                debe_cambiar_password=True,
-            )
-            db.add(usuario)
-            db.commit()
-            enviar_correo_acceso(email, password_temporal)
+            if enviar_correo_acceso(email, password_temporal):
+                usuario = Usuario(
+                    nombre_usuario=None,
+                    email=email,
+                    hashed_password=hash_password(password_temporal),
+                    rol_nombre=preautorizado.rol_nombre,
+                    clues_unidad_asignada=preautorizado.clues_unidad_asignada,
+                    id_entidad=preautorizado.id_entidad,
+                    debe_cambiar_password=True,
+                    fecha_ultima_solicitud_acceso=ahora,
+                )
+                db.add(usuario)
+                db.commit()
+
         elif usuario.debe_cambiar_password:
-            # Cuenta creada pero pendiente de primer login — reenvía un nuevo
-            # password temporal (por si la persona perdió el correo original).
-            password_temporal = _generar_password_temporal()
-            usuario.hashed_password = hash_password(password_temporal)
-            db.commit()
-            enviar_correo_acceso(email, password_temporal)
+            # Cuenta creada pero pendiente de primer login. Si ya se emitió una
+            # contraseña temporal hace poco, no se rota de nuevo: evita que una
+            # solicitud anónima repetida invalide continuamente la credencial
+            # más reciente antes de que la persona alcance a usarla.
+            solicitud_reciente = (
+                usuario.fecha_ultima_solicitud_acceso is not None
+                and ahora - usuario.fecha_ultima_solicitud_acceso < SOLICITUD_ACCESO_COOLDOWN
+            )
+            if not solicitud_reciente:
+                password_temporal = _generar_password_temporal()
+                if enviar_correo_acceso(email, password_temporal):
+                    usuario.hashed_password = hash_password(password_temporal)
+                    usuario.fecha_ultima_solicitud_acceso = ahora
+                    db.commit()
         # Si la cuenta ya está activa (debe_cambiar_password=False), no se hace nada.
 
     return SolicitarAccesoResponse()

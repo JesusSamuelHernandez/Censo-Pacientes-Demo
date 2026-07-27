@@ -12,10 +12,14 @@ import os
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db  # re-exportado: usado en tests (main.get_db)
+from app.rate_limit import limiter
 from app.routers import (
     auth,
     catalogos,
@@ -39,6 +43,13 @@ app = FastAPI(
     ),
     version="3.0.0",
 )
+
+# ---------------------------------------------------------------------------
+# Rate limiting (SAST-04) — throttling por IP en endpoints públicos de auth.
+# ---------------------------------------------------------------------------
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # ---------------------------------------------------------------------------
 # CORS

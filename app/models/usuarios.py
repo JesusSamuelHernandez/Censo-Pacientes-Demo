@@ -25,6 +25,9 @@ class Usuario(Base):
     debe_cambiar_password: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
     )
+    fecha_ultima_solicitud_acceso: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     unidad_asignada: Mapped["UnidadMedica | None"] = relationship(back_populates="usuarios")
 
