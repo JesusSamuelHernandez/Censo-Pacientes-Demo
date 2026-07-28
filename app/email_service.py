@@ -14,6 +14,7 @@ creada igual — el SUPER_ADMIN puede comunicar el password por otro medio.
 import logging
 import os
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,17 @@ def enviar_correo(destinatario: str, asunto: str, contenido: str) -> bool:
         server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30)
         try:
             server.ehlo()
-            server.starttls()
+            if not server.has_extn("STARTTLS"):
+                logger.error(
+                    "enviar_correo: el servidor %s no anuncia STARTTLS — "
+                    "se aborta para no enviar credenciales sin cifrar.", SMTP_HOST,
+                )
+                return False
+            # ssl.create_default_context() verifica cadena de certificado y
+            # hostname. server.starttls(context=None) (default anterior) usa
+            # ssl._create_stdlib_context, que NO valida nada.
+            tls_context = ssl.create_default_context()
+            server.starttls(context=tls_context)
             server.ehlo()
             if SMTP_USER and SMTP_PASSWORD:
                 server.login(SMTP_USER, SMTP_PASSWORD)
