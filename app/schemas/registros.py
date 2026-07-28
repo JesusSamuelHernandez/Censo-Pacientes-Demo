@@ -29,8 +29,12 @@ class RegistroBase(BaseModel):
         max_length=100,
         description="Ej. '200 mg', '1 ampolleta'.",
     )
-    peso: Decimal | None = Field(None, description="Peso del paciente en kg (ej. 75.50).")
-    talla: Decimal | None = Field(None, description="Talla del paciente en cm (ej. 165.00).")
+    peso: Decimal | None = Field(
+        None, max_digits=5, decimal_places=2, description="Peso del paciente en kg (ej. 75.50)."
+    )
+    talla: Decimal | None = Field(
+        None, max_digits=5, decimal_places=2, description="Talla del paciente en cm (ej. 165.00)."
+    )
     estatus_diagnostico: str | None = Field(
         None,
         max_length=50,
@@ -74,8 +78,8 @@ class RegistroUpdate(BaseModel):
     fecha_primera_administracion: date | None = None
     fecha_fin_tratamiento: date | None = None
     dosis_administrada: str | None = Field(None, max_length=100)
-    peso: Decimal | None = None
-    talla: Decimal | None = None
+    peso: Decimal | None = Field(None, max_digits=5, decimal_places=2)
+    talla: Decimal | None = Field(None, max_digits=5, decimal_places=2)
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
     confirmado_mediante: str | None = Field(None, max_length=200)
@@ -137,8 +141,8 @@ class RegistroCompletoCreate(BaseModel):
     fecha_primera_administracion: date | None = None
     fecha_fin_tratamiento: date | None = None
     dosis_administrada: str | None = Field(None, max_length=100)
-    peso: Decimal | None = None
-    talla: Decimal | None = None
+    peso: Decimal | None = Field(None, max_digits=5, decimal_places=2)
+    talla: Decimal | None = Field(None, max_digits=5, decimal_places=2)
     estatus_diagnostico: str | None = Field(None, max_length=50)
     confirmado_por: str | None = Field(None, max_length=100)
     confirmado_mediante: str | None = Field(None, max_length=200)

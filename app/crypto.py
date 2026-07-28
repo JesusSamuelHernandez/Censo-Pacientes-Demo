@@ -16,12 +16,22 @@ Hashing:
     bruta la identidad detrás de un registro (SAST-10).
 
 Columnas cifradas:
-    Paciente  : curp_paciente, nombre_completo, diagnostico_actual
-    Medico    : nombre_medico, cedula
+    Paciente            : curp_paciente, nombre_completo, diagnostico_actual
+    Medico              : nombre_medico, cedula
+    ExpedientePaciente  : numero_expediente
+    ReaccionAdversa     : comentario
+    Registro            : prescripcion, confirmado_mediante, peso, talla
+
+    Quedan sin cifrar las relaciones que identifican diagnostico/medicamento
+    (Registro.clave_cnis, Registro.id_diagnostico): son llaves foraneas que
+    sostienen joins, catalogos e indices, y cifrarlas rompería la integridad
+    referencial. Ese riesgo residual se mitiga con privilegios SQL acotados y
+    cifrado a nivel de volumen/backup, no a nivel de columna (SAST-11).
 """
 import hashlib
 import hmac
 import os
+from decimal import Decimal
 
 from cryptography.fernet import Fernet
 from sqlalchemy import LargeBinary
@@ -70,6 +80,22 @@ class EncryptedString(TypeDecorator):
         if value is None:
             return None
         return _fernet.decrypt(value).decode("utf-8")
+
+
+class EncryptedDecimal(TypeDecorator):
+    """Columna LargeBinary que cifra/descifra automáticamente un Decimal."""
+    impl = LargeBinary
+    cache_ok = True
+
+    def process_bind_param(self, value: Decimal | None, dialect) -> bytes | None:
+        if value is None:
+            return None
+        return _fernet.encrypt(str(value).encode("utf-8"))
+
+    def process_result_value(self, value: bytes | None, dialect) -> Decimal | None:
+        if value is None:
+            return None
+        return Decimal(_fernet.decrypt(value).decode("utf-8"))
 
 
 # ---------------------------------------------------------------------------
