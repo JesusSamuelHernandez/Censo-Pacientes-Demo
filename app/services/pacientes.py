@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
+from app.audit import Accion, Resultado, registrar_evento
 from app.auth import UsuarioActivo
 from app.config import REACCIONES_ADVERSAS_HABILITADO
 from app.crypto import hash_identificador
@@ -138,20 +139,26 @@ def _verificar_acceso_paciente(
         return
     if usuario.es_responsable_unidad:
         if paciente.clues_unidad_adscripcion != usuario.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene acceso a pacientes de otra unidad médica.",
+            detalle = "No tiene acceso a pacientes de otra unidad médica."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="paciente",
+                objeto_id=paciente.id_paciente, detalle=detalle,
             )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
         return
     if usuario.es_admin_estatal:
         unidad = db.query(UnidadMedica).filter(
             UnidadMedica.clues == paciente.clues_unidad_adscripcion
         ).first()
         if not unidad or unidad.id_entidad != usuario.id_entidad:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene acceso a pacientes de otro estado.",
+            detalle = "No tiene acceso a pacientes de otro estado."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="paciente",
+                objeto_id=paciente.id_paciente, detalle=detalle,
             )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
 
 
 def _verificar_acceso_registro(
@@ -170,20 +177,26 @@ def _verificar_acceso_registro(
         ).first()
         clues_paciente = paciente.clues_unidad_adscripcion if paciente else registro.clues
         if clues_paciente != usuario.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene acceso a registros de pacientes de otra unidad médica.",
+            detalle = "No tiene acceso a registros de pacientes de otra unidad médica."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="registro",
+                objeto_id=registro.id_registro, detalle=detalle,
             )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
         return
     if usuario.es_admin_estatal:
         unidad = db.query(UnidadMedica).filter(
             UnidadMedica.clues == registro.clues
         ).first()
         if not unidad or unidad.id_entidad != usuario.id_entidad:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene acceso a registros de otro estado.",
+            detalle = "No tiene acceso a registros de otro estado."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="registro",
+                objeto_id=registro.id_registro, detalle=detalle,
             )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
 
 
 def _obtener_paciente_por_identificador(identificador: str, db: Session) -> Paciente:

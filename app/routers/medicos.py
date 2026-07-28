@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.audit import Accion, registrar_evento
 from app.auth import (
     UsuarioActivo,
     _verificar_clues_en_ambito,
@@ -117,6 +118,10 @@ def obtener_medico(
 ):
     medico = _obtener_medico_o_404(id_medico, db)
     _verificar_acceso_medico(medico, current_user, db)
+    registrar_evento(
+        db, accion=Accion.CONSULTA_MEDICO, id_usuario=current_user.id_usuario,
+        objeto_tipo="medico", objeto_id=medico.id_medico,
+    )
     return _medico_to_response(medico)
 
 

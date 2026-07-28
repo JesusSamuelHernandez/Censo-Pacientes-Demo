@@ -4,6 +4,7 @@ Este paquete mantiene compatible `from app.models import X` y carga todos los
 modelos para que `Base.metadata` incluya la metadata completa de la aplicacion.
 """
 from app.database import Base
+from app.models.auditoria import EventoSeguridad
 from app.models.roles import Rol
 from app.models.catalogos import (
     CatDiagnostico,
@@ -27,6 +28,7 @@ __all__ = [
     "CatDiagnostico",
     "CatMedicamento",
     "CatPuesto",
+    "EventoSeguridad",
     "ExpedientePaciente",
     "Medico",
     "NotificacionTransferencia",

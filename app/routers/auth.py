@@ -1,11 +1,12 @@
 """Router de autenticación: login y autoservicio de acceso."""
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.audit import Accion, Resultado, ip_de_request, registrar_evento
 from app.auth import (
     UsuarioActivo,
     autenticar_usuario,
@@ -39,12 +40,25 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    usuario = autenticar_usuario(
-        email=form_data.username,
-        password=form_data.password,
-        db=db,
-    )
+    ip = ip_de_request(request)
+    try:
+        usuario = autenticar_usuario(
+            email=form_data.username,
+            password=form_data.password,
+            db=db,
+        )
+    except HTTPException:
+        registrar_evento(
+            db, accion=Accion.LOGIN_FALLIDO, resultado=Resultado.FALLO,
+            ip_origen=ip, detalle=f"email intentado: {form_data.username.strip().lower()}",
+        )
+        raise
+
     token = create_access_token(usuario)
+    registrar_evento(
+        db, accion=Accion.LOGIN_EXITOSO, resultado=Resultado.EXITO,
+        id_usuario=usuario.id_usuario, ip_origen=ip,
+    )
     return TokenResponse(
         access_token=token,
         rol_nombre=usuario.rol_nombre,
@@ -67,6 +81,7 @@ def login(
     summary="Cierra la sesión: invalida en el servidor todos los tokens emitidos para esta cuenta.",
 )
 def logout(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_cualquier_rol),
 ):
@@ -78,6 +93,10 @@ def logout(
     usuario = db.query(Usuario).filter(Usuario.id_usuario == current_user.id_usuario).first()
     usuario.token_version += 1
     db.commit()
+    registrar_evento(
+        db, accion=Accion.LOGOUT, id_usuario=current_user.id_usuario,
+        ip_origen=ip_de_request(request),
+    )
 
 
 @router.post(

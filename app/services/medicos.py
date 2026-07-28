@@ -2,6 +2,7 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.audit import Accion, Resultado, registrar_evento
 from app.auth import UsuarioActivo
 from app.models import Medico, UnidadMedica
 from app.schemas import MedicoResponse
@@ -25,20 +26,26 @@ def _verificar_acceso_medico(
         return
     if usuario.es_responsable_unidad:
         if medico.clues_adscripcion != usuario.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene acceso a médicos de otra unidad médica.",
+            detalle = "No tiene acceso a médicos de otra unidad médica."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="medico",
+                objeto_id=medico.id_medico, detalle=detalle,
             )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
         return
     if usuario.es_admin_estatal:
         unidad = db.query(UnidadMedica).filter(
             UnidadMedica.clues == medico.clues_adscripcion
         ).first()
         if not unidad or unidad.id_entidad != usuario.id_entidad:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene acceso a médicos de otro estado.",
+            detalle = "No tiene acceso a médicos de otro estado."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="medico",
+                objeto_id=medico.id_medico, detalle=detalle,
             )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
 
 
 def _medico_to_response(m: Medico) -> MedicoResponse:

@@ -10,7 +10,7 @@ los routers de cada dominio. La lógica de negocio vive en:
 """
 import os
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -18,9 +18,11 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database import get_db  # re-exportado: usado en tests (main.get_db)
+from app.audit import Accion, Resultado, ip_de_request, registrar_evento
+from app.database import SessionLocal, get_db  # re-exportado: usado en tests (main.get_db)
 from app.rate_limit import limiter
 from app.routers import (
+    auditoria,
     auth,
     catalogos,
     medicos,
@@ -48,7 +50,27 @@ app = FastAPI(
 # Rate limiting (SAST-04) — throttling por IP en endpoints públicos de auth.
 # ---------------------------------------------------------------------------
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+def _rate_limit_exceeded_handler_con_auditoria(request: Request, exc: RateLimitExceeded):
+    """
+    Registra el bloqueo por rate limit (SAST-13) antes de delegar en el
+    handler default de slowapi. Usa su propia sesión de BD porque un
+    exception handler no tiene acceso a las dependencias del endpoint
+    (Depends(get_db)) que disparó la excepción.
+    """
+    db = SessionLocal()
+    try:
+        registrar_evento(
+            db, accion=Accion.LOGIN_BLOQUEADO, resultado=Resultado.DENEGADO,
+            ip_origen=ip_de_request(request), detalle=f"ruta: {request.url.path}",
+        )
+    finally:
+        db.close()
+    return _rate_limit_exceeded_handler(request, exc)
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler_con_auditoria)
 app.add_middleware(SlowAPIMiddleware)
 
 # ---------------------------------------------------------------------------
@@ -84,6 +106,7 @@ app.include_router(notificaciones.router)
 app.include_router(reportes.router)
 app.include_router(catalogos.router)
 app.include_router(usuarios.router)
+app.include_router(auditoria.router)
 
 # ---------------------------------------------------------------------------
 # Salud

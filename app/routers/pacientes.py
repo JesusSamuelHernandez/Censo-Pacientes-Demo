@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import exists, func
 from sqlalchemy.orm import Session, joinedload
 
+from app.audit import Accion, registrar_evento
 from app.auth import (
     UsuarioActivo,
     _verificar_clues_en_ambito,
@@ -293,6 +294,10 @@ def obtener_paciente(
     marcar_registros_vencidos(db)
     paciente = _obtener_paciente_por_identificador(identificador, db)
     _verificar_acceso_paciente(paciente, current_user, db)
+    registrar_evento(
+        db, accion=Accion.CONSULTA_PACIENTE, id_usuario=current_user.id_usuario,
+        objeto_tipo="paciente", objeto_id=paciente.id_paciente,
+    )
 
     # Si se requiere ubicar pacientes de otras unidades (p. ej. para
     # continuidad de tratamiento), usar /pacientes/buscar o /pacientes?q=,
@@ -382,6 +387,11 @@ def actualizar_paciente(
         )
         db.add(notif)
         db.commit()
+        registrar_evento(
+            db, accion=Accion.TRANSFERENCIA_PACIENTE, id_usuario=current_user.id_usuario,
+            objeto_tipo="paciente", objeto_id=paciente.id_paciente,
+            detalle=f"{clues_anterior} -> {paciente.clues_unidad_adscripcion}",
+        )
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds, adherencias = _get_medicamentos_y_adherencia(paciente.id_paciente, db)

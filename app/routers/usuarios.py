@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.audit import Accion, registrar_evento
 from app.auth import (
     UsuarioActivo,
     create_access_token,
@@ -66,6 +67,11 @@ def crear_usuario(
     db.commit()
     db.refresh(nuevo)
     enviar_correo_acceso(nuevo.email, password_temporal)
+    registrar_evento(
+        db, accion=Accion.USUARIO_CREADO, id_usuario=current_user.id_usuario,
+        objeto_tipo="usuario", objeto_id=nuevo.id_usuario,
+        detalle=f"rol: {nuevo.rol_nombre}",
+    )
     return UsuarioCreateResponse(
         id_usuario=nuevo.id_usuario,
         nombre_usuario=nuevo.nombre_usuario,
@@ -109,6 +115,10 @@ def cambiar_password(
     usuario.token_version += 1
     db.commit()
     db.refresh(usuario)
+    registrar_evento(
+        db, accion=Accion.CAMBIO_PASSWORD, id_usuario=current_user.id_usuario,
+        objeto_tipo="usuario", objeto_id=usuario.id_usuario, detalle="cambio propio",
+    )
 
     # token_version cambió: el JWT con el que se hizo esta llamada ya quedó
     # invalidado. Se emite uno nuevo para que la sesión pueda continuar.
@@ -135,7 +145,11 @@ def actualizar_usuario(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado.")
 
     datos = payload.model_dump(exclude_none=True)
-    if "password" in datos:
+    cambio_password = "password" in datos
+    campos_rol = {"rol_nombre", "clues_unidad_asignada", "id_entidad"}
+    cambio_rol = campos_rol & datos.keys()
+
+    if cambio_password:
         usuario.hashed_password = hash_password(datos.pop("password"))
         usuario.token_version += 1
     for campo, valor in datos.items():
@@ -143,6 +157,19 @@ def actualizar_usuario(
 
     db.commit()
     db.refresh(usuario)
+
+    if cambio_password:
+        registrar_evento(
+            db, accion=Accion.CAMBIO_PASSWORD, id_usuario=current_user.id_usuario,
+            objeto_tipo="usuario", objeto_id=usuario.id_usuario,
+            detalle=f"cambiada por SUPER_ADMIN id_usuario={current_user.id_usuario}",
+        )
+    if cambio_rol:
+        registrar_evento(
+            db, accion=Accion.CAMBIO_ROL, id_usuario=current_user.id_usuario,
+            objeto_tipo="usuario", objeto_id=usuario.id_usuario,
+            detalle=f"campos modificados: {sorted(cambio_rol)}",
+        )
     return usuario
 
 
@@ -167,3 +194,7 @@ def eliminar_usuario(
 
     db.delete(usuario)
     db.commit()
+    registrar_evento(
+        db, accion=Accion.USUARIO_ELIMINADO, id_usuario=current_user.id_usuario,
+        objeto_tipo="usuario", objeto_id=id_usuario,
+    )

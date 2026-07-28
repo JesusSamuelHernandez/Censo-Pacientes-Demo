@@ -31,6 +31,7 @@ from jose import JWTError, jwt
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.audit import Accion, Resultado, registrar_evento
 from app.config import require_env
 from app.database import get_db
 from app.models import Rol, UnidadMedica, Usuario
@@ -370,18 +371,24 @@ def _verificar_clues_en_ambito(clues: str, usuario: UsuarioActivo, db: Session) 
         return
     if usuario.es_responsable_unidad:
         if clues != usuario.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede operar dentro de su propia unidad médica.",
+            detalle = "Solo puede operar dentro de su propia unidad médica."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="clues",
+                objeto_id=clues, detalle=detalle,
             )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
         return
     if usuario.es_admin_estatal:
         unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == clues).first()
         if not unidad or unidad.id_entidad != usuario.id_entidad:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede operar dentro de unidades de su propio estado.",
+            detalle = "Solo puede operar dentro de unidades de su propio estado."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="clues",
+                objeto_id=clues, detalle=detalle,
             )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
 
 
 # ---------------------------------------------------------------------------
