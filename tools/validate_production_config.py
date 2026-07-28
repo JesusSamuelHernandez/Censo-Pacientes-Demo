@@ -107,6 +107,11 @@ def _validate_secrets() -> None:
         raise RuntimeError("FERNET_KEY no es una clave Fernet valida.") from exc
     _ok("FERNET_KEY tiene formato Fernet valido.")
 
+    hash_key = require_env("HASH_KEY")
+    if hash_key == fernet_key:
+        raise RuntimeError("HASH_KEY no debe ser igual a FERNET_KEY.")
+    _ok("HASH_KEY esta definida y es distinta de FERNET_KEY.")
+
 
 def _check_database_connection(database_url: str | URL) -> None:
     connect_args = postgres_connect_args()

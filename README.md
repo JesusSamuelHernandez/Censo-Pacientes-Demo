@@ -69,6 +69,7 @@ Copiar `.env.example` como `.env` y completar:
 | `DATABASE_SSL_MODE` | `disable` en local; en producción al menos `require` (nunca `prefer`, permite continuar sin cifrar), idealmente `verify-full` con `DATABASE_SSL_ROOT_CERT` |
 | `JWT_SECRET_KEY` | Clave secreta JWT. Mínimo 32 caracteres. Generar con `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `FERNET_KEY` | Clave de cifrado de datos. Generar **una sola vez** con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. **No cambiar después si ya hay datos.** |
+| `HASH_KEY` | Clave del HMAC-SHA256 de `curp_hash`/`cedula_hash` (búsquedas sin descifrar). Distinta de `FERNET_KEY`. Generar **una sola vez** con `python -c "import secrets; print(secrets.token_urlsafe(32))"`. **No cambiar después si ya hay datos** sin remigrar los hashes existentes. |
 | `FRONTEND_URL` | Origen(es) permitidos para CORS, separados por coma. Ej: `https://mi-frontend.com` |
 | `JWT_EXPIRE_HOURS` | Tiempo de vida del token (default: 8) |
 

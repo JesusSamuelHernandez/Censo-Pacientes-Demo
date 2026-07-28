@@ -9,7 +9,7 @@ from app.auth import (
     require_password_cambiado,
     require_super_admin,
 )
-from app.crypto import hash_sha256
+from app.crypto import hash_identificador
 from app.database import get_db
 from app.models import CatPuesto, Medico, UnidadMedica
 from app.schemas import MedicoCreate, MedicoResponse, MedicoUpdate
@@ -73,14 +73,14 @@ def crear_medico(
         )
     _verificar_clues_en_ambito(clues, current_user, db)
 
-    cedula_hash = hash_sha256(payload.cedula)
+    cedula_hash = hash_identificador(payload.cedula)
     if db.query(Medico).filter(Medico.cedula_hash == cedula_hash).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ya existe un médico con cédula '{payload.cedula}'.",
         )
 
-    curp_hash = hash_sha256(payload.curp)
+    curp_hash = hash_identificador(payload.curp)
     if db.query(Medico).filter(Medico.curp_hash == curp_hash).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -143,10 +143,10 @@ def actualizar_medico(
     if "cedula" in datos:
         nueva_cedula = datos.pop("cedula")
         medico.cedula = nueva_cedula
-        medico.cedula_hash = hash_sha256(nueva_cedula)
+        medico.cedula_hash = hash_identificador(nueva_cedula)
     if "curp" in datos:
         nueva_curp = datos.pop("curp")
-        nueva_curp_hash = hash_sha256(nueva_curp)
+        nueva_curp_hash = hash_identificador(nueva_curp)
         duplicado = (
             db.query(Medico)
             .filter(Medico.curp_hash == nueva_curp_hash, Medico.id_medico != medico.id_medico)

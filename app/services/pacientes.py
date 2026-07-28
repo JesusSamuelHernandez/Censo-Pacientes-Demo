@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import UsuarioActivo
 from app.config import REACCIONES_ADVERSAS_HABILITADO
-from app.crypto import hash_sha256
+from app.crypto import hash_identificador
 from app.models import (
     CatDiagnostico,
     CatMedicamento,
@@ -195,7 +195,7 @@ def _obtener_paciente_por_identificador(identificador: str, db: Session) -> Paci
     if identificador.isdigit():
         paciente = db.query(Paciente).filter(Paciente.id_paciente == int(identificador)).first()
     else:
-        paciente = db.query(Paciente).filter(Paciente.curp_hash == hash_sha256(identificador)).first()
+        paciente = db.query(Paciente).filter(Paciente.curp_hash == hash_identificador(identificador)).first()
     if not paciente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
     return paciente

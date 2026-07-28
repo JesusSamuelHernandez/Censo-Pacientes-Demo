@@ -12,7 +12,7 @@ from app.auth import (
     require_password_cambiado,
 )
 from app.config import ESTATUS_EVOLUCION_HABILITADO, REACCIONES_ADVERSAS_HABILITADO
-from app.crypto import hash_sha256
+from app.crypto import hash_identificador
 from app.database import get_db
 from app.models import (
     CatMedicamento,
@@ -154,7 +154,7 @@ def crear_paciente(
 ):
     _verificar_clues_en_ambito(payload.clues_unidad_adscripcion, current_user, db)
 
-    curp_hash = hash_sha256(payload.curp_paciente)
+    curp_hash = hash_identificador(payload.curp_paciente)
     if db.query(Paciente).filter(Paciente.curp_hash == curp_hash).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -192,7 +192,7 @@ def buscar_paciente_por_curp(
 ):
     curp_normalizada = payload.curp
     paciente = db.query(Paciente).filter(
-        Paciente.curp_hash == hash_sha256(curp_normalizada)
+        Paciente.curp_hash == hash_identificador(curp_normalizada)
     ).first()
 
     if not paciente:

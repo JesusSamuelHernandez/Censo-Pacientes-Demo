@@ -21,6 +21,8 @@ services:
         generateValue: true
       - key: FERNET_KEY
         generateValue: true
+      - key: HASH_KEY
+        generateValue: true
       - key: JWT_ALGORITHM
         value: HS256
       - key: JWT_EXPIRE_HOURS

@@ -8,14 +8,19 @@ Cifrado:
         python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
 Hashing:
-    SHA-256 en hex (64 caracteres). Se usa para búsquedas y validación de
-    unicidad sin necesidad de descifrar el valor almacenado.
+    HMAC-SHA256 en hex (64 caracteres), con clave propia (HASH_KEY, distinta
+    de FERNET_KEY). Se usa para búsquedas y validación de unicidad sin
+    necesidad de descifrar el valor almacenado. La clave evita que alguien
+    con acceso solo a la base de datos (sin las variables de entorno) pueda
+    reconstruir el hash de un CURP/cédula conocido y así confirmar por fuerza
+    bruta la identidad detrás de un registro (SAST-10).
 
 Columnas cifradas:
     Paciente  : curp_paciente, nombre_completo, diagnostico_actual
     Medico    : nombre_medico, cedula
 """
 import hashlib
+import hmac
 import os
 
 from cryptography.fernet import Fernet
@@ -35,6 +40,17 @@ if not _FERNET_KEY:
     )
 
 _fernet = Fernet(_FERNET_KEY.encode())
+
+_HASH_KEY: str | None = os.getenv("HASH_KEY")
+
+if not _HASH_KEY:
+    raise RuntimeError(
+        "Variable de entorno HASH_KEY no definida. "
+        "Genera una clave con: python -c \"import secrets; print(secrets.token_urlsafe(32))\" "
+        "y agrégala a tu archivo .env. Debe ser distinta de FERNET_KEY."
+    )
+
+_hash_key_bytes = _HASH_KEY.encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -77,9 +93,13 @@ def descifrar_o_none(datos: bytes | None) -> str | None:
     return descifrar(datos)
 
 
-def hash_sha256(texto: str) -> str:
+def hash_identificador(texto: str) -> str:
     """
-    Devuelve el hash SHA-256 en hexadecimal (64 chars) del texto en minúsculas.
-    Se normaliza a minúsculas para que la búsqueda sea case-insensitive.
+    Devuelve el HMAC-SHA256 en hexadecimal (64 chars) de un identificador
+    (CURP, cédula). Se normaliza (strip + mayúsculas) para que la búsqueda
+    sea insensible a mayúsculas/espacios. Usa HASH_KEY para que el hash no
+    pueda recalcularse sin acceso a las variables de entorno (SAST-10).
     """
-    return hashlib.sha256(texto.strip().upper().encode("utf-8")).hexdigest()
+    return hmac.new(
+        _hash_key_bytes, texto.strip().upper().encode("utf-8"), hashlib.sha256
+    ).hexdigest()

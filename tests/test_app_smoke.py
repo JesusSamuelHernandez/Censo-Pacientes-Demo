@@ -13,6 +13,7 @@ def _import_app(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/test_db")
     monkeypatch.setenv("JWT_SECRET_KEY", "x" * 32)
     monkeypatch.setenv("FERNET_KEY", "wLmCPbBPxgsk2uyZOHIto5xO4bB1UfoajkVXqmKOwyQ=")
+    monkeypatch.setenv("HASH_KEY", "test-hash-key-1234567890abcdef")
     monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.test")
 
     for module_name in list(sys.modules):
