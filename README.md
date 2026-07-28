@@ -66,7 +66,7 @@ Copiar `.env.example` como `.env` y completar:
 | Variable | Descripción |
 |---|---|
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | Conexión a PostgreSQL (recomendado sobre `DATABASE_URL` si la contraseña tiene caracteres especiales) |
-| `DATABASE_SSL_MODE` | `disable` en local, `prefer` o `require` en producción |
+| `DATABASE_SSL_MODE` | `disable` en local; en producción al menos `require` (nunca `prefer`, permite continuar sin cifrar), idealmente `verify-full` con `DATABASE_SSL_ROOT_CERT` |
 | `JWT_SECRET_KEY` | Clave secreta JWT. Mínimo 32 caracteres. Generar con `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `FERNET_KEY` | Clave de cifrado de datos. Generar **una sola vez** con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. **No cambiar después si ya hay datos.** |
 | `FRONTEND_URL` | Origen(es) permitidos para CORS, separados por coma. Ej: `https://mi-frontend.com` |

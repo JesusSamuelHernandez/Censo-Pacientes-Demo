@@ -28,7 +28,7 @@ services:
       - key: FRONTEND_URL
         sync: false
       - key: DATABASE_SSL_MODE
-        value: prefer
+        value: require
       - key: DB_POOL_SIZE
         value: 10
       - key: DB_MAX_OVERFLOW
