@@ -77,7 +77,7 @@ def registrar_evento(
         db.commit()
     except Exception:
         db.rollback()
-        logger.exception("No se pudo registrar evento de auditoria: accion=%s", accion)
+        logger.exception("No se pudo registrar evento de auditoria.")
 
 
 def ip_de_request(request) -> str | None:
