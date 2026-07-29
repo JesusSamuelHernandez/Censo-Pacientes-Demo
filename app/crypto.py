@@ -129,3 +129,15 @@ def hash_identificador(texto: str) -> str:
     return hmac.new(
         _hash_key_bytes, texto.strip().upper().encode("utf-8"), hashlib.sha256
     ).hexdigest()
+
+
+def hash_token(token: str) -> str:
+    """
+    Devuelve el HMAC-SHA256 en hexadecimal de un token de un solo uso (ej.
+    activación de cuenta). A diferencia de hash_identificador, NO normaliza
+    mayúsculas/espacios: el token es un secreto aleatorio sensible a
+    mayúsculas, no un identificador humano como CURP/cédula. Guardar solo
+    este hash (nunca el token) evita que un dump de la BD entregue enlaces
+    de activación utilizables (SAST-14).
+    """
+    return hmac.new(_hash_key_bytes, token.encode("utf-8"), hashlib.sha256).hexdigest()

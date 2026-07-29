@@ -10,7 +10,7 @@ export const listarUsuarios = async () => {
 
 export const crearUsuario = async (payload) => {
   const { data } = await axiosClient.post("/usuarios", payload);
-  return data; // incluye password_temporal
+  return data; // el backend envía el enlace de activación por correo (SAST-14)
 };
 
 export const actualizarUsuario = async (id, payload) => {

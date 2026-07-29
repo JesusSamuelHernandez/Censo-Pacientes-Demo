@@ -77,14 +77,16 @@ def enviar_correo(destinatario: str, asunto: str, contenido: str) -> bool:
         return False
 
 
-def enviar_correo_acceso(destinatario: str, password_temporal: str) -> bool:
+def enviar_correo_activacion(destinatario: str, token: str) -> bool:
     """
-    Correo de acceso al Censo de Pacientes — Medicamentos de Alto Costo.
-    Incluye el password temporal (el "token" de acceso) y el enlace de login.
-    Se usa tanto para el autoservicio (correo preautorizado) como para el alta
-    manual desde "Nuevo usuario".
+    Correo de activación de cuenta del Censo de Pacientes — Medicamentos de
+    Alto Costo. Envía un enlace de un solo uso (SAST-14) en vez de una
+    contraseña temporal reutilizable: la persona elige su propia contraseña
+    al activar. Se usa tanto para el autoservicio (correo preautorizado)
+    como para el alta manual desde "Nuevo usuario".
     """
-    asunto = "Acceso al Censo de Pacientes — Medicamentos de Alto Costo"
+    asunto = "Activa tu acceso al Censo de Pacientes — Medicamentos de Alto Costo"
+    enlace = f"{APP_BASE_URL}/activar?token={token}"
 
     contenido = f"""
 Hola,
@@ -92,14 +94,13 @@ Hola,
 Se ha generado un acceso para ti en el Censo de Pacientes — Medicamentos de
 Alto Costo, IMSS-BIENESTAR.
 
-Correo:               {destinatario}
-Contraseña temporal:  {password_temporal}
+Correo: {destinatario}
 
-Ingresa aquí:
-{APP_BASE_URL}
+Activa tu cuenta y crea tu contraseña aquí (enlace válido por 48 horas, de
+un solo uso):
+{enlace}
 
-Por seguridad, al iniciar sesión deberás capturar tu nombre de usuario y
-crear una contraseña nueva.
+Si no solicitaste este acceso, ignora este correo.
 
 Este correo fue generado automáticamente. No respondas a este mensaje.
 """

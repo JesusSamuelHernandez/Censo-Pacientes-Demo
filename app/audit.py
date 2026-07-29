@@ -29,6 +29,8 @@ class Accion:
     CAMBIO_ROL = "cambio_rol"
     USUARIO_CREADO = "usuario_creado"
     USUARIO_ELIMINADO = "usuario_eliminado"
+    CUENTA_ACTIVADA = "cuenta_activada"
+    ACTIVACION_FALLIDA = "activacion_fallida"
     CONSULTA_PACIENTE = "consulta_paciente"
     CONSULTA_MEDICO = "consulta_medico"
     TRANSFERENCIA_PACIENTE = "transferencia_paciente"

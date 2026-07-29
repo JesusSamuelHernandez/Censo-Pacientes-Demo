@@ -82,8 +82,12 @@ class UsuarioResponse(BaseModel):
 
 
 class UsuarioCreateResponse(UsuarioResponse):
-    """Respuesta exclusiva de POST /usuarios. Incluye la password temporal."""
-    password_temporal: str
+    """
+    Respuesta exclusiva de POST /usuarios. Ya no incluye una contraseña
+    temporal reutilizable (SAST-14): la cuenta se activa con un enlace de
+    un solo uso enviado por correo (ver app/services/activacion.py).
+    """
+    pass
 
 
 class CambiarPasswordResponse(UsuarioResponse):

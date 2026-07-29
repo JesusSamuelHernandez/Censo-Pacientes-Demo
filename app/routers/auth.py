@@ -15,11 +15,17 @@ from app.auth import (
     require_cualquier_rol,
 )
 from app.database import get_db
-from app.email_service import enviar_correo_acceso
+from app.email_service import enviar_correo_activacion
 from app.models import Usuario, UsuarioPreautorizado
 from app.rate_limit import limiter
-from app.schemas import SolicitarAccesoRequest, SolicitarAccesoResponse, TokenResponse
-from app.services.utils import _generar_password_temporal
+from app.schemas import (
+    ActivarCuentaRequest,
+    SolicitarAccesoRequest,
+    SolicitarAccesoResponse,
+    TokenResponse,
+)
+from app.services.activacion import crear_token_activacion, obtener_activacion_valida
+from app.services.utils import _generar_password_placeholder
 
 router = APIRouter(tags=["Autenticación"])
 
@@ -102,7 +108,7 @@ def logout(
 @router.post(
     "/auth/solicitar-acceso",
     response_model=SolicitarAccesoResponse,
-    summary="Autoservicio de alta — envía password temporal por correo si el email está preautorizado.",
+    summary="Autoservicio de alta — envía un enlace de activación por correo si el email está preautorizado.",
 )
 @limiter.limit("3/hour")
 def solicitar_acceso(
@@ -128,39 +134,111 @@ def solicitar_acceso(
         ahora = datetime.now(timezone.utc)
 
         if usuario is None:
-            # El correo se intenta ANTES de escribir en BD: si falla, no queda
-            # una cuenta con una contraseña que nadie recibió.
-            password_temporal = _generar_password_temporal()
-            if enviar_correo_acceso(email, password_temporal):
-                usuario = Usuario(
-                    nombre_usuario=None,
-                    email=email,
-                    hashed_password=hash_password(password_temporal),
-                    rol_nombre=preautorizado.rol_nombre,
-                    clues_unidad_asignada=preautorizado.clues_unidad_asignada,
-                    id_entidad=preautorizado.id_entidad,
-                    debe_cambiar_password=True,
-                    fecha_ultima_solicitud_acceso=ahora,
-                )
-                db.add(usuario)
+            # El correo se intenta ANTES de comprometer la transacción: si
+            # falla, no queda una cuenta con un enlace que nadie recibió.
+            nuevo = Usuario(
+                nombre_usuario=None,
+                email=email,
+                hashed_password=hash_password(_generar_password_placeholder()),
+                rol_nombre=preautorizado.rol_nombre,
+                clues_unidad_asignada=preautorizado.clues_unidad_asignada,
+                id_entidad=preautorizado.id_entidad,
+                debe_cambiar_password=True,
+                fecha_ultima_solicitud_acceso=ahora,
+            )
+            db.add(nuevo)
+            db.flush()
+            token = crear_token_activacion(db, nuevo)
+            if enviar_correo_activacion(email, token):
                 db.commit()
+            else:
+                db.rollback()
 
         elif usuario.debe_cambiar_password:
-            # Cuenta creada pero pendiente de primer login. Si ya se emitió una
-            # contraseña temporal hace poco, no se rota de nuevo: evita que una
-            # solicitud anónima repetida invalide continuamente la credencial
-            # más reciente antes de que la persona alcance a usarla.
+            # Cuenta creada pero pendiente de activación. Si ya se emitió un
+            # enlace hace poco, no se rota de nuevo: evita que una solicitud
+            # anónima repetida invalide continuamente el enlace más reciente
+            # antes de que la persona alcance a usarlo.
             solicitud_reciente = (
                 usuario.fecha_ultima_solicitud_acceso is not None
                 and ahora - usuario.fecha_ultima_solicitud_acceso < SOLICITUD_ACCESO_COOLDOWN
             )
             if not solicitud_reciente:
-                password_temporal = _generar_password_temporal()
-                if enviar_correo_acceso(email, password_temporal):
-                    usuario.hashed_password = hash_password(password_temporal)
+                token = crear_token_activacion(db, usuario)
+                if enviar_correo_activacion(email, token):
                     usuario.fecha_ultima_solicitud_acceso = ahora
-                    usuario.token_version += 1
                     db.commit()
+                else:
+                    db.rollback()
         # Si la cuenta ya está activa (debe_cambiar_password=False), no se hace nada.
 
     return SolicitarAccesoResponse()
+
+
+@router.post(
+    "/auth/activar",
+    response_model=TokenResponse,
+    summary="Activa la cuenta con el enlace del correo y establece la contraseña definitiva.",
+)
+@limiter.limit("10/minute")
+def activar_cuenta(
+    request: Request,
+    payload: ActivarCuentaRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Sin autenticación: el token del correo hace las veces de credencial.
+    Sustituye a la contraseña temporal reutilizable — el token es de un
+    solo uso y expira a las 48h (SAST-14). Al activarse con éxito, deja la
+    sesión iniciada (mismo shape que /auth/login) para no pedir un login
+    adicional inmediatamente después.
+    """
+    ip = ip_de_request(request)
+    activacion = obtener_activacion_valida(db, payload.token)
+    if activacion is None:
+        registrar_evento(
+            db, accion=Accion.ACTIVACION_FALLIDA, resultado=Resultado.FALLO,
+            ip_origen=ip, detalle="token invalido, usado o expirado",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El enlace de activación no es válido o ya expiró. Solicita uno nuevo.",
+        )
+
+    usuario = activacion.usuario
+    if usuario.nombre_usuario is None:
+        if not payload.nombre_usuario or not payload.nombre_usuario.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Debes indicar tu nombre de usuario.",
+            )
+        usuario.nombre_usuario = payload.nombre_usuario.strip()
+    elif payload.nombre_usuario and payload.nombre_usuario.strip():
+        usuario.nombre_usuario = payload.nombre_usuario.strip()
+
+    usuario.hashed_password = hash_password(payload.password_nueva)
+    usuario.debe_cambiar_password = False
+    usuario.token_version += 1
+    activacion.usado_en = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(usuario)
+
+    registrar_evento(
+        db, accion=Accion.CUENTA_ACTIVADA, id_usuario=usuario.id_usuario, ip_origen=ip,
+    )
+
+    nuevo_token = create_access_token(usuario)
+    return TokenResponse(
+        access_token=nuevo_token,
+        rol_nombre=usuario.rol_nombre,
+        id_usuario=usuario.id_usuario,
+        debe_cambiar_password=usuario.debe_cambiar_password,
+        email=usuario.email,
+        nombre_usuario=usuario.nombre_usuario,
+        clues_unidad_asignada=usuario.clues_unidad_asignada,
+        nombre_unidad=(
+            usuario.unidad_asignada.nombre_de_la_unidad
+            if usuario.unidad_asignada else None
+        ),
+        id_entidad=usuario.id_entidad,
+    )

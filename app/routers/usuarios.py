@@ -13,7 +13,7 @@ from app.auth import (
     verify_password,
 )
 from app.database import get_db
-from app.email_service import enviar_correo_acceso
+from app.email_service import enviar_correo_activacion
 from app.models import Usuario
 from app.schemas import (
     CambiarPasswordRequest,
@@ -23,7 +23,8 @@ from app.schemas import (
     UsuarioResponse,
     UsuarioUpdate,
 )
-from app.services.utils import _generar_password_temporal
+from app.services.activacion import crear_token_activacion
+from app.services.utils import _generar_password_placeholder
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -40,7 +41,7 @@ def listar_usuarios(
     "",
     response_model=UsuarioCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear una cuenta de usuario. Solo SUPER_ADMIN. Devuelve contraseña temporal.",
+    summary="Crear una cuenta de usuario. Solo SUPER_ADMIN. Envía un enlace de activación por correo.",
 )
 def crear_usuario(
     payload: UsuarioCreate,
@@ -53,11 +54,12 @@ def crear_usuario(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ya existe un usuario con email '{email}'.",
         )
-    password_temporal = _generar_password_temporal()
+    # Password que nadie llega a conocer: el login solo es posible tras
+    # activar la cuenta con el enlace de un solo uso (SAST-14).
     nuevo = Usuario(
         nombre_usuario=None,
         email=email,
-        hashed_password=hash_password(password_temporal),
+        hashed_password=hash_password(_generar_password_placeholder()),
         rol_nombre=payload.rol_nombre,
         clues_unidad_asignada=payload.clues_unidad_asignada,
         id_entidad=payload.id_entidad,
@@ -66,22 +68,16 @@ def crear_usuario(
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
-    enviar_correo_acceso(nuevo.email, password_temporal)
+
+    token = crear_token_activacion(db, nuevo)
+    db.commit()
+    enviar_correo_activacion(nuevo.email, token)
     registrar_evento(
         db, accion=Accion.USUARIO_CREADO, id_usuario=current_user.id_usuario,
         objeto_tipo="usuario", objeto_id=nuevo.id_usuario,
         detalle=f"rol: {nuevo.rol_nombre}",
     )
-    return UsuarioCreateResponse(
-        id_usuario=nuevo.id_usuario,
-        nombre_usuario=nuevo.nombre_usuario,
-        email=nuevo.email,
-        rol_nombre=nuevo.rol_nombre,
-        clues_unidad_asignada=nuevo.clues_unidad_asignada,
-        id_entidad=nuevo.id_entidad,
-        debe_cambiar_password=nuevo.debe_cambiar_password,
-        password_temporal=password_temporal,
-    )
+    return nuevo
 
 
 @router.post(

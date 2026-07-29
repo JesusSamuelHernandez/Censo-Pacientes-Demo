@@ -8,6 +8,7 @@ from app.schemas.auditoria import (
     EventoSeguridadResponse,
 )
 from app.schemas.auth import (
+    ActivarCuentaRequest,
     CambiarPasswordRequest,
     LoginRequest,
     SolicitarAccesoRequest,
@@ -85,6 +86,7 @@ from app.schemas.usuarios import (
 )
 
 __all__ = [
+    "ActivarCuentaRequest",
     "BajaPacienteRequest",
     "BusquedaCurpRequest",
     "BusquedaCurpResponse",

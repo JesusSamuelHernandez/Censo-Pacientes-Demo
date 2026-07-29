@@ -14,6 +14,7 @@ from app.models.catalogos import (
     UnidadMedicamento,
 )
 from app.models.usuarios import Usuario, UsuarioPreautorizado
+from app.models.activacion import TokenActivacion
 from app.models.pacientes import (
     ExpedientePaciente,
     NotificacionTransferencia,
@@ -36,6 +37,7 @@ __all__ = [
     "ReaccionAdversa",
     "Registro",
     "Rol",
+    "TokenActivacion",
     "UnidadMedica",
     "UnidadMedicamento",
     "Usuario",

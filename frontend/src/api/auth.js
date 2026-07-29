@@ -33,6 +33,17 @@ export const solicitarAcceso = async (email) => {
   return data; // { mensaje }
 };
 
+// POST /auth/activar — enlace de un solo uso del correo de alta/autoservicio.
+// Establece la contraseña definitiva y deja la sesión iniciada (mismo shape
+// que /auth/login: access_token, rol_nombre, etc.)
+export const activarCuenta = async ({ token, password_nueva, nombre_usuario }) => {
+  const payload = { token, password_nueva };
+  if (nombre_usuario) payload.nombre_usuario = nombre_usuario;
+
+  const { data } = await axiosClient.post("/auth/activar", payload);
+  return data;
+};
+
 // POST /auth/logout — invalida en el servidor todos los tokens de la cuenta
 // (token_version). Best-effort: si falla (p. ej. sin red), igual se limpia
 // la sesión local en el llamador para no dejar a la persona sin poder salir.
