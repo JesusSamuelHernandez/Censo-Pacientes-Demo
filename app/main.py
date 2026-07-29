@@ -96,6 +96,29 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
+# Headers de seguridad (SAST-15) — todas las respuestas son JSON con PHI/PII
+# potencial, nunca deben quedar en caché de navegador/proxy ni renderizarse
+# dentro de un iframe ajeno.
+#
+# HSTS deliberadamente NO se emite aquí: gunicorn/uvicorn solo escuchan HTTP
+# plano detrás del proxy de Render, que es quien termina TLS. Un HSTS emitido
+# por un proceso que no controla la conexión HTTPS real sería una promesa
+# falsa; ese header debe venir del terminador TLS (ver render.yaml).
+# ---------------------------------------------------------------------------
+
+
+@app.middleware("http")
+async def agregar_headers_seguridad(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
 app.include_router(auth.router)
