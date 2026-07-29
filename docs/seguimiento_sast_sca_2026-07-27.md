@@ -31,10 +31,10 @@ Varios PRs de "fix" de seguridad mergeados a `main` en los días previos a este 
 
 | # | Hallazgo | Severidad | Estado | Evidencia |
 |---|---|---|---|---|
-| SCA-01 | `xlsx@0.18.5` ReDoS (CVE-2024-22363) | High | ❌ Pendiente | `package-lock.json` sigue resolviendo `xlsx` en `0.18.5` — los 3 PRs "sheetjs-redos" fueron vacíos |
-| SCA-02 | `xlsx@0.18.5` Prototype Pollution (CVE-2023-30533) | High | ❌ Pendiente | mismo, el PR "another-one" fue vacío |
-| SCA-03 | `python-jose==3.3.0` algorithm confusion | Medium | ⚠️ Parcial | `requirements.txt` ya tiene `python-jose[cryptography]==3.4.0` (cumple el fix mínimo del CVE), pero el reporte recomienda `3.5.0` |
-| SCA-04 | `python-jose==3.3.0` JWE JWT bomb | Medium | ⚠️ Parcial | mismo — 3.4.0 instalado, reporte pide 3.5.0 |
+| SCA-01 | `xlsx@0.18.5` ReDoS (CVE-2024-22363) | High | ✅ Corregido | commit `9fe9887`: SheetJS dejó de publicar versiones corregidas en npm, así que se instaló directo desde el CDN oficial (`https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`, `npm install <url>`) — `package-lock.json` fija `version: 0.20.3` y el hash de integridad `sha512-oLDq...`. Uso real en `ReportesPage.jsx` (`json_to_sheet`/`writeFile`) sin cambios de código: misma API en 0.20.3. Verificado con build de frontend limpio y con el botón "Exportar Excel" real en navegador (login real, sin errores de consola) |
+| SCA-02 | `xlsx@0.18.5` Prototype Pollution (CVE-2023-30533) | High | ✅ Corregido | mismo commit `9fe9887` y misma actualización a `0.20.3` (fix mínimo pedía `0.19.3`) |
+| SCA-03 | `python-jose==3.3.0` algorithm confusion | Medium | ✅ Corregido | commit `9fe9887`: **el venv real tenía instalado `3.3.0`** (la versión vulnerable), pese a que `requirements.txt` ya decía `3.4.0` desde antes — estaban desincronizados y nadie lo había reinstalado. Actualizado a `python-jose[cryptography]==3.5.0` en `requirements.txt` y en el venv. La confusión de algoritmo ya estaba mitigada en la ruta actual (`jwt.decode` en `app/auth.py` fija `algorithms=[JWT_ALGORITHM]` desde configuración, nunca desde el header del token) — no requirió cambios de código. Verificado con `create_access_token`/`_decode_token` end-to-end contra la BD real y la suite de tests completa |
+| SCA-04 | `python-jose==3.3.0` JWE JWT bomb | Medium | ✅ Corregido | mismo commit `9fe9887` y misma actualización a `3.5.0` |
 
 ## Correcciones reales fuera de los 20 hallazgos numerados
 
@@ -49,11 +49,11 @@ Varios PRs de "fix" de seguridad mergeados a `main` en los días previos a este 
 
 ## Resumen del plan priorizado del reporte (16 puntos)
 
-- **Inmediato: bloquear liberación (6):** 5/6 resueltos — (1) autorización por objeto, (2) propiedades destino/continuidad, (3) enumeración bcrypt, (4) throttling/idempotencia, (6) contraseña en stdout. Pendiente: (5) actualizar `python-jose` a 3.5.0 y `xlsx` a 0.20.3 o reemplazarlo.
+- **Inmediato: bloquear liberación (6):** 6/6 resueltos — (1) autorización por objeto, (2) propiedades destino/continuidad, (3) enumeración bcrypt, (4) throttling/idempotencia, (5) `python-jose` a 3.5.0 y `xlsx` a 0.20.3, (6) contraseña en stdout.
 - **Siguiente sprint (6):** punto 7 parcialmente resuelto (revocación de sesión sí, vía `token_version`; migración fuera de `localStorage` no — decisión explícita del usuario para acotar el alcance). Punto 8 (password mínimo 15, blocklist) resuelto. Punto 9 (TLS verificado) parcialmente resuelto — SMTP con certificado verificado (SAST-08); PostgreSQL pasó de `prefer` a `require` pero no llegó a `verify-full` por falta de CA (SAST-09). Punto 10 (HMAC en índices) resuelto. Punto 11 (audit trail) parcialmente resuelto — eventos registrados, falta alertado en tiempo real por falta de canal de alertas (SAST-13). Punto 12 (contraseña temporal de un solo uso) resuelto.
 - **Hardening (4):** 2/4 resueltos (headers de seguridad SAST-15; contenedores no-root/digest/npm ci SAST-16, sin el hash-lock Python completo). Pendientes: SBOM/lock Python, tests de autorización negativos.
 
-**Total: 11 de 20 hallazgos formales corregidos (SAST-01, SAST-02, SAST-03, SAST-04, SAST-06, SAST-07, SAST-08, SAST-10, SAST-12, SAST-14, SAST-15), 5 mitigados parcialmente por decisión de alcance/infraestructura (SAST-05, SAST-09, SAST-11, SAST-13, SAST-16), 2 parcialmente mitigados por versión de dependencia (SCA-03/04).** El riesgo dominante que el reporte marcaba como bloqueante —BOLA en lecturas y escrituras de pacientes/médicos (SAST-01/SAST-02)— ya está remediado. Cada hallazgo corregido se verificó con pruebas aisladas de la lógica RBAC contra la base de datos real (sin efectos persistentes) y, cuando aplicó, con llamadas HTTP en vivo.
+**Total: 15 de 20 hallazgos formales corregidos (SAST-01, SAST-02, SAST-03, SAST-04, SAST-06, SAST-07, SAST-08, SAST-10, SAST-12, SAST-14, SAST-15, SCA-01, SCA-02, SCA-03, SCA-04), 5 mitigados parcialmente por decisión de alcance/infraestructura (SAST-05, SAST-09, SAST-11, SAST-13, SAST-16).** El riesgo dominante que el reporte marcaba como bloqueante —BOLA en lecturas y escrituras de pacientes/médicos (SAST-01/SAST-02)— ya está remediado. Cada hallazgo corregido se verificó con pruebas aisladas de la lógica RBAC contra la base de datos real (sin efectos persistentes) y, cuando aplicó, con llamadas HTTP en vivo.
 
 ## Revisión de los stashes en `carolinacc`
 
