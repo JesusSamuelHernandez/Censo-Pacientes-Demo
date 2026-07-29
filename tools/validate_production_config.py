@@ -1,5 +1,6 @@
 """Valida configuracion productiva sin imprimir secretos."""
 import argparse
+import os
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -74,6 +75,27 @@ def _validate_database_url() -> str | URL:
     return database_url
 
 
+def _validate_database_ssl_mode() -> None:
+    """
+    'prefer' (y 'disable'/sin definir) permiten que la conexion continue sin
+    cifrado si el servidor no ofrece TLS -o ante un downgrade activo en la
+    red-, exponiendo credenciales y datos clinicos en texto plano (SAST-09).
+    'require' fuerza TLS sin verificar certificado/hostname (transicion
+    aceptable si el proveedor no entrega CA); 'verify-ca'/'verify-full' son
+    el objetivo cuando se cuenta con DATABASE_SSL_ROOT_CERT.
+    """
+    modo = (os.getenv("DATABASE_SSL_MODE") or "").strip().lower()
+    if modo in {"verify-ca", "verify-full"}:
+        _ok(f"DATABASE_SSL_MODE='{modo}' verifica certificado del servidor.")
+    elif modo == "require":
+        _ok("DATABASE_SSL_MODE='require' fuerza TLS (sin verificar certificado/hostname).")
+    else:
+        raise RuntimeError(
+            f"DATABASE_SSL_MODE='{modo or '(sin definir)'}' permite una conexion sin cifrar. "
+            "En produccion usa al menos 'require', o 'verify-full' con DATABASE_SSL_ROOT_CERT."
+        )
+
+
 def _validate_secrets() -> None:
     require_env("JWT_SECRET_KEY", min_length=32)
     _ok("JWT_SECRET_KEY esta definida con longitud minima.")
@@ -84,6 +106,11 @@ def _validate_secrets() -> None:
     except Exception as exc:
         raise RuntimeError("FERNET_KEY no es una clave Fernet valida.") from exc
     _ok("FERNET_KEY tiene formato Fernet valido.")
+
+    hash_key = require_env("HASH_KEY")
+    if hash_key == fernet_key:
+        raise RuntimeError("HASH_KEY no debe ser igual a FERNET_KEY.")
+    _ok("HASH_KEY esta definida y es distinta de FERNET_KEY.")
 
 
 def _check_database_connection(database_url: str | URL) -> None:
@@ -152,6 +179,7 @@ def main() -> int:
     try:
         # 2. Ahora sí, las funciones leerán las variables del .env correctamente
         database_url = _validate_database_url()
+        _validate_database_ssl_mode()
         _validate_secrets()
         _validate_frontend_url()
         _validate_frontend_api_url()

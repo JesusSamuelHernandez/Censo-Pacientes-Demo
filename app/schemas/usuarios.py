@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, mo
 
 from app.models import Rol
 from app.schemas.common import RolStr
+from app.services.password_policy import PASSWORD_MIN_LENGTH, validar_password_fuerte
 
 
 class UsuarioBase(BaseModel):
@@ -51,7 +52,7 @@ class UsuarioUpdate(BaseModel):
     rol_nombre: str | None = None
     clues_unidad_asignada: str | None = Field(None, max_length=20)
     id_entidad: str | None = Field(None, max_length=100)
-    password: str | None = Field(None, min_length=8)
+    password: str | None = Field(None, min_length=PASSWORD_MIN_LENGTH, max_length=72)
 
     @field_validator("rol_nombre")
     @classmethod
@@ -61,6 +62,11 @@ class UsuarioUpdate(BaseModel):
                 f"rol_nombre '{v}' no es valido. Debe ser uno de: {sorted(Rol.TODOS)}"
             )
         return v
+
+    @field_validator("password")
+    @classmethod
+    def _validar_fortaleza(cls, v: str | None) -> str | None:
+        return validar_password_fuerte(v) if v else v
 
 
 class UsuarioResponse(BaseModel):
@@ -76,5 +82,19 @@ class UsuarioResponse(BaseModel):
 
 
 class UsuarioCreateResponse(UsuarioResponse):
-    """Respuesta exclusiva de POST /usuarios. Incluye la password temporal."""
-    password_temporal: str
+    """
+    Respuesta exclusiva de POST /usuarios. Ya no incluye una contraseña
+    temporal reutilizable (SAST-14): la cuenta se activa con un enlace de
+    un solo uso enviado por correo (ver app/services/activacion.py).
+    """
+    pass
+
+
+class CambiarPasswordResponse(UsuarioResponse):
+    """
+    Respuesta exclusiva de POST /usuarios/me/cambiar-password. Incluye un
+    access_token nuevo porque cambiar la contraseña invalida el token con el
+    que se hizo esta misma llamada (token_version) — sin este token nuevo,
+    el siguiente request del usuario recibiría 401 inmediatamente.
+    """
+    access_token: str

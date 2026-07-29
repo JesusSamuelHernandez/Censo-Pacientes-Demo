@@ -52,8 +52,12 @@ export default function PacienteDetallePage() {
         ]);
         setPaciente(p);
         setRegistros(r.resultados);
-      } catch {
-        toast.error("Error al cargar el paciente.");
+      } catch (error) {
+        const mensaje =
+          error.response?.status === 403
+            ? "No tienes acceso a este paciente."
+            : "Error al cargar el paciente.";
+        toast.error(mensaje);
         navigate("/pacientes");
       } finally {
         setLoading(false);

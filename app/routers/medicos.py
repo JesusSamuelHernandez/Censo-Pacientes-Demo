@@ -2,12 +2,23 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.auth import UsuarioActivo, apply_rbac_filter, require_password_cambiado, require_super_admin
-from app.crypto import hash_sha256
+from app.audit import Accion, registrar_evento
+from app.auth import (
+    UsuarioActivo,
+    _verificar_clues_en_ambito,
+    apply_rbac_filter,
+    require_password_cambiado,
+    require_super_admin,
+)
+from app.crypto import hash_identificador
 from app.database import get_db
 from app.models import CatPuesto, Medico, UnidadMedica
 from app.schemas import MedicoCreate, MedicoResponse, MedicoUpdate
-from app.services.medicos import _medico_to_response
+from app.services.medicos import (
+    _medico_to_response,
+    _obtener_medico_o_404,
+    _verificar_acceso_medico,
+)
 
 router = APIRouter(prefix="/medicos", tags=["Médicos"])
 
@@ -61,22 +72,16 @@ def crear_medico(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tiene permiso para registrar médicos. Contacte a su administrador estatal.",
         )
-    elif current_user.es_admin_estatal:
-        unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == clues).first()
-        if not unidad or unidad.id_entidad != current_user.id_entidad:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede registrar médicos en unidades de su estado.",
-            )
+    _verificar_clues_en_ambito(clues, current_user, db)
 
-    cedula_hash = hash_sha256(payload.cedula)
+    cedula_hash = hash_identificador(payload.cedula)
     if db.query(Medico).filter(Medico.cedula_hash == cedula_hash).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ya existe un médico con cédula '{payload.cedula}'.",
         )
 
-    curp_hash = hash_sha256(payload.curp)
+    curp_hash = hash_identificador(payload.curp)
     if db.query(Medico).filter(Medico.curp_hash == curp_hash).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -111,9 +116,12 @@ def obtener_medico(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
-    if not medico:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
+    medico = _obtener_medico_o_404(id_medico, db)
+    _verificar_acceso_medico(medico, current_user, db)
+    registrar_evento(
+        db, accion=Accion.CONSULTA_MEDICO, id_usuario=current_user.id_usuario,
+        objeto_tipo="medico", objeto_id=medico.id_medico,
+    )
     return _medico_to_response(medico)
 
 
@@ -128,34 +136,22 @@ def actualizar_medico(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
-    if not medico:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
-
-    if current_user.es_responsable_unidad:
-        if medico.clues_adscripcion != current_user.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede modificar médicos de su propia unidad médica.",
-            )
-    elif current_user.es_admin_estatal:
-        unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == medico.clues_adscripcion).first()
-        if not unidad or unidad.id_entidad != current_user.id_entidad:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede modificar médicos de unidades de su estado.",
-            )
+    medico = _obtener_medico_o_404(id_medico, db)
+    _verificar_acceso_medico(medico, current_user, db)
 
     datos = payload.model_dump(exclude_none=True)
+    if "clues_adscripcion" in datos:
+        datos["clues_adscripcion"] = datos["clues_adscripcion"].strip().upper()
+        _verificar_clues_en_ambito(datos["clues_adscripcion"], current_user, db)
     if "nombre_medico" in datos:
         medico.nombre_medico = datos.pop("nombre_medico")
     if "cedula" in datos:
         nueva_cedula = datos.pop("cedula")
         medico.cedula = nueva_cedula
-        medico.cedula_hash = hash_sha256(nueva_cedula)
+        medico.cedula_hash = hash_identificador(nueva_cedula)
     if "curp" in datos:
         nueva_curp = datos.pop("curp")
-        nueva_curp_hash = hash_sha256(nueva_curp)
+        nueva_curp_hash = hash_identificador(nueva_curp)
         duplicado = (
             db.query(Medico)
             .filter(Medico.curp_hash == nueva_curp_hash, Medico.id_medico != medico.id_medico)
@@ -191,8 +187,6 @@ def eliminar_medico(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_super_admin),
 ):
-    medico = db.query(Medico).filter(Medico.id_medico == id_medico).first()
-    if not medico:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado.")
+    medico = _obtener_medico_o_404(id_medico, db)
     db.delete(medico)
     db.commit()

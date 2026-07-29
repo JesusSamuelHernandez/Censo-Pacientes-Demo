@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import UsuarioActivo, apply_rbac_filter, require_password_cambiado
-from app.crypto import hash_sha256
+from app.crypto import hash_identificador
 from app.database import get_db
 from app.models import (
     CatMedicamento,
@@ -249,7 +249,7 @@ def crear_registro_completo(
             paciente.motivo_baja = None
 
     elif payload.curp_paciente:
-        curp_hash = hash_sha256(payload.curp_paciente)
+        curp_hash = hash_identificador(payload.curp_paciente)
         paciente = db.query(Paciente).filter(Paciente.curp_hash == curp_hash).first()
         if not paciente:
             paciente = _crear_paciente_nuevo(curp_hash, payload.curp_paciente)
@@ -509,13 +509,9 @@ def validar_continuidad(
     if not registro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Registro no encontrado.")
 
-    # RBAC: RESPONSABLE_UNIDAD solo puede validar registros de su unidad
-    if current_user.es_responsable_unidad:
-        if registro.clues != current_user.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No puede validar registros de otra unidad médica.",
-            )
+    # La prescripción "sigue al paciente": el acceso se determina por la unidad
+    # actual del paciente, no por registro.clues (la unidad donde se generó).
+    _verificar_acceso_registro(registro, current_user, db)
 
     # Si tiene posología guardada → calcular nueva fecha desde hoy
     if registro.duracion and registro.unidad_tiempo:

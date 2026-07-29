@@ -3,7 +3,12 @@
 Este paquete conserva el contrato historico `from app.schemas import X`
 mientras permite mantener los schemas en archivos mas pequenos.
 """
+from app.schemas.auditoria import (
+    EventoSeguridadListResponse,
+    EventoSeguridadResponse,
+)
 from app.schemas.auth import (
+    ActivarCuentaRequest,
     CambiarPasswordRequest,
     LoginRequest,
     SolicitarAccesoRequest,
@@ -73,6 +78,7 @@ from app.schemas.reportes import (
     RtmResponse,
 )
 from app.schemas.usuarios import (
+    CambiarPasswordResponse,
     UsuarioCreate,
     UsuarioCreateResponse,
     UsuarioResponse,
@@ -80,12 +86,14 @@ from app.schemas.usuarios import (
 )
 
 __all__ = [
+    "ActivarCuentaRequest",
     "BajaPacienteRequest",
     "BusquedaCurpRequest",
     "BusquedaCurpResponse",
     "BusquedaNombreItem",
     "BusquedaNombreResponse",
     "CambiarPasswordRequest",
+    "CambiarPasswordResponse",
     "ClaveCnisStr",
     "CluesStr",
     "CONFIRMADO_MEDIANTE_OPTIONS",
@@ -94,6 +102,8 @@ __all__ = [
     "DiagnosticoResponse",
     "DiagnosticoUpdate",
     "ESTATUS_EVOLUCION_OPTIONS",
+    "EventoSeguridadListResponse",
+    "EventoSeguridadResponse",
     "ExpedienteCreate",
     "ExpedienteResponse",
     "ExpedienteUpdate",

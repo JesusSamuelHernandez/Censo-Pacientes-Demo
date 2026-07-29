@@ -5,9 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import exists, func
 from sqlalchemy.orm import Session, joinedload
 
-from app.auth import UsuarioActivo, apply_rbac_filter, require_password_cambiado
+from app.audit import Accion, registrar_evento
+from app.auth import (
+    UsuarioActivo,
+    _verificar_clues_en_ambito,
+    apply_rbac_filter,
+    require_password_cambiado,
+)
 from app.config import ESTATUS_EVOLUCION_HABILITADO, REACCIONES_ADVERSAS_HABILITADO
-from app.crypto import hash_sha256
+from app.crypto import hash_identificador
 from app.database import get_db
 from app.models import (
     CatMedicamento,
@@ -147,14 +153,9 @@ def crear_paciente(
     db: Session = Depends(get_db),
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
-    if current_user.es_responsable_unidad:
-        if payload.clues_unidad_adscripcion != current_user.clues_unidad_asignada:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo puede registrar pacientes en su propia unidad médica.",
-            )
+    _verificar_clues_en_ambito(payload.clues_unidad_adscripcion, current_user, db)
 
-    curp_hash = hash_sha256(payload.curp_paciente)
+    curp_hash = hash_identificador(payload.curp_paciente)
     if db.query(Paciente).filter(Paciente.curp_hash == curp_hash).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -192,7 +193,7 @@ def buscar_paciente_por_curp(
 ):
     curp_normalizada = payload.curp
     paciente = db.query(Paciente).filter(
-        Paciente.curp_hash == hash_sha256(curp_normalizada)
+        Paciente.curp_hash == hash_identificador(curp_normalizada)
     ).first()
 
     if not paciente:
@@ -292,10 +293,16 @@ def obtener_paciente(
 ):
     marcar_registros_vencidos(db)
     paciente = _obtener_paciente_por_identificador(identificador, db)
+    _verificar_acceso_paciente(paciente, current_user, db)
+    registrar_evento(
+        db, accion=Accion.CONSULTA_PACIENTE, id_usuario=current_user.id_usuario,
+        objeto_tipo="paciente", objeto_id=paciente.id_paciente,
+    )
 
-    # Lectura nacional sin restricción: cualquier rol puede consultar el detalle de
-    # un paciente para hacer búsquedas al registrar una nueva prescripción.
-    # La restricción RBAC aplica solo en escritura (PATCH / DELETE).
+    # Si se requiere ubicar pacientes de otras unidades (p. ej. para
+    # continuidad de tratamiento), usar /pacientes/buscar o /pacientes?q=,
+    # que exponen solo identidad y conteo de registros, sin diagnóstico,
+    # expediente ni historial.
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds, adherencias = _get_medicamentos_y_adherencia(paciente.id_paciente, db)
@@ -345,6 +352,9 @@ def actualizar_paciente(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tiene acceso a pacientes de otro estado.",
             )
+        if payload.clues_unidad_adscripcion:
+            # También el destino: no puede transferir el paciente a otro estado.
+            _verificar_clues_en_ambito(payload.clues_unidad_adscripcion.strip().upper(), current_user, db)
 
     clues_anterior = paciente.clues_unidad_adscripcion
 
@@ -377,6 +387,11 @@ def actualizar_paciente(
         )
         db.add(notif)
         db.commit()
+        registrar_evento(
+            db, accion=Accion.TRANSFERENCIA_PACIENTE, id_usuario=current_user.id_usuario,
+            objeto_tipo="paciente", objeto_id=paciente.id_paciente,
+            detalle=f"{clues_anterior} -> {paciente.clues_unidad_adscripcion}",
+        )
 
     tiene = _tiene_prescripcion_activa(paciente.id_paciente, db)
     meds, adherencias = _get_medicamentos_y_adherencia(paciente.id_paciente, db)
@@ -435,6 +450,7 @@ def listar_expedientes_paciente(
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     paciente = _obtener_paciente_por_identificador(identificador, db)
+    _verificar_acceso_paciente(paciente, current_user, db)
     expedientes = db.query(ExpedientePaciente).filter(
         ExpedientePaciente.id_paciente == paciente.id_paciente
     ).all()
@@ -454,12 +470,7 @@ def upsert_expediente_paciente(
     current_user: UsuarioActivo = Depends(require_password_cambiado),
 ):
     paciente = _obtener_paciente_por_identificador(identificador, db)
-
-    if current_user.es_responsable_unidad and payload.clues != current_user.clues_unidad_asignada:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo puede gestionar expedientes de su propia unidad.",
-        )
+    _verificar_clues_en_ambito(payload.clues, current_user, db)
 
     expediente = db.query(ExpedientePaciente).filter(
         ExpedientePaciente.id_paciente == paciente.id_paciente,
@@ -516,6 +527,7 @@ if REACCIONES_ADVERSAS_HABILITADO:
         current_user: UsuarioActivo = Depends(require_password_cambiado),
     ):
         paciente = _obtener_paciente_por_identificador(identificador, db)
+        _verificar_acceso_paciente(paciente, current_user, db)
         reacciones = (
             db.query(ReaccionAdversa)
             .filter(ReaccionAdversa.id_paciente == paciente.id_paciente)
@@ -568,6 +580,7 @@ def listar_registros_de_paciente(
 ):
     marcar_registros_vencidos(db)
     paciente = _obtener_paciente_por_identificador(identificador, db)
+    _verificar_acceso_paciente(paciente, current_user, db)
 
     query = (
         db.query(Registro)

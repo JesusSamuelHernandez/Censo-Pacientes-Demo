@@ -2,9 +2,10 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.crypto import EncryptedDecimal, EncryptedString
 from app.database import Base
 
 
@@ -46,14 +47,14 @@ class Registro(Base):
     fecha_primera_administracion: Mapped[date | None] = mapped_column(Date)
     fecha_fin_tratamiento: Mapped[date | None] = mapped_column(Date, nullable=True)
     dosis_administrada: Mapped[str | None] = mapped_column(String(100))
-    peso: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
-    talla: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    peso: Mapped[Decimal | None] = mapped_column(EncryptedDecimal, nullable=True)
+    talla: Mapped[Decimal | None] = mapped_column(EncryptedDecimal, nullable=True)
     estatus_diagnostico: Mapped[str | None] = mapped_column(String(50), nullable=True)
     confirmado_por: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    confirmado_mediante: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    confirmado_mediante: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     tratamiento_amparo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     queja_derechos_humanos: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    prescripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prescripcion: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
 
     dosis: Mapped[float | None] = mapped_column(Float, nullable=True)
     cantidad: Mapped[float | None] = mapped_column(Float, nullable=True)

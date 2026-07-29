@@ -3,24 +3,28 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.audit import Accion, registrar_evento
 from app.auth import (
     UsuarioActivo,
+    create_access_token,
     hash_password,
     require_cualquier_rol,
     require_super_admin,
     verify_password,
 )
 from app.database import get_db
-from app.email_service import enviar_correo_acceso
+from app.email_service import enviar_correo_activacion
 from app.models import Usuario
 from app.schemas import (
     CambiarPasswordRequest,
+    CambiarPasswordResponse,
     UsuarioCreate,
     UsuarioCreateResponse,
     UsuarioResponse,
     UsuarioUpdate,
 )
-from app.services.utils import _generar_password_temporal
+from app.services.activacion import crear_token_activacion
+from app.services.utils import _generar_password_placeholder
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -37,7 +41,7 @@ def listar_usuarios(
     "",
     response_model=UsuarioCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear una cuenta de usuario. Solo SUPER_ADMIN. Devuelve contraseña temporal.",
+    summary="Crear una cuenta de usuario. Solo SUPER_ADMIN. Envía un enlace de activación por correo.",
 )
 def crear_usuario(
     payload: UsuarioCreate,
@@ -50,11 +54,12 @@ def crear_usuario(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ya existe un usuario con email '{email}'.",
         )
-    password_temporal = _generar_password_temporal()
+    # Password que nadie llega a conocer: el login solo es posible tras
+    # activar la cuenta con el enlace de un solo uso (SAST-14).
     nuevo = Usuario(
         nombre_usuario=None,
         email=email,
-        hashed_password=hash_password(password_temporal),
+        hashed_password=hash_password(_generar_password_placeholder()),
         rol_nombre=payload.rol_nombre,
         clues_unidad_asignada=payload.clues_unidad_asignada,
         id_entidad=payload.id_entidad,
@@ -63,22 +68,21 @@ def crear_usuario(
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
-    enviar_correo_acceso(nuevo.email, password_temporal)
-    return UsuarioCreateResponse(
-        id_usuario=nuevo.id_usuario,
-        nombre_usuario=nuevo.nombre_usuario,
-        email=nuevo.email,
-        rol_nombre=nuevo.rol_nombre,
-        clues_unidad_asignada=nuevo.clues_unidad_asignada,
-        id_entidad=nuevo.id_entidad,
-        debe_cambiar_password=nuevo.debe_cambiar_password,
-        password_temporal=password_temporal,
+
+    token = crear_token_activacion(db, nuevo)
+    db.commit()
+    enviar_correo_activacion(nuevo.email, token)
+    registrar_evento(
+        db, accion=Accion.USUARIO_CREADO, id_usuario=current_user.id_usuario,
+        objeto_tipo="usuario", objeto_id=nuevo.id_usuario,
+        detalle=f"rol: {nuevo.rol_nombre}",
     )
+    return nuevo
 
 
 @router.post(
     "/me/cambiar-password",
-    response_model=UsuarioResponse,
+    response_model=CambiarPasswordResponse,
     summary="Cambiar contraseña propia. Obligatorio tras el primer login.",
 )
 def cambiar_password(
@@ -104,9 +108,21 @@ def cambiar_password(
 
     usuario.hashed_password = hash_password(payload.password_nueva)
     usuario.debe_cambiar_password = False
+    usuario.token_version += 1
     db.commit()
     db.refresh(usuario)
-    return usuario
+    registrar_evento(
+        db, accion=Accion.CAMBIO_PASSWORD, id_usuario=current_user.id_usuario,
+        objeto_tipo="usuario", objeto_id=usuario.id_usuario, detalle="cambio propio",
+    )
+
+    # token_version cambió: el JWT con el que se hizo esta llamada ya quedó
+    # invalidado. Se emite uno nuevo para que la sesión pueda continuar.
+    nuevo_token = create_access_token(usuario)
+    return CambiarPasswordResponse(
+        **UsuarioResponse.model_validate(usuario).model_dump(),
+        access_token=nuevo_token,
+    )
 
 
 @router.patch(
@@ -125,13 +141,31 @@ def actualizar_usuario(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado.")
 
     datos = payload.model_dump(exclude_none=True)
-    if "password" in datos:
+    cambio_password = "password" in datos
+    campos_rol = {"rol_nombre", "clues_unidad_asignada", "id_entidad"}
+    cambio_rol = campos_rol & datos.keys()
+
+    if cambio_password:
         usuario.hashed_password = hash_password(datos.pop("password"))
+        usuario.token_version += 1
     for campo, valor in datos.items():
         setattr(usuario, campo, valor)
 
     db.commit()
     db.refresh(usuario)
+
+    if cambio_password:
+        registrar_evento(
+            db, accion=Accion.CAMBIO_PASSWORD, id_usuario=current_user.id_usuario,
+            objeto_tipo="usuario", objeto_id=usuario.id_usuario,
+            detalle=f"cambiada por SUPER_ADMIN id_usuario={current_user.id_usuario}",
+        )
+    if cambio_rol:
+        registrar_evento(
+            db, accion=Accion.CAMBIO_ROL, id_usuario=current_user.id_usuario,
+            objeto_tipo="usuario", objeto_id=usuario.id_usuario,
+            detalle=f"campos modificados: {sorted(cambio_rol)}",
+        )
     return usuario
 
 
@@ -156,3 +190,7 @@ def eliminar_usuario(
 
     db.delete(usuario)
     db.commit()
+    registrar_evento(
+        db, accion=Accion.USUARIO_ELIMINADO, id_usuario=current_user.id_usuario,
+        objeto_tipo="usuario", objeto_id=id_usuario,
+    )

@@ -31,9 +31,10 @@ from jose import JWTError, jwt
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.audit import Accion, Resultado, registrar_evento
 from app.config import require_env
 from app.database import get_db
-from app.models import Rol, Usuario
+from app.models import Rol, UnidadMedica, Usuario
 
 # ---------------------------------------------------------------------------
 # Configuración desde variables de entorno
@@ -94,9 +95,25 @@ def hash_password(plain_password: str) -> str:
     return bcrypt.hashpw(plain_password.encode(), bcrypt.gensalt()).decode()
 
 
+# Hash señuelo para comparar en tiempo constante cuando la cuenta no existe,
+# evitando que el tiempo de respuesta o el status revelen si el email está
+# registrado (ver _DUMMY_BCRYPT_HASH en autenticar_usuario).
+_DUMMY_BCRYPT_HASH = bcrypt.hashpw(b"cuenta-inexistente", bcrypt.gensalt()).decode()
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Retorna True si la contraseña coincide con el hash almacenado."""
-    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+    """
+    Retorna True si la contraseña coincide con el hash almacenado.
+
+    bcrypt limita internamente a 72 bytes; con bcrypt>=4 checkpw lanza
+    ValueError en vez de truncar. Sin este guard, una cuenta existente con
+    password >72 bytes respondería 500 mientras que una cuenta inexistente
+    respondería 401 — una fuga de enumeración (CWE-204).
+    """
+    password_bytes = plain_password.encode("utf-8")
+    if len(password_bytes) > 72:
+        return False
+    return bcrypt.checkpw(password_bytes, hashed_password.encode())
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +130,9 @@ def create_access_token(usuario: Usuario) -> str:
         rol_nombre            : rol RBAC.
         clues_unidad_asignada : contexto de unidad (RESPONSABLE_UNIDAD).
         id_entidad            : contexto estatal (ADMIN_ESTATAL).
+        token_version         : debe coincidir con usuarios.token_version en BD;
+                                 logout o cambio de contraseña la incrementan,
+                                 invalidando de inmediato los tokens ya emitidos.
         exp                   : fecha/hora de expiración (UTC).
     """
     expira_en = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)
@@ -124,6 +144,7 @@ def create_access_token(usuario: Usuario) -> str:
         "clues_unidad_asignada": usuario.clues_unidad_asignada,
         "id_entidad": usuario.id_entidad,
         "debe_cambiar_password": usuario.debe_cambiar_password,
+        "token_version": usuario.token_version,
         "exp": expira_en,
     }
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
@@ -158,7 +179,9 @@ def get_current_user(
     Dependencia FastAPI: decodifica el JWT y devuelve el contexto del usuario.
 
     Verifica que el usuario siga existiendo en la BD (protege contra cuentas
-    eliminadas o modificadas después de emitir el token).
+    eliminadas o modificadas después de emitir el token) y que el token no
+    haya sido invalidado por un logout o cambio de contraseña posterior
+    (token_version).
     """
     payload = _decode_token(token)
 
@@ -177,6 +200,13 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="El usuario del token ya no existe en el sistema.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if payload.get("token_version") != usuario_db.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión inválida o cerrada. Inicia sesión de nuevo.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -328,6 +358,39 @@ def apply_rbac_filter(usuario: UsuarioActivo) -> FiltroRBAC:
     )
 
 
+def _verificar_clues_en_ambito(clues: str, usuario: UsuarioActivo, db: Session) -> None:
+    """
+    Lanza 403 si la CLUES indicada queda fuera del ámbito geográfico del usuario.
+
+    Debe aplicarse tanto a la CLUES actual de un recurso como a cualquier CLUES
+    nueva que un payload intente asignar (alta o transferencia), para que un
+    responsable o admin estatal no pueda mover ni crear recursos fuera de su
+    unidad/estado simplemente indicando un destino distinto en el body.
+    """
+    if usuario.es_super_admin:
+        return
+    if usuario.es_responsable_unidad:
+        if clues != usuario.clues_unidad_asignada:
+            detalle = "Solo puede operar dentro de su propia unidad médica."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="clues",
+                objeto_id=clues, detalle=detalle,
+            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
+        return
+    if usuario.es_admin_estatal:
+        unidad = db.query(UnidadMedica).filter(UnidadMedica.clues == clues).first()
+        if not unidad or unidad.id_entidad != usuario.id_entidad:
+            detalle = "Solo puede operar dentro de unidades de su propio estado."
+            registrar_evento(
+                db, accion=Accion.ACCESO_DENEGADO, resultado=Resultado.DENEGADO,
+                id_usuario=usuario.id_usuario, objeto_tipo="clues",
+                objeto_id=clues, detalle=detalle,
+            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
+
+
 # ---------------------------------------------------------------------------
 # Lógica de autenticación (usada por POST /auth/login)
 # ---------------------------------------------------------------------------
@@ -347,7 +410,13 @@ def autenticar_usuario(email: str, password: str, db: Session) -> Usuario:
         .first()
     )
 
-    if usuario is None or not verify_password(password, usuario.hashed_password):
+    # Siempre se ejecuta verify_password, exista o no la cuenta, contra un
+    # hash real o uno señuelo: mismo camino de código y costo de cómputo en
+    # ambos casos, para no filtrar por status ni por tiempo de respuesta.
+    hash_a_verificar = usuario.hashed_password if usuario else _DUMMY_BCRYPT_HASH
+    password_valida = verify_password(password, hash_a_verificar)
+
+    if usuario is None or not password_valida:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas.",

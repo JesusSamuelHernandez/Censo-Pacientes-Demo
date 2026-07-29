@@ -21,6 +21,8 @@ services:
         generateValue: true
       - key: FERNET_KEY
         generateValue: true
+      - key: HASH_KEY
+        generateValue: true
       - key: JWT_ALGORITHM
         value: HS256
       - key: JWT_EXPIRE_HOURS
@@ -28,7 +30,7 @@ services:
       - key: FRONTEND_URL
         sync: false
       - key: DATABASE_SSL_MODE
-        value: prefer
+        value: require
       - key: DB_POOL_SIZE
         value: 10
       - key: DB_MAX_OVERFLOW
@@ -54,3 +56,18 @@ services:
           type: web
           name: censo-backend
           envVarKey: RENDER_EXTERNAL_URL
+    # Headers de seguridad (SAST-15). HSTS va aqui (y no en el backend ni en
+    # nginx.conf) porque Render SI termina TLS para este sitio estatico.
+    headers:
+      - path: /*
+        headers:
+          - name: X-Content-Type-Options
+            value: nosniff
+          - name: X-Frame-Options
+            value: DENY
+          - name: Content-Security-Policy
+            value: "frame-ancestors 'none'"
+          - name: Referrer-Policy
+            value: no-referrer
+          - name: Strict-Transport-Security
+            value: "max-age=63072000; includeSubDomains"

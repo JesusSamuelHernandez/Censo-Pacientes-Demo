@@ -4,11 +4,16 @@ services:
     container_name: censo_db_container
     restart: always
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: censo_pacientes
+      # Toma DB_USER/DB_PASSWORD del .env local (mismas variables que usa la
+      # app para conectarse). Sin defaults: si faltan, docker compose falla
+      # al arrancar en vez de crear una cuenta con password predecible.
+      POSTGRES_USER: ${DB_USER:?Define DB_USER en tu .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en tu .env}
+      POSTGRES_DB: ${DB_NAME:-censo_pacientes}
     ports:
-      - "5432:5432"
+      # Solo loopback: evita exponer Postgres a la LAN/Internet. La app se
+      # sigue conectando igual (localhost:5432) desde el mismo host.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
   app:

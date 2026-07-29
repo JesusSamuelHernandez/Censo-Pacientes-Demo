@@ -34,7 +34,7 @@ import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy.orm import Session
 
-from app.crypto import cifrar, hash_sha256
+from app.crypto import cifrar, hash_identificador
 from app.database import SessionLocal
 from app.models import CatPuesto, Medico, UnidadMedica
 
@@ -262,9 +262,9 @@ def cargar(ruta_excel: Path) -> None:
                     invalidos += 1
                     continue
 
-            cedula_hash = hash_sha256(cedula)
+            cedula_hash = hash_identificador(cedula)
             curp_upper  = curp.upper() if curp else None
-            curp_hash   = hash_sha256(curp_upper) if curp_upper else None
+            curp_hash   = hash_identificador(curp_upper) if curp_upper else None
 
             existente = db.query(Medico).filter(Medico.cedula_hash == cedula_hash).first()
 

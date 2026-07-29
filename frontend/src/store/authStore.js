@@ -39,10 +39,14 @@ const useAuthStore = create(
         });
       },
 
-      marcarPasswordCambiado: (nombreUsuario) => {
+      marcarPasswordCambiado: (nombreUsuario, nuevoToken) => {
+        if (nuevoToken) {
+          localStorage.setItem("access_token", nuevoToken);
+        }
         set((state) => ({
           debeCambiarPassword: false,
           nombreUsuario: nombreUsuario || state.nombreUsuario,
+          token: nuevoToken || state.token,
         }));
       },
 

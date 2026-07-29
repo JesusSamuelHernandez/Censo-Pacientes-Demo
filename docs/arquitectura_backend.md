@@ -39,7 +39,7 @@ La función `apply_rbac_filter()` centraliza toda la lógica de restricción de 
 La adherencia es `(date.today() - registro.fecha_inicio_tratamiento).days` usando el registro activo más reciente del paciente. Al calcularla en consulta, el dato siempre es exacto sin procesos de actualización.
 
 ### Cifrado Fernet para datos sensibles
-CURP, nombre completo, diagnóstico, nombre del médico y cédula se almacenan cifrados con Fernet (clave simétrica). El campo `curp_hash` (SHA-256) permite búsquedas sin descifrar. El campo cifrado se almacena como `LargeBinary` en PostgreSQL.
+CURP, nombre completo, diagnóstico, nombre del médico y cédula se almacenan cifrados con Fernet (clave simétrica). El campo `curp_hash` (HMAC-SHA256, clave `HASH_KEY`) permite búsquedas sin descifrar. El campo cifrado se almacena como `LargeBinary` en PostgreSQL.
 
 ### fecha_fin_tratamiento como fecha exclusiva
 Cuando hay posología completa, `fecha_fin_tratamiento` se auto-calcula como:
@@ -73,7 +73,7 @@ app/
 │                          ReaccionAdversa (reacciones_adversas).
 ├── schemas.py           → Validación de entrada/salida con Pydantic v2.
 ├── auth.py              → JWT, bcrypt, RBAC: apply_rbac_filter(), dependencias de rol.
-├── crypto.py            → cifrar(), descifrar(), descifrar_o_none(), hash_sha256() con Fernet.
+├── crypto.py            → cifrar(), descifrar(), descifrar_o_none(), hash_identificador() con Fernet/HMAC.
 ├── email_service.py     → Envío de correos institucionales (SMTP/SendGrid): enviar_correo(),
 │                          enviar_correo_acceso(). Nunca bloquea al llamador si SMTP falla.
 └── main.py              → Todos los endpoints de la API (versión 3.0.0).
@@ -171,7 +171,7 @@ Se carga vía `scripts/cargar_usuarios_preautorizados.py` desde los Excel de `so
 | Campo | Tipo SQLAlchemy | Restricciones | Notas |
 |---|---|---|---|
 | `id_paciente` | Integer | PK, autoincrement | |
-| `curp_hash` | String(64) | unique, nullable, index | SHA-256 de la CURP para búsquedas. `NULL` si el paciente no tiene CURP (ej. recién nacidos) |
+| `curp_hash` | String(64) | unique, nullable, index | HMAC-SHA256 de la CURP para búsquedas. `NULL` si el paciente no tiene CURP (ej. recién nacidos) |
 | `curp_paciente` | LargeBinary | nullable | CURP cifrada con Fernet. `NULL` si el paciente no tiene CURP |
 | `nombre_completo` | LargeBinary | NOT NULL | Nombre cifrado con Fernet |
 | `diagnostico_actual` | LargeBinary | nullable | Diagnóstico cifrado con Fernet |
@@ -227,10 +227,10 @@ Registro histórico de reacciones adversas a medicamentos reportadas para un pac
 | Campo | Tipo SQLAlchemy | Restricciones | Notas |
 |---|---|---|---|
 | `id_medico` | Integer | PK, autoincrement | |
-| `cedula_hash` | String(64) | unique, NOT NULL, index | SHA-256 de cédula para búsquedas |
+| `cedula_hash` | String(64) | unique, NOT NULL, index | HMAC-SHA256 de cédula para búsquedas |
 | `nombre_medico` | LargeBinary | NOT NULL | Nombre cifrado con Fernet |
 | `cedula` | LargeBinary | NOT NULL | Cédula cifrada con Fernet |
-| `curp_hash` | String(64) | unique, nullable, index | SHA-256 de CURP para búsquedas/unicidad (2026-06-23). Nullable: médicos previos a este campo no la tienen |
+| `curp_hash` | String(64) | unique, nullable, index | HMAC-SHA256 de CURP para búsquedas/unicidad (2026-06-23). Nullable: médicos previos a este campo no la tienen |
 | `curp` | LargeBinary | nullable | CURP cifrada con Fernet (2026-06-23). Exigida en `MedicoCreate`, opcional en BD |
 | `id_puesto` | String(20) | FK → cat_puestos (RESTRICT), nullable | Puesto/especialidad (2026-06-23). Exigido en `MedicoCreate`, opcional en BD |
 | `email` | String(255) | nullable | Texto plano |
@@ -732,7 +732,7 @@ Railway inyecta `$PORT` automáticamente. `--host 0.0.0.0` es obligatorio en con
 |---|---|
 | **Soft Delete** | `es_activo = False` en `Paciente`, `Registro` y `Medico`. Nunca DELETE físico para estos modelos. |
 | **Fernet** | CURP, nombre completo, diagnóstico (Paciente), nombre y cédula (Medico) se almacenan como `LargeBinary` cifrado. |
-| **SHA-256** | `curp_hash` y `cedula_hash` permiten lookups eficientes sin descifrar. |
+| **HMAC-SHA256** | `curp_hash` y `cedula_hash` permiten lookups eficientes sin descifrar. |
 | **fecha_fin exclusiva** | `fecha_fin_tratamiento` marca el primer día que ya NO es parte del tratamiento. El frontend resta 1 al mostrar "último día real". |
 | **Timestamps** | `server_default=func.now()` para que la BD estampe la hora (no el código Python). |
 | **Paginación** | `pagina` (1-based), `por_pagina` (default 20, max 500). Offset = `(pagina - 1) * por_pagina`. |

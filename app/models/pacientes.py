@@ -1,7 +1,7 @@
 """Modelos ORM de pacientes y entidades relacionadas."""
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -88,7 +88,7 @@ class ExpedientePaciente(Base):
         ForeignKey("cat_unidades.clues", ondelete="RESTRICT"),
         primary_key=True,
     )
-    numero_expediente: Mapped[str] = mapped_column(String(100), nullable=False)
+    numero_expediente: Mapped[str] = mapped_column(EncryptedString, nullable=False)
 
     paciente: Mapped["Paciente"] = relationship(back_populates="expedientes")
     unidad: Mapped["UnidadMedica"] = relationship()
@@ -113,7 +113,7 @@ class ReaccionAdversa(Base):
         ForeignKey("cat_medicamentos.clave_cnis", ondelete="RESTRICT"),
         nullable=False,
     )
-    comentario: Mapped[str] = mapped_column(Text, nullable=False)
+    comentario: Mapped[str] = mapped_column(EncryptedString, nullable=False)
     id_usuario_registro: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("usuarios.id_usuario", ondelete="SET NULL"),

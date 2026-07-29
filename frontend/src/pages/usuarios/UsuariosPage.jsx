@@ -1,17 +1,18 @@
 /**
  * UsuariosPage.jsx — Gestión de cuentas de usuario (Solo SUPER_ADMIN).
  *
- * Flujo de creación:
+ * Flujo de creación (SAST-14 — sin contraseña temporal reutilizable):
  *   1. SUPER_ADMIN llena el formulario.
- *   2. Backend genera contraseña temporal y la devuelve una sola vez.
- *   3. Se muestra en modal de contraseña temporal para copiarla.
- *   4. Al primer login el usuario debe cambiarla.
+ *   2. Backend genera un enlace de activación de un solo uso y lo envía
+ *      por correo directamente al usuario nuevo.
+ *   3. El usuario elige su propia contraseña al abrir el enlace
+ *      (/activar) — el SUPER_ADMIN nunca la conoce.
  */
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Pencil, Trash2, X, Save, Copy, Check, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Save, Mail, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -78,37 +79,22 @@ const schemaEditar = z.object({
   rol_nombre: z.enum(["SUPER_ADMIN", "ADMIN_ESTATAL", "RESPONSABLE_UNIDAD"]).optional(),
   clues_unidad_asignada: z.string().optional().or(z.literal("")),
   id_entidad: z.string().optional().or(z.literal("")),
-  password: z.string().min(8, "Mínimo 8 caracteres.").optional().or(z.literal("")),
+  password: z.string().min(15, "Mínimo 15 caracteres.").max(72).optional().or(z.literal("")),
 });
 
-// ── Modal de contraseña temporal ──────────────────────────────────────────────
-function ModalPasswordTemporal({ usuario, onClose }) {
-  const [copiado, setCopiado] = useState(false);
-
-  const copiar = () => {
-    navigator.clipboard.writeText(usuario.password_temporal).then(() => {
-      setCopiado(true);
-      setTimeout(() => setCopiado(false), 2000);
-    });
-  };
-
+// ── Modal de confirmación de alta ─────────────────────────────────────────────
+function ModalUsuarioCreado({ usuario, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
         <div className="px-6 py-5 border-b border-neutral-gray/20">
           <h3 className="font-semibold text-neutral-black">Usuario creado</h3>
           <p className="text-sm text-neutral-gray mt-0.5">
-            Comparte esta contraseña temporal con el usuario. No se volverá a mostrar.
+            Se envió un enlace de activación al correo del usuario.
           </p>
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-xs text-neutral-gray mb-0.5">Nombre</p>
-              <p className="font-medium text-neutral-black">
-                {usuario.nombre_usuario || "— (lo definirá el usuario)"}
-              </p>
-            </div>
             <div>
               <p className="text-xs text-neutral-gray mb-0.5">Correo</p>
               <p className="font-medium text-neutral-black">{usuario.email}</p>
@@ -119,27 +105,12 @@ function ModalPasswordTemporal({ usuario, onClose }) {
             </div>
           </div>
 
-          <div>
-            <p className="text-xs font-medium text-neutral-gray mb-1">Contraseña temporal</p>
-            <div className="flex items-center gap-2 bg-neutral-light border border-neutral-gray/30 rounded-lg px-4 py-3">
-              <span className="flex-1 font-mono text-lg font-semibold text-neutral-black tracking-widest">
-                {usuario.password_temporal}
-              </span>
-              <button
-                onClick={copiar}
-                className={`p-1.5 rounded-lg transition ${
-                  copiado
-                    ? "text-secondary bg-secondary/10"
-                    : "text-neutral-gray hover:text-primary hover:bg-primary/10"
-                }`}
-                title="Copiar contraseña"
-              >
-                {copiado ? <Check size={16} /> : <Copy size={16} />}
-              </button>
-            </div>
-            <p className="text-xs text-neutral-gray mt-1.5">
-              El usuario deberá cambiarla en su primer inicio de sesión.
-              También se envió esta información al correo del usuario.
+          <div className="flex items-start gap-3 bg-neutral-light border border-neutral-gray/30 rounded-lg px-4 py-3">
+            <Mail size={18} className="text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-neutral-gray">
+              El usuario elige su propio nombre de usuario y contraseña al abrir el enlace.
+              Es de un solo uso y expira en 48 horas — si no lo usa a tiempo, puede pedir uno
+              nuevo con "Solicita tu acceso" desde la pantalla de login.
             </p>
           </div>
 
@@ -206,7 +177,7 @@ function ModalFormulario({ item, onClose, onGuardado }) {
           id_entidad: values.id_entidad || undefined,
         };
         const resultado = await crearUsuario(payload);
-        onGuardado(resultado); // incluye password_temporal
+        onGuardado(resultado);
       }
     } catch (err) {
       const detalle = err.response?.data?.detail;
@@ -354,7 +325,7 @@ function ModalFormulario({ item, onClose, onGuardado }) {
               </label>
               <input
                 type="password"
-                placeholder="Mínimo 8 caracteres"
+                placeholder="Mínimo 15 caracteres"
                 className="w-full px-4 py-2.5 rounded-lg border border-neutral-gray/30 bg-neutral-light
                   text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
                 {...register("password")}
@@ -475,7 +446,7 @@ export default function UsuariosPage() {
 
   const onGuardadoCrear = (resultado) => {
     setModalForm({ open: false, item: null });
-    setModalPassword(resultado); // muestra la contraseña temporal
+    setModalPassword(resultado); // confirma que se envió el enlace de activación
     cargar();
   };
 
@@ -606,7 +577,7 @@ export default function UsuariosPage() {
         />
       )}
       {modalPassword && (
-        <ModalPasswordTemporal
+        <ModalUsuarioCreado
           usuario={modalPassword}
           onClose={() => setModalPassword(null)}
         />

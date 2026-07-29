@@ -1,15 +1,20 @@
 """Utilidades genéricas reutilizables: contraseñas, motivo de baja y normalización de texto."""
 import secrets
-import string
 import unicodedata
 
 _MOTIVO_BAJA_SEP = ", "
 
 
-def _generar_password_temporal(longitud: int = 12) -> str:
-    """Genera una contraseña aleatoria alfanumérica para el primer acceso."""
-    alfabeto = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alfabeto) for _ in range(longitud))
+def _generar_password_placeholder() -> str:
+    """
+    Genera una contraseña aleatoria que nadie llega a conocer: se usa para
+    poblar `hashed_password` (NOT NULL) al crear una cuenta que todavía no
+    tiene contraseña propia. El login solo es posible tras activar la
+    cuenta con el enlace de un solo uso (app.services.activacion, SAST-14) —
+    a diferencia de la password temporal anterior, esta nunca se envía por
+    correo ni se devuelve en ninguna respuesta.
+    """
+    return secrets.token_urlsafe(32)
 
 
 def _serializar_motivo_baja(motivos: list[str]) -> str:

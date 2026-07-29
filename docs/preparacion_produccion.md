@@ -32,7 +32,7 @@ DATABASE_SSL_ROOT_CERT=/ruta/segura/ca.crt
 DATABASE_CONNECT_TIMEOUT=10
 ```
 
-Valores comunes de `DATABASE_SSL_MODE`: `prefer`, `require`, `verify-ca`, `verify-full`. Si infraestructura requiere certificado CA, debe montarlo fuera del repositorio y apuntar `DATABASE_SSL_ROOT_CERT` a esa ruta.
+Valores de `DATABASE_SSL_MODE`: `verify-full` (ideal, requiere `DATABASE_SSL_ROOT_CERT` con la CA del proveedor) o `require` como minimo en produccion — fuerza TLS aunque no verifique certificado/hostname. **Nunca usar `prefer` en produccion**: permite continuar sin cifrar si el servidor no ofrece TLS o ante un downgrade activo en la red (SAST-09). `tools/validate_production_config.py` rechaza `prefer`/`disable`. Si infraestructura requiere certificado CA, debe montarlo fuera del repositorio y apuntar `DATABASE_SSL_ROOT_CERT` a esa ruta.
 
 Si el usuario o contrasena de PostgreSQL contiene caracteres especiales como `/`, `?`, `#`, `@`, `%`, espacios o comas, usa variables separadas o codifica esos caracteres antes de formar `DATABASE_URL`.
 
@@ -57,7 +57,7 @@ VITE_API_BASE_URL=https://api.dominio.gob.mx
 ## Variables opcionales
 
 ```env
-DATABASE_SSL_MODE=prefer
+DATABASE_SSL_MODE=require
 DATABASE_SSL_ROOT_CERT=
 DATABASE_CONNECT_TIMEOUT=10
 DB_POOL_SIZE=10

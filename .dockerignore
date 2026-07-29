@@ -19,3 +19,21 @@ frontend/.vite
 .DS_Store
 Thumbs.db
 *.log
+
+# El backend (Python) no necesita nada de esto en tiempo de ejecucion. Se
+# excluye explicitamente (SAST-16) porque puede contener PII/PHI o datos que
+# nunca deben quedar horneados en una capa de imagen: backups de BD, notebooks
+# de analisis, catalogos Excel de carga y documentacion interna.
+frontend
+tests
+docs
+contexto
+backups
+*.docx
+*.doc
+*.sql
+*.ipynb
+scripts/data
+.claude
+.github
+*.md

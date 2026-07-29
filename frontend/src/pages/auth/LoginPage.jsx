@@ -220,7 +220,7 @@ export default function LoginPage() {
               <form onSubmit={handleSubmitSolicitar(onSubmitSolicitar)} className="space-y-4">
 
                 <p className="text-xs text-gray-500 -mt-2 mb-2">
-                  Si tu correo institucional está autorizado, recibirás tus credenciales de acceso por correo.
+                  Si tu correo institucional está autorizado, recibirás un enlace de activación por correo.
                 </p>
 
                 {/* Email */}

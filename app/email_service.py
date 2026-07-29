@@ -14,6 +14,7 @@ creada igual — el SUPER_ADMIN puede comunicar el password por otro medio.
 import logging
 import os
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,17 @@ def enviar_correo(destinatario: str, asunto: str, contenido: str) -> bool:
         server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30)
         try:
             server.ehlo()
-            server.starttls()
+            if not server.has_extn("STARTTLS"):
+                logger.error(
+                    "enviar_correo: el servidor %s no anuncia STARTTLS — "
+                    "se aborta para no enviar credenciales sin cifrar.", SMTP_HOST,
+                )
+                return False
+            # ssl.create_default_context() verifica cadena de certificado y
+            # hostname. server.starttls(context=None) (default anterior) usa
+            # ssl._create_stdlib_context, que NO valida nada.
+            tls_context = ssl.create_default_context()
+            server.starttls(context=tls_context)
             server.ehlo()
             if SMTP_USER and SMTP_PASSWORD:
                 server.login(SMTP_USER, SMTP_PASSWORD)
@@ -66,14 +77,16 @@ def enviar_correo(destinatario: str, asunto: str, contenido: str) -> bool:
         return False
 
 
-def enviar_correo_acceso(destinatario: str, password_temporal: str) -> bool:
+def enviar_correo_activacion(destinatario: str, token: str) -> bool:
     """
-    Correo de acceso al Censo de Pacientes — Medicamentos de Alto Costo.
-    Incluye el password temporal (el "token" de acceso) y el enlace de login.
-    Se usa tanto para el autoservicio (correo preautorizado) como para el alta
-    manual desde "Nuevo usuario".
+    Correo de activación de cuenta del Censo de Pacientes — Medicamentos de
+    Alto Costo. Envía un enlace de un solo uso (SAST-14) en vez de una
+    contraseña temporal reutilizable: la persona elige su propia contraseña
+    al activar. Se usa tanto para el autoservicio (correo preautorizado)
+    como para el alta manual desde "Nuevo usuario".
     """
-    asunto = "Acceso al Censo de Pacientes — Medicamentos de Alto Costo"
+    asunto = "Activa tu acceso al Censo de Pacientes — Medicamentos de Alto Costo"
+    enlace = f"{APP_BASE_URL}/activar?token={token}"
 
     contenido = f"""
 Hola,
@@ -81,14 +94,13 @@ Hola,
 Se ha generado un acceso para ti en el Censo de Pacientes — Medicamentos de
 Alto Costo, IMSS-BIENESTAR.
 
-Correo:               {destinatario}
-Contraseña temporal:  {password_temporal}
+Correo: {destinatario}
 
-Ingresa aquí:
-{APP_BASE_URL}
+Activa tu cuenta y crea tu contraseña aquí (enlace válido por 48 horas, de
+un solo uso):
+{enlace}
 
-Por seguridad, al iniciar sesión deberás capturar tu nombre de usuario y
-crear una contraseña nueva.
+Si no solicitaste este acceso, ignora este correo.
 
 Este correo fue generado automáticamente. No respondas a este mensaje.
 """

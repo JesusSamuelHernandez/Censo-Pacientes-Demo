@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from app.audit import Accion, registrar_evento
 from app.auth import (
     UsuarioActivo,
     apply_rbac_filter,
@@ -75,6 +76,12 @@ def reporte_resumen_detallado(
         .offset((pagina - 1) * por_pagina)
         .limit(por_pagina)
         .all()
+    )
+
+    registrar_evento(
+        db, accion=Accion.EXPORTACION, id_usuario=current_user.id_usuario,
+        objeto_tipo="resumen_detallado", objeto_id=None,
+        detalle=f"{len(registros)} de {total_registros} registros, pagina {pagina}",
     )
 
     return {

@@ -3,6 +3,7 @@
  *
  * Estructura de rutas:
  *   /login                   → Pública
+ *   /activar                 → Pública (enlace de un solo uso del correo, SAST-14)
  *   /cambiar-password        → Protegida (requiere token)
  *   /no-autorizado           → Pública
  *   /*                       → Protegidas dentro de AppLayout (Sidebar + Topbar)
@@ -14,6 +15,7 @@ import ProtectedRoute from "./components/layout/ProtectedRoute";
 import AppLayout from "./components/layout/AppLayout";
 
 import LoginPage from "./pages/auth/LoginPage";
+import ActivarCuentaPage from "./pages/auth/ActivarCuentaPage";
 import CambiarPasswordPage from "./pages/auth/CambiarPasswordPage";
 import PacientesPage from "./pages/pacientes/PacientesPage";
 import PacienteFormPage from "./pages/pacientes/PacienteFormPage";
@@ -42,6 +44,7 @@ export default function App() {
       <Routes>
         {/* ── Rutas públicas ──────────────────────────────────── */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/activar" element={<ActivarCuentaPage />} />
         <Route path="/no-autorizado" element={
           <div className="min-h-screen flex items-center justify-center bg-neutral-light">
             <div className="text-center">
